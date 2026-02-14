@@ -1,0 +1,20 @@
+import { serve } from '@hono/node-server'
+import { Hono } from 'hono'
+import { db } from './db/index.js'
+import { users } from './db/schema.js'
+
+const app = new Hono().basePath('/api')
+
+const routes = app.get('/users', async (c) => {
+  const allUsers = await db.select().from(users)
+  return c.json(allUsers)
+})
+
+export type AppType = typeof routes
+
+serve({
+  fetch: app.fetch,
+  port: 3000
+}, (info) => {
+  console.log(`Server is running on http://localhost:${info.port}`)
+})
