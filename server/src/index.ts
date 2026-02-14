@@ -1,9 +1,12 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
+import { cors } from 'hono/cors'
 import { db } from './db/index.js'
 import { users } from './db/schema.js'
 
 const app = new Hono().basePath('/api')
+
+app.use('*', cors())
 
 const routes = app.get('/users', async (c) => {
   const allUsers = await db.select().from(users)
