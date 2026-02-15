@@ -17,7 +17,8 @@ export type AppType = typeof routes
 
 serve({
   fetch: app.fetch,
-  port: 3000
+  port: 3000,
+  hostname: '0.0.0.0' // Add for Docker
 }, (info) => {
   console.log(`Server is running on http://localhost:${info.port}`)
 })

@@ -1,0 +1,29 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+      "env": {
+        "ALLOWED_DIRECTORIES": ["/workspace"]
+
+      }
+    },
+    "postgres": {
+      "command": "npx",
+      "args": [
+        "-y", 
+        "@modelcontextprotocol/server-postgres", 
+        "postgresql://user:pass@db:5432/myapp"
+      ]
+    },
+    "shell": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-shell"],
+
+      "env": {
+        "SHELL_ALLOW_LIST": ["npm", "npx", "git"]
+      }
+    }
+  }
+}

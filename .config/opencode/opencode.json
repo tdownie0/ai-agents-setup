@@ -1,0 +1,18 @@
+{
+  "mcp": {
+    "docker_gateway": {
+      "type": "local",
+      "command": [
+        "docker",
+        "exec",
+        "-i",
+        "model_md-mcp-gateway-1",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "postgres://user:pass@db:5432/model_md"
+      ],
+      "enabled": true
+    }
+  }
+}
