@@ -1,17 +1,36 @@
 {
+  "model": "google/gemini-1.5-flash",
+  "small_model": "google/gemini-2.5-flash-lite",
+  "orchestrator": {
+    "state_store": "redis://redis:6379",
+    "parallel_limit": 5,
+    "agent_map": {
+      "default": "google/gemini-2.5-flash-lite",
+      "planning": "google/gemini-1.5-flash",
+      "reviewer": "google/gemini-2.5-flash-lite"
+    }
+  },
   "mcp": {
     "docker_gateway": {
       "type": "local",
       "command": [
-        "docker",
-        "exec",
-        "-i",
-        "model_md-mcp-gateway-1",
-        "npx",
-        "-y",
-        "@modelcontextprotocol/server-postgres",
+        "docker", "exec", "-i", "model_md-mcp-gateway-1",
+        "npx", "-y", "@modelcontextprotocol/server-postgres",
         "postgres://user:pass@db:5432/model_md"
       ],
+      "enabled": true
+    },
+    "filesystem": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "."],
+      "enabled": true
+    },
+    "shell": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-shell"],
+      "environment": {
+        "SHELL_ALLOW_LIST": ["npm", "npx", "git", "docker"]
+      },
       "enabled": true
     }
   }
