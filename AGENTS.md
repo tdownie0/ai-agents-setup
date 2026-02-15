@@ -22,3 +22,12 @@
 - **Database Migrations**: `docker compose exec -w /app/server app npx drizzle-kit push`
 - **Database Seeding**: `docker compose exec -w /app/server app npm run seed`
 - **Internal DB URL**: `postgres://user:pass@db:5432/model_md`
+
+## 🌳 Git & Orchestration Strategy
+- **Branching**: For every sub-task, create a new branch named `feat/task-description`.
+- **Commits**: Use Atomic commits. One commit per logic change.
+- **PRs**: Once a sub-task is complete, push the branch and open a PR via `gh pr create`.
+- **Worktrees**: If operating in a separate worktree, ensure you run `npm install` if new dependencies were added in the main branch.
+
+## 💾 State & Memory
+- **Redis**: The orchestrator uses Redis for shared memory. If you are a "Worker" agent, check the `TODO.md` in the project root to see what the "Planning" agent has assigned to you.

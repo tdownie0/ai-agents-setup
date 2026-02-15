@@ -1,14 +1,28 @@
 {
-  "model": "google/gemini-1.5-flash",
-  "small_model": "google/gemini-2.5-flash-lite",
+  "$schema": "https://opencode.ai/config.json",
+  "model": "google/gemini-2.5-flash",
+  "small_model": "google/gemini-1.5-flash-8b",
+  "agent": {
+    "plan": {
+      "mode": "primary",
+      "model": "google/gemini-1.5-flash-8b",
+      "description": "Handles complex architecture and task breakdown",
+      "tools": { "write": false, "bash": true }
+    },
+    "build": {
+      "mode": "primary",
+      "model": "google/gemini-2.5-flash",
+      "fallbacks": ["google/gemini-2.0-flash", "google/gemini-1.5-flash-8b"]
+    },
+    "worker": {
+      "mode": "subagent",
+      "model": "google/gemini-1.5-flash-8b",
+      "description": "Executes small file-writing tasks in parallel"
+    }
+  },
   "orchestrator": {
     "state_store": "redis://redis:6379",
-    "parallel_limit": 5,
-    "agent_map": {
-      "default": "google/gemini-2.5-flash-lite",
-      "planning": "google/gemini-1.5-flash",
-      "reviewer": "google/gemini-2.5-flash-lite"
-    }
+    "parallel_limit": 3
   },
   "mcp": {
     "docker_gateway": {
