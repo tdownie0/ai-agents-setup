@@ -1,35 +1,21 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "plugin": ["opencode-orchestrator"],
   "model": "google/gemini-2.5-flash",
   "small_model": "google/gemini-2.0-flash-lite",
-  "fallbacks": [
-    "google/gemini-2.0-flash", 
-    "google/gemini-2.0-flash-lite",
-    "kimi/k2.5-free"
-  ],
-  "agent": {
-    "retry_strategy": "exponential_backoff",
-    "max_retries": 3,
-    "cooldown_period": "30s",
+  "mode": {
     "plan": {
-      "mode": "primary",
       "model": "google/gemini-2.0-flash-lite",
       "description": "Architect: Lightweight and rarely rate-limited."
+
     },
     "build": {
-      "mode": "primary",
-      "model": "google/gemini-2.5-flash",
-      "fallbacks": ["google/gemini-2.0-flash", "google/gemini-2.0-flash-lite"]
+      "model": "google/gemini-2.5-flash"
     },
     "worker": {
-      "mode": "subagent",
       "model": "google/gemini-2.0-flash-lite",
       "description": "Sub-agent: High throughput for file writing."
     }
-  },
-  "orchestrator": {
-    "state_store": "redis://redis:6379",
-    "parallel_limit": 2
   },
   "mcp": {
     "docker_gateway": {
@@ -43,16 +29,16 @@
     },
     "filesystem": {
       "type": "local",
-      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "."],
+      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/app"],
       "enabled": true
     },
     "shell": {
       "type": "local",
       "command": ["npx", "-y", "@modelcontextprotocol/server-shell"],
+      "enabled": true,
       "environment": {
-        "SHELL_ALLOW_LIST": ["npm", "npx", "git", "docker"]
-      },
-      "enabled": true
+        "SHELL_ALLOW_LIST": "npm,npx,git,docker"
+      }
     }
   }
 }

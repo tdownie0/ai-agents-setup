@@ -24,6 +24,28 @@ services:
       - db
       - cache
 
+  opencode:
+    image: ghcr.io/anomalyco/opencode:latest
+    profiles: ["agent"]
+    container_name: opencode_agent
+    stdin_open: true
+    tty: true
+    working_dir: /app
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://cache:6379
+      - GOOGLE_GENERATIVE_AI_API_KEY=${GEMINI_API_KEY}
+      - GOOGLE_API_KEY=${GEMINI_API_KEY}
+    volumes:
+      - .:/app
+      - ~/.config/opencode:/home/opencode/.config/opencode
+      - ~/.local/share/opencode:/home/opencode/.local/share/opencode
+    networks:
+      - dev-network
+    depends_on:
+      - db
+      - cache
+
   mcp-gateway:
     image: docker/mcp-gateway:latest
     stdin_open: true
