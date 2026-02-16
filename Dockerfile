@@ -1,20 +1,35 @@
-# Use the latest Active LTS
-FROM node:24-alpine
+# --- STAGE 1: Base Dependencies ---
+FROM node:24-alpine AS base
 WORKDIR /app
-
-# 1. Copy workspace manifests first to leverage Docker cache
+# Copy manifests to install deps
 COPY package*.json ./
 COPY server/package*.json ./server/
 COPY client/package*.json ./client/
-
-# 2. Install dependencies for the whole workspace
-# We use 'npm install' instead of 'npm ci' in dev to allow 
-# the agent to add new packages if needed.
+# Install all dependencies (Workspace aware)
 
 RUN npm install
 
-
-# 3. Copy the rest of the source code
+# --- STAGE 2: Development (Your current workflow) ---
+FROM base AS development
+WORKDIR /app
+# Copy the rest of the source code
 COPY . .
+# The agent can now run 'npm install' inside this stage 
+# and it won't affect the 'base' layer.
+CMD ["npm", "run", "dev"]
 
-# No CMD here because 'docker-compose' overrides it with 'npm run dev'
+# --- STAGE 3: Builder (For Production) ---
+FROM base AS builder
+WORKDIR /app
+COPY . .
+RUN npm run build
+
+# --- STAGE 4: Production Runner ---
+FROM node:24-alpine AS production
+WORKDIR /app
+
+COPY --from=builder /app/server/dist ./server/dist
+COPY --from=builder /app/client/dist ./client/dist
+COPY --from=builder /app/node_modules ./node_modules
+# Run only the production server
+CMD ["node", "server/dist/index.js"]
