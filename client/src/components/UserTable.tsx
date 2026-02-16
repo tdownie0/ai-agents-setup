@@ -1,8 +1,8 @@
 import * as React from 'react'
 import { useEffect, useState } from 'react'
 import { hc } from 'hono/client'
-import type { AppType } from '../../../server/src/index'
-import type { User } from '../types/user'
+import type { AppType } from '@server/index'
+import type { User } from '@server/db/schema'
 import {
   type ColumnDef,
   flexRender,
