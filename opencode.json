@@ -18,27 +18,10 @@
     }
   },
   "mcp": {
-    "docker_gateway": {
-      "type": "local",
-      "command": [
-        "docker", "exec", "-i", "model_md-mcp-gateway-1",
-        "npx", "-y", "@modelcontextprotocol/server-postgres",
-        "postgres://user:pass@db:5432/model_md"
-      ],
+    "MCP_DOCKER": {
+      "type": "remote",
+      "url": "http://mcp-gateway:8811/sse",
       "enabled": true
-    },
-    "filesystem": {
-      "type": "local",
-      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/app"],
-      "enabled": true
-    },
-    "shell": {
-      "type": "local",
-      "command": ["npx", "-y", "@modelcontextprotocol/server-shell"],
-      "enabled": true,
-      "environment": {
-        "SHELL_ALLOW_LIST": "npm,npx,git,docker"
-      }
     }
   }
 }

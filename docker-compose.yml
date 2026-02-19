@@ -1,28 +1,37 @@
 services:
   app:
-    build: 
+    build:
       context: .
       target: development
     command: sh -c "npm install && npm run dev"
     environment:
       - PORT=3000
-      - HOST=0.0.0.0      # Crucial: Allows external access to Hono
-      - VITE_HOST=0.0.0.0 # Crucial: Allows external access to Vite
+      - HOST=0.0.0.0
+      - VITE_HOST=0.0.0.0
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://cache:6379
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - WATCHPACK_POLLING=true # Helps Vite see changes inside Docker
+      - WATCHPACK_POLLING=true
     volumes:
       - .:/app
       - /app/node_modules
     ports:
-      - "3000:3000" # Hono
-      - "5173:5173" # React
+      - "3000:3000"
+      - "5173:5173"
     networks:
       - dev-network
     depends_on:
       - db
       - cache
+
+  mcp-gateway:
+    image: docker/mcp-gateway:latest
+    use_api_socket: true
+    command:
+      - --transport=sse
+      - --port=8811
+    networks:
+      - dev-network
 
   opencode:
     image: ghcr.io/anomalyco/opencode:latest
@@ -34,32 +43,19 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://cache:6379
-      - GOOGLE_GENERATIVE_AI_API_KEY=${GEMINI_API_KEY}
       - GOOGLE_API_KEY=${GEMINI_API_KEY}
+      - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/sse
     volumes:
       - .:/app
       - ~/.config/opencode:/home/opencode/.config/opencode
       - ~/.local/share/opencode:/home/opencode/.local/share/opencode
     networks:
       - dev-network
+
     depends_on:
+      - mcp-gateway 
       - db
       - cache
-
-  mcp-gateway:
-    image: docker/mcp-gateway:latest
-    stdin_open: true
-    tty: true
-    restart: always
-    environment:
-      - MCP_CONFIG_PATH=/config/mcp-servers.json
-      - REDIS_URL=redis://cache:6379 # agent memory
-    volumes:
-      - .:/workspace:rw
-      - ./config/mcp:/config:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - dev-network
 
   cache:
     image: redis:alpine
@@ -76,7 +72,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5432:5432" # Accessible for Drizzle Kit
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
