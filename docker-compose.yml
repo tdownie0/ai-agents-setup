@@ -27,9 +27,12 @@ services:
   mcp-gateway:
     image: docker/mcp-gateway:latest
     use_api_socket: true
+    volumes:
+      - ${LOCAL_MCP_REGISTRY}:/root/.docker/mcp
     command:
       - --transport=sse
       - --port=8811
+      - --registry=/root/.docker/mcp/registry.yaml
     networks:
       - dev-network
 
@@ -51,7 +54,6 @@ services:
       - ~/.local/share/opencode:/home/opencode/.local/share/opencode
     networks:
       - dev-network
-
     depends_on:
       - mcp-gateway 
       - db
