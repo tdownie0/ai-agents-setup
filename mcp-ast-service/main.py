@@ -130,6 +130,39 @@ def find_symbol(symbol_name: str) -> str:
             
     return "\n".join(matches) if matches else f"Symbol '{symbol_name}' not found in cache."
 
+@mcp.tool()
+def get_dependents(file_path: str) -> str:
+    """Finds all files that import the given file_path."""
+    # 1. Normalize path to ensure it matches the keys in Redis
+    full_path = os.path.normpath(os.path.join(PROJECT_ROOT, file_path))
+    target_name = os.path.basename(full_path).split('.')[0] # e.g., 'schema'
+    
+    r_client = get_redis_client()
+    
+    # 2. Fetch the keys (Crucial step!)
+    try:
+        keys = r_client.keys("ast:*")
+    except Exception as e:
+        return f"Redis error: {str(e)}"
+
+    dependents = []
+    
+    # 3. Search and filter
+    for key in keys:
+        # Don't check the file against itself
+        if key == f"ast:{full_path}":
+            continue
+            
+        content = r_client.get(key)
+        # Search for the target name within the extracted [Import] lines
+        if content and f"[Import]" in content and target_name in content:
+            dependents.append(key.replace("ast:", ""))
+            
+    if not dependents:
+        return f"No direct dependents found for {file_path} in cache."
+        
+    return "The following files import this module:\n" + "\n".join(dependents)
+
 if __name__ == "__main__":
     # Check for stdio transport
     # The Gateway communicates via stdin/stdout, so we check for the flag or 
