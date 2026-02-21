@@ -4,6 +4,7 @@ import redis
 import sys
 from mcp.server.fastmcp import FastMCP
 from parsers import parse_code
+from concurrent.futures import ThreadPoolExecutor
 
 PROJECT_ROOT = os.getenv("PROJECT_ROOT", "/app")
 # 1. Initialize FastMCP immediately - this makes the protocol handler ready
@@ -93,17 +94,17 @@ def get_repo_map(path: str = ".") -> str:
         return process_file(target, r_client)
 
     if os.path.isdir(target):
-        results = []
+        all_files = []
         for root, dirs, files in os.walk(target):
             dirs[:] = [d for d in dirs if d not in IGNORE_DIRS and not d.startswith('.')]
-            
             for file in files:
-
-                _, ext = os.path.splitext(file)
-                if ext.lower() in SUPPORTED_EXTENSIONS:
-                    full_path = os.path.join(root, file)
-                    results.append(process_file(full_path, r_client))
+                if os.path.splitext(file)[1].lower() in SUPPORTED_EXTENSIONS:
+                    all_files.append(os.path.join(root, file))
         
+        # Parse files in parallel
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            results = list(executor.map(lambda f: process_file(f, r_client), all_files))
+
         if not results:
             return f"No supported source files found in {path}"
 
@@ -111,6 +112,23 @@ def get_repo_map(path: str = ".") -> str:
         return "\n\n".join(results)
 
     return "Unsupported path type."
+
+@mcp.tool()
+def find_symbol(symbol_name: str) -> str:
+    """Search the Redis cache for any file containing a specific class or function."""
+    r_client = get_redis_client()
+    # Find all keys starting with ast:
+    keys = r_client.keys("ast:*")
+    matches = []
+    
+    for key in keys:
+        summary = r_client.get(key)
+        if symbol_name in summary:
+            # key is 'ast:/app/server/src/index.ts'
+            file_path = key.replace("ast:", "")
+            matches.append(f"Found in: {file_path}")
+            
+    return "\n".join(matches) if matches else f"Symbol '{symbol_name}' not found in cache."
 
 if __name__ == "__main__":
     # Check for stdio transport
