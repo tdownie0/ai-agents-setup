@@ -3,5 +3,7 @@ node_modules/
 .opencode/*
 dist/
 .DS_Store
+**/__pycache__/
+*.pyc
 
 !.opencode/opencode.example.json
