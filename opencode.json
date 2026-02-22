@@ -1,19 +1,19 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": ["opencode-orchestrator"],
-  "model": "google/gemini-2.5-flash",
-  "small_model": "google/gemini-2.0-flash-lite",
+  "model": "opencode/big-pickle",
+  "small_model": "opencode/big-pickle",
   "mode": {
     "plan": {
-      "model": "google/gemini-2.0-flash-lite",
-      "description": "Architect: Lightweight and rarely rate-limited."
+      "model": "opencode/big-pickle",
+      "description": "Architect: Uses big-pickle for complex path logic."
     },
     "build": {
-      "model": "google/gemini-2.5-flash"
+      "model": "opencode/big-pickle"
     },
     "worker": {
-      "model": "google/gemini-2.0-flash-lite",
-      "description": "Sub-agent: High throughput for file writing."
+      "model": "opencode/big-pickle",
+      "description": "Sub-agent: Uses Big Pickle for high-volume file writing."
     }
   },
   "mcp": {
