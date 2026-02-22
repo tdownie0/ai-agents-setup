@@ -1,0 +1,27 @@
+FROM ghcr.io/anomalyco/opencode:latest
+
+USER root
+# 1. Install necessary tools
+RUN apk add --no-cache git
+
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+
+# 2. Create user/group and ensure home directory ownership
+RUN addgroup -g $GROUP_ID devgroup || true && \
+    adduser -D -u $USER_ID -G devgroup devuser || true
+
+# 3. Setup internal state dirs and fix ownership of the workspace root
+RUN mkdir -p /home/devuser/.local/share /home/devuser/.config /home/devuser/.local/state /app && \
+    chown -R devuser:devgroup /home/devuser /app
+
+# 4. Create the symlink (even if the source is missing during build, it will resolve at runtime)
+RUN ln -sf /app/model_md/opencode.json /app/opencode.json
+
+USER devuser
+WORKDIR /app
+
+# 5. Pre-configure Git for the devuser
+RUN git config --global user.email "agent@model-md.local" && \
+    git config --global user.name "AI Agent" && \
+    git config --global --add safe.directory '*'

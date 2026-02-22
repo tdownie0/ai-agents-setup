@@ -22,6 +22,11 @@
 - **DB/Drizzle**: See `.agents/db-tasks.md`
 - **Hono/RPC**: See `.agents/api-tasks.md`
 
+## 🌀 Concurrency & Isolation
+- **Protocol**: Use the `worktree_orchestration` skill for all feature work.
+- **Strict Rule**: Never modify the `main` directory directly for parallel tasks.
+- **Workflow**: Initialize worktree -> Symlink node_modules -> Re-anchor AST -> Cleanup on merge.
+
 ## 🚀 Common Commands
 - **Migrations**: `docker compose exec -w /app/server app npx drizzle-kit push`
 - **Seeding**: `docker compose exec -w /app/server app npm run seed`

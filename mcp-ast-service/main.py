@@ -6,7 +6,8 @@ from mcp.server.fastmcp import FastMCP
 from parsers import parse_code
 from concurrent.futures import ThreadPoolExecutor
 
-PROJECT_ROOT = os.getenv("PROJECT_ROOT", "/app")
+WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", "/app")
+DEFAULT_PROJECT = os.getenv("DEFAULT_PROJECT", "model_md")
 # 1. Initialize FastMCP immediately - this makes the protocol handler ready
 mcp = FastMCP("AST-Explorer")
 
@@ -41,9 +42,11 @@ def process_file(file_path, r_client):
         return f"Error reading {file_path}: {str(e)}"
 
 
+    rel_path = os.path.relpath(file_path, WORKSPACE_ROOT)
+
     file_hash = hashlib.md5(content.encode()).hexdigest()
-    ast_key = f"ast:{file_path}"
-    hash_key = f"hash:{file_path}"
+    ast_key = f"ast:{rel_path}"
+    hash_key = f"hash:{rel_path}"
 
     # Try to use cache, but fail gracefully if Redis is down
     cached_ast = None
@@ -75,15 +78,16 @@ def process_file(file_path, r_client):
         return f"Error parsing {file_path}: {str(e)}"
 
 @mcp.tool()
-def get_repo_map(path: str = ".") -> str:
+def get_repo_map(path: str = None) -> str:
     """
     Generates a high-level map...
     """
-    target = os.path.normpath(os.path.join(PROJECT_ROOT, path))
+    target_slug = path if path else DEFAULT_PROJECT
+    target = os.path.normpath(os.path.join(WORKSPACE_ROOT, target_slug))
     
     # Security check
-    if not target.startswith(PROJECT_ROOT):
-        target = PROJECT_ROOT
+    if not target.startswith(os.path.abspath(WORKSPACE_ROOT)):
+        return f"Access Denied: Path {target} is outside of the workspace sandbox."
 
     r_client = get_redis_client()
 
@@ -100,68 +104,51 @@ def get_repo_map(path: str = ".") -> str:
             for file in files:
                 if os.path.splitext(file)[1].lower() in SUPPORTED_EXTENSIONS:
                     all_files.append(os.path.join(root, file))
+
+        if not all_files:
+            return f"No supported source files found in {target}"
         
         # Parse files in parallel
         with ThreadPoolExecutor(max_workers=10) as executor:
             results = list(executor.map(lambda f: process_file(f, r_client), all_files))
-
-        if not results:
-            return f"No supported source files found in {path}"
-
 
         return "\n\n".join(results)
 
     return "Unsupported path type."
 
 @mcp.tool()
-def find_symbol(symbol_name: str) -> str:
-    """Search the Redis cache for any file containing a specific class or function."""
+def find_symbol(symbol_name: str, project_filter: str = None) -> str:
+    """Search for a symbol, optionally restricted to a specific worktree/project."""
     r_client = get_redis_client()
-    # Find all keys starting with ast:
-    keys = r_client.keys("ast:*")
-    matches = []
+    # If a filter is provided (e.g., 'model_md-worktree-auth'), only search that prefix
+    prefix = f"ast:{project_filter}" if project_filter else "ast:"
+    keys = r_client.keys(f"{prefix}*")
     
+    matches = []
     for key in keys:
         summary = r_client.get(key)
         if symbol_name in summary:
-            # key is 'ast:/app/server/src/index.ts'
-            file_path = key.replace("ast:", "")
-            matches.append(f"Found in: {file_path}")
+            matches.append(f"Found in: {key.replace('ast:', '')}")
             
-    return "\n".join(matches) if matches else f"Symbol '{symbol_name}' not found in cache."
+    return "\n".join(matches) if matches else f"Symbol '{symbol_name}' not found."
 
 @mcp.tool()
-def get_dependents(file_path: str) -> str:
+def get_dependents(file_path: str, project_path: str = None) -> str:
     """Finds all files that import the given file_path."""
-    # 1. Normalize path to ensure it matches the keys in Redis
-    full_path = os.path.normpath(os.path.join(PROJECT_ROOT, file_path))
-    target_name = os.path.basename(full_path).split('.')[0] # e.g., 'schema'
+    target_project = project_path if project_path else DEFAULT_PROJECT
+    target_name = os.path.basename(file_path).split('.')[0]
     
     r_client = get_redis_client()
-    
-    # 2. Fetch the keys (Crucial step!)
-    try:
-        keys = r_client.keys("ast:*")
-    except Exception as e:
-        return f"Redis error: {str(e)}"
+    # ONLY look at keys belonging to the current project/worktree
+    keys = r_client.keys(f"ast:{target_project}/*")
 
     dependents = []
-    
-    # 3. Search and filter
     for key in keys:
-        # Don't check the file against itself
-        if key == f"ast:{full_path}":
-            continue
-            
         content = r_client.get(key)
-        # Search for the target name within the extracted [Import] lines
-        if content and f"[Import]" in content and target_name in content:
+        if content and "[Import]" in content and target_name in content:
             dependents.append(key.replace("ast:", ""))
             
-    if not dependents:
-        return f"No direct dependents found for {file_path} in cache."
-        
-    return "The following files import this module:\n" + "\n".join(dependents)
+    return "\n".join(dependents) if dependents else "No dependents found."
 
 if __name__ == "__main__":
     # Check for stdio transport

@@ -7,7 +7,6 @@
     "plan": {
       "model": "google/gemini-2.0-flash-lite",
       "description": "Architect: Lightweight and rarely rate-limited."
-
     },
     "build": {
       "model": "google/gemini-2.5-flash"
