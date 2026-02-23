@@ -48,7 +48,7 @@ services:
     container_name: opencode_agent
     stdin_open: true
     tty: true
-    working_dir: /app
+    working_dir: /app/model_md
     environment:
       - OPENCODE_CONFIG=/app/model_md/opencode.json
       - DATABASE_URL=${DATABASE_URL}
