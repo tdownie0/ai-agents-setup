@@ -10,7 +10,10 @@
   "scripts": {
     "dev:server": "npm run dev -w server",
     "dev:client": "npm run dev -w client",
-    "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\""
+    "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
+    "db:push": "npm run db:push -w server",
+    "db:seed": "npm run seed -w server",
+    "db:seed:clear": "npm run seed -w server -- --clear"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
