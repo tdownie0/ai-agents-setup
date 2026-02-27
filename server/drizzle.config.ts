@@ -2,14 +2,16 @@ import { defineConfig } from "drizzle-kit";
 import { config } from "dotenv";
 import { resolve } from "path";
 
-// Load env from root
 config({ path: resolve(process.cwd(), "..", ".env") });
 
+const connectionString = process.env.DATABASE_URL || "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+
+
 export default defineConfig({
-	out: "./drizzle",
-	schema: "./src/db/schema.ts",
-	dialect: "postgresql",
-	dbCredentials: {
-		url: process.env.DATABASE_URL || "",
-	},
+  schema: "./src/db/schema.ts",
+  out: "./supabase/migrations",
+  dialect: "postgresql",
+  dbCredentials: {
+    url: connectionString,
+  },
 });

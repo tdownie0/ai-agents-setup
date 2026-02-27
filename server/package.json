@@ -14,12 +14,11 @@
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.11.9",
-    "pg": "^8.18.0"
+    "postgres": "^3.4.8"
   },
   "devDependencies": {
     "@faker-js/faker": "^9.6.0",
     "@types/node": "^20.11.17",
-    "@types/pg": "^8.16.0",
     "drizzle-kit": "^0.31.9",
     "tsx": "^4.7.1",
     "typescript": "^5.8.3",

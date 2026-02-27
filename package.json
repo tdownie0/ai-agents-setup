@@ -16,6 +16,7 @@
     "db:seed:clear": "npm run seed -w server -- --clear"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "concurrently": "^9.2.1",
+    "supabase": "^2.76.15"
   }
 }
