@@ -1,8 +1,8 @@
-import { pgTable, serial, text, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, boolean, uuid } from "drizzle-orm/pg-core";
 import type { InferSelectModel } from "drizzle-orm";
 
 export const users = pgTable("users", {
-  id: serial("id").primaryKey(),
+  id: uuid("id").primaryKey(),
   fullName: text("full_name").notNull(),
   email: text("email").notNull().unique(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -21,7 +21,9 @@ export type NotificationType = typeof notificationTypes[keyof typeof notificatio
 
 export const notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),
-  userId: serial("user_id").notNull(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
   type: text("type").notNull().$type<NotificationType>(),
   title: text("title").notNull(),
   message: text("message").notNull(),

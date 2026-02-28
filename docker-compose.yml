@@ -9,12 +9,19 @@ services:
       - HOST=0.0.0.0
       - VITE_HOST=0.0.0.0
       - DATABASE_URL=${DATABASE_URL}
+      - TEST_USER_ID=${TEST_USER_ID}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+      - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - REDIS_URL=redis://cache:6379
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - WATCHPACK_POLLING=true
     volumes:
       - .:/app
       - /app/node_modules
+      - /app/client/node_modules
+      - /app/server/node_modules
     ports:
       - "3000:3000"
       - "5173:5173"

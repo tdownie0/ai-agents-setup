@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { useEffect, useState } from 'react'
 import { hc } from 'hono/client'
+import { supabase } from '@/lib/supabase'
 import type { AppType } from '@server/index'
 import type { User } from '@server/db/schema'
 import {
@@ -26,21 +27,6 @@ import { ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react'
 const client = hc<AppType>('http://localhost:3000/')
 
 const columns: ColumnDef<User>[] = [
-  {
-    accessorKey: 'id',
-    header: ({ column }) => {
-      return (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-        >
-          ID
-          <ArrowUpDown className="ml-2 h-4 w-4" />
-        </Button>
-      )
-    },
-    cell: ({ row }) => <div className="font-medium">{row.getValue('id')}</div>,
-  },
   {
     accessorKey: 'fullName',
     header: ({ column }) => {
@@ -114,12 +100,21 @@ export function UserTable({ caption = 'A list of all users in the system.' }: Us
       try {
         setLoading(true)
         setError(null)
+
+	const { data: { session } } = await supabase.auth.getSession()
         
-        const res = await client.api.users.$get()
+        const res = await client.api.users.$get({}, {
+	  headers: {
+	    Authorization: `Bearer ${session?.access_token}`,
+	  },
+	})
         
         if (!res.ok) {
-          throw new Error(`Failed to fetch users: ${res.status} ${res.statusText}`)
-        }
+	  if (res.status === 401) {
+	    throw new Error("You must be logged in to view users.")
+	  }
+	  throw new Error(`Failed to fetch users: ${res.status} ${res.statusText}`)
+	}
         
         const users = await res.json()
         setData(users)
