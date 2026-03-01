@@ -20,7 +20,6 @@ notificationsApp
       .orderBy(desc(notifications.createdAt))
 
     return c.json(data)
-
   })
 
   .post('/', async (c) => {
