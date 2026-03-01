@@ -1,12 +1,14 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { logger } from 'hono/logger'
 import usersHandler from './routes/users.js'
 import notificationsHandler from './routes/notifications.js'
 
 const app = new Hono().basePath('/api')
 
 app.use('*', cors())
+app.use('*', logger())
 
 app.get('/health', (c) => c.json({ status: 'ok', time: new Date().toISOString() }))
 
