@@ -5,18 +5,23 @@
   "type": "module",
   "workspaces": [
     "server",
-    "client"
+    "client",
+    "mcp-database-service",
+    "packages/*"
   ],
   "scripts": {
     "dev:server": "npm run dev -w server",
     "dev:client": "npm run dev -w client",
     "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
-    "db:push": "npm run db:push -w server",
-    "db:seed": "npm run seed -w server",
-    "db:seed:clear": "npm run seed -w server -- --clear"
+    "db:push": "npm run db:push -w @model_md/database",
+    "db:seed": "npm run seed -w @model_md/database",
+    "db:seed:clear": "npm run seed:clear -w @model_md/database",
+    "test:db": "npm run test -w @model_md/database"
   },
   "devDependencies": {
+    "@types/node": "^25.3.3",
     "concurrently": "^9.2.1",
-    "supabase": "^2.76.15"
+    "supabase": "^2.76.15",
+    "typescript": "^5.9.3"
   }
 }

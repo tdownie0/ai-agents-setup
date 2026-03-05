@@ -34,6 +34,8 @@ services:
   mcp-gateway:
     image: docker/mcp-gateway:latest
     use_api_socket: true
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
     volumes:
       - ${LOCAL_MCP_REGISTRY}:/root/.docker/mcp
     command:
@@ -42,6 +44,7 @@ services:
       - --registry=/root/.docker/mcp/registry.yaml
     networks:
       - dev-network
+      - supabase_network
 
   opencode:
     build:
@@ -58,7 +61,6 @@ services:
     working_dir: /app/model_md
     environment:
       - OPENCODE_CONFIG=/app/model_md/opencode.json
-      - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://cache:6379
       - GOOGLE_API_KEY=${GEMINI_API_KEY}
       - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/sse
@@ -68,7 +70,6 @@ services:
       - ~/.local/share/opencode:/home/devuser/.local/share/opencode
     networks:
       - dev-network
-      - supabase_network
     depends_on:
       - mcp-gateway 
 

@@ -1,9 +1,9 @@
-import * as React from 'react'
-import { useEffect, useState } from 'react'
-import { hc } from 'hono/client'
-import { supabase } from '@/lib/supabase'
-import type { AppType } from '@server/index'
-import type { User } from '@server/db/schema'
+import * as React from "react";
+import { useEffect, useState } from "react";
+import { hc } from "hono/client";
+import { supabase } from "@/lib/supabase";
+import type { AppType } from "@server/index";
+import type { User } from "@model_md/database/schema";
 import {
   type ColumnDef,
   flexRender,
@@ -12,7 +12,7 @@ import {
   type SortingState,
   getSortedRowModel,
   getPaginationRowModel,
-} from '@tanstack/react-table'
+} from "@tanstack/react-table";
 import {
   Table,
   TableBody,
@@ -20,114 +20,125 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
-import { Button } from '@/components/ui/button'
-import { ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react'
+} from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react";
 
-const client = hc<AppType>('http://localhost:3000/')
+const client = hc<AppType>("http://localhost:3000/");
 
 const columns: ColumnDef<User>[] = [
   {
-    accessorKey: 'fullName',
+    accessorKey: "fullName",
     header: ({ column }) => {
       return (
         <Button
           variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         >
           Full Name
           <ArrowUpDown className="ml-2 h-4 w-4" />
         </Button>
-      )
+      );
     },
-    cell: ({ row }) => <div>{row.getValue('fullName')}</div>,
+    cell: ({ row }) => <div>{row.getValue("fullName")}</div>,
   },
   {
-    accessorKey: 'email',
+    accessorKey: "email",
     header: ({ column }) => {
       return (
         <Button
           variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         >
           Email
           <ArrowUpDown className="ml-2 h-4 w-4" />
         </Button>
-      )
+      );
     },
-    cell: ({ row }) => <div className="lowercase">{row.getValue('email')}</div>,
+    cell: ({ row }) => <div className="lowercase">{row.getValue("email")}</div>,
   },
   {
-    accessorKey: 'createdAt',
+    accessorKey: "createdAt",
     header: ({ column }) => {
       return (
         <Button
           variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         >
           Created At
           <ArrowUpDown className="ml-2 h-4 w-4" />
         </Button>
-      )
+      );
     },
     cell: ({ row }) => {
-      const date = new Date(row.getValue('createdAt'))
+      const date = new Date(row.getValue("createdAt"));
       return (
         <div className="text-right">
-          {date.toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
+          {date.toLocaleDateString("en-US", {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
           })}
         </div>
-      )
+      );
     },
   },
-]
+];
 
 interface UserTableProps {
-  caption?: string
+  caption?: string;
 }
 
-export function UserTable({ caption = 'A list of all users in the system.' }: UserTableProps) {
-  const [data, setData] = useState<User[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [sorting, setSorting] = React.useState<SortingState>([])
+export function UserTable({
+  caption = "A list of all users in the system.",
+}: UserTableProps) {
+  const [data, setData] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [sorting, setSorting] = React.useState<SortingState>([]);
 
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        setLoading(true)
-        setError(null)
+        setLoading(true);
+        setError(null);
 
-	const { data: { session } } = await supabase.auth.getSession()
-        
-        const res = await client.api.users.$get({}, {
-	  headers: {
-	    Authorization: `Bearer ${session?.access_token}`,
-	  },
-	})
-        
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        const res = await client.api.users.$get(
+          {},
+          {
+            headers: {
+              Authorization: `Bearer ${session?.access_token}`,
+            },
+          },
+        );
+
         if (!res.ok) {
-	  if (res.status === 401) {
-	    throw new Error("You must be logged in to view users.")
-	  }
-	  throw new Error(`Failed to fetch users: ${res.status} ${res.statusText}`)
-	}
-        
-        const users = await res.json()
-        setData(users)
-      } catch (err) {
-        console.error('Failed to fetch users:', err)
-        setError(err instanceof Error ? err.message : 'An unknown error occurred')
-      } finally {
-        setLoading(false)
-      }
-    }
+          if (res.status === 401) {
+            throw new Error("You must be logged in to view users.");
+          }
+          throw new Error(
+            `Failed to fetch users: ${res.status} ${res.statusText}`,
+          );
+        }
 
-    fetchUsers()
-  }, [])
+        const users = await res.json();
+        setData(users);
+      } catch (err) {
+        console.error("Failed to fetch users:", err);
+        setError(
+          err instanceof Error ? err.message : "An unknown error occurred",
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchUsers();
+  }, []);
 
   const table = useReactTable({
     data,
@@ -139,14 +150,14 @@ export function UserTable({ caption = 'A list of all users in the system.' }: Us
     state: {
       sorting,
     },
-  })
+  });
 
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8">
         <div className="text-muted-foreground">Loading users...</div>
       </div>
-    )
+    );
   }
 
   if (error) {
@@ -155,7 +166,7 @@ export function UserTable({ caption = 'A list of all users in the system.' }: Us
         <div className="text-destructive font-medium">Error loading users</div>
         <div className="text-destructive/80 text-sm mt-1">{error}</div>
       </div>
-    )
+    );
   }
 
   if (data.length === 0) {
@@ -163,7 +174,7 @@ export function UserTable({ caption = 'A list of all users in the system.' }: Us
       <div className="text-center p-8 text-muted-foreground">
         No users found.
       </div>
-    )
+    );
   }
 
   return (
@@ -180,10 +191,10 @@ export function UserTable({ caption = 'A list of all users in the system.' }: Us
                         ? null
                         : flexRender(
                             header.column.columnDef.header,
-                            header.getContext()
+                            header.getContext(),
                           )}
                     </TableHead>
-                  )
+                  );
                 })}
               </TableRow>
             ))}
@@ -193,18 +204,24 @@ export function UserTable({ caption = 'A list of all users in the system.' }: Us
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.id}
-                  data-state={row.getIsSelected() && 'selected'}
+                  data-state={row.getIsSelected() && "selected"}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext(),
+                      )}
                     </TableCell>
                   ))}
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center">
+                <TableCell
+                  colSpan={columns.length}
+                  className="h-24 text-center"
+                >
                   No results.
                 </TableCell>
               </TableRow>
@@ -212,15 +229,20 @@ export function UserTable({ caption = 'A list of all users in the system.' }: Us
           </TableBody>
         </Table>
       </div>
-      
+
       {/* Pagination */}
       <div className="flex items-center justify-between px-2">
         <div className="flex-1 text-sm text-muted-foreground">
-          Showing {table.getState().pagination.pageIndex * table.getState().pagination.pageSize + 1} to{' '}
+          Showing{" "}
+          {table.getState().pagination.pageIndex *
+            table.getState().pagination.pageSize +
+            1}{" "}
+          to{" "}
           {Math.min(
-            (table.getState().pagination.pageIndex + 1) * table.getState().pagination.pageSize,
-            data.length
-          )}{' '}
+            (table.getState().pagination.pageIndex + 1) *
+              table.getState().pagination.pageSize,
+            data.length,
+          )}{" "}
           of {data.length} users
         </div>
         <div className="flex items-center space-x-2">
@@ -244,10 +266,8 @@ export function UserTable({ caption = 'A list of all users in the system.' }: Us
           </Button>
         </div>
       </div>
-      
-      <p className="text-sm text-muted-foreground text-center">
-        {caption}
-      </p>
+
+      <p className="text-sm text-muted-foreground text-center">{caption}</p>
     </div>
-  )
+  );
 }
