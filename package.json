@@ -14,12 +14,13 @@
     "dev:server": "npm run dev -w server",
     "dev:client": "npm run dev -w client",
     "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
-    "db:push": "npm run db:push -w @model_md/database",
+    "db:generate": "npm run db:generate -w @model_md/database",
+    "db:migrate": "npm run db:migrate -w @model_md/database",
     "db:seed": "npm run seed -w @model_md/database",
     "db:seed:clear": "npm run seed:clear -w @model_md/database",
+    "db:reset": "npm run db:reset -w @model_md/database",
     "test:db": "npm run test -w @model_md/database",
     "supabase:start": "npx supabase start --workdir ./packages/database",
-    "supabase:db:push": "npx supabase db push --workdir ./packages/database",
     "supabase:status": "npx supabase status --workdir ./packages/database"
   },
   "devDependencies": {

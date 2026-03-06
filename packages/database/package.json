@@ -14,7 +14,9 @@
     "test": "vitest run",
     "seed": "tsx ./src/seed.ts",
     "seed:clear": "tsx ./src/seed.ts --clear",
-    "db:push": "drizzle-kit push --config=drizzle.config.ts"
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:reset": "sh -c 'psql $DATABASE_URL -c \"DROP SCHEMA public CASCADE; DROP SCHEMA IF EXISTS drizzle CASCADE; CREATE SCHEMA public;\" && drizzle-kit migrate'"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.1",

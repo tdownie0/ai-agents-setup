@@ -1,12 +1,15 @@
 # --- STAGE 1: Base Dependencies ---
 FROM node:24-alpine AS base
 WORKDIR /app
+
+RUN apk add --no-cache postgresql-client
+
 # Copy manifests to install deps
 COPY package*.json ./
 COPY server/package*.json ./server/
 COPY client/package*.json ./client/
-# Install all dependencies (Workspace aware)
 
+# Install all dependencies (Workspace aware)
 RUN npm install
 
 # --- STAGE 2: Development (Your current workflow) ---
