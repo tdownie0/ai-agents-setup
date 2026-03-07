@@ -11,6 +11,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "dev": "tsc --watch",
     "test": "vitest run",
     "seed": "tsx ./src/seed.ts",
     "seed:clear": "tsx ./src/seed.ts --clear",
@@ -22,5 +23,11 @@
     "drizzle-orm": "^0.45.1",
     "postgres": "^3.4.8",
     "dotenv": "^17.3.1"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.9",
+    "tsx": "^4.7.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.0.5"
   }
 }

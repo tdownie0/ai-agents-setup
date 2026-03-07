@@ -1,5 +1,5 @@
 {
-  "name": "server",
+  "name": "@model_md/backend",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -7,7 +7,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@model_md/database": "*",
+    "@model_md/database": "workspace:*",
     "@hono/node-server": "^1.19.9",
     "@supabase/supabase-js": "^2.98.0",
     "hono": "^4.11.9"

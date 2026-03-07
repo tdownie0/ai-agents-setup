@@ -1,0 +1,9 @@
+packages:
+  - apps/*
+  - apps/mcp-servers/*
+  - packages/*
+
+ignoredBuiltDependencies:
+  - esbuild
+  - msw
+  - supabase

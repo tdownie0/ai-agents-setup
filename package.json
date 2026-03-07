@@ -10,23 +10,26 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
-    "dev:server": "npm run dev -w server",
-    "dev:client": "npm run dev -w client",
-    "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
-    "db:generate": "npm run db:generate -w @model_md/database",
-    "db:migrate": "npm run db:migrate -w @model_md/database",
-    "db:seed": "npm run seed -w @model_md/database",
-    "db:seed:clear": "npm run seed:clear -w @model_md/database",
-    "db:reset": "npm run db:reset -w @model_md/database",
-    "test:db": "npm run test -w @model_md/database",
-    "supabase:start": "npx supabase start --workdir ./packages/database",
-    "supabase:status": "npx supabase status --workdir ./packages/database"
+    "build": "pnpm -r build --if-present",
+    "dev:server": "pnpm --filter server dev",
+    "dev:client": "pnpm --filter client dev",
+    "dev": "concurrently \"pnpm:dev:server\" \"pnpm:dev:client\"",
+    "db:generate": "pnpm --filter @model_md/database db:generate",
+    "db:migrate": "pnpm --filter @model_md/database db:migrate",
+    "db:seed": "pnpm --filter @model_md/database seed",
+    "db:seed:clear": "pnpm --filter @model_md/database seed:clear",
+    "db:reset": "pnpm --filter @model_md/database db:reset",
+    "test:db": "pnpm --filter @model_md/database test",
+    "supabase:start": "supabase start --workdir ./packages/database",
+    "supabase:status": "supabase status --workdir ./packages/database"
   },
   "devDependencies": {
     "@types/node": "^25.3.3",
     "concurrently": "^9.2.1",
     "supabase": "^2.76.15",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "dotenv": "^17.3.1"
   }
 }

@@ -1,38 +1,43 @@
-# --- STAGE 1: Base Dependencies ---
+# --- STAGE 1: Base ---
 FROM node:24-alpine AS base
+
+# Enable pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
 WORKDIR /app
 
-RUN apk add --no-cache postgresql-client
+# --- STAGE 2: Pruner (Isolate dependencies) ---
+FROM base AS pruner
+# Copy only the files necessary to resolve dependencies
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY apps/backend/package.json ./apps/backend/
 
-# Copy manifests to install deps
-COPY package*.json ./
-COPY server/package*.json ./server/
-COPY client/package*.json ./client/
+COPY apps/frontend/package.json ./apps/frontend/
+COPY packages/database/package.json ./packages/database/
+# Install all deps (including devDependencies for building)
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile
 
-# Install all dependencies (Workspace aware)
-RUN npm install
+# --- STAGE 3: Builder ---
+FROM pruner AS builder
+COPY . .
+# Build only what is needed for the target app
+# For example, if building the backend:
+RUN pnpm --filter @model_md/backend run build
 
-# --- STAGE 2: Development (Your current workflow) ---
+# --- STAGE 5: Development ---
 FROM base AS development
-WORKDIR /app
-# Copy the rest of the source code
-COPY . .
-# The agent can now run 'npm install' inside this stage 
-# and it won't affect the 'base' layer.
-CMD ["npm", "run", "dev"]
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY apps/backend/package.json ./apps/backend/
+COPY apps/frontend/package.json ./apps/frontend/
+COPY packages/database/package.json ./packages/database/
 
-# --- STAGE 3: Builder (For Production) ---
-FROM base AS builder
-WORKDIR /app
-COPY . .
-RUN npm run build
+# 2. Now run the install
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile
 
-# --- STAGE 4: Production Runner ---
-FROM node:24-alpine AS production
-WORKDIR /app
+# 3. Expose ports
+EXPOSE 3000 5173
 
-COPY --from=builder /app/server/dist ./server/dist
-COPY --from=builder /app/client/dist ./client/dist
-COPY --from=builder /app/node_modules ./node_modules
-# Run only the production server
-CMD ["node", "server/dist/index.js"]
+CMD ["node", "dist/index.js"]

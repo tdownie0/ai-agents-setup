@@ -1,7 +1,25 @@
+# Node
 node_modules
 **/node_modules
+
+# Logs
+*.log
+npm-debug.log*
+
+# Git
 .git
-.env
+.gitignore
+
+# Build/Dist
 dist
+.turbo
 build
+out
+
+# Misc
 .DS_Store
+.env
+.env.*
+!.env.example
+.pnpm-store
+pnpm-lock.yaml.lock
