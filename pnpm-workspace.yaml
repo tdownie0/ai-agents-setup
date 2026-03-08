@@ -6,4 +6,3 @@ packages:
 ignoredBuiltDependencies:
   - esbuild
   - msw
-  - supabase

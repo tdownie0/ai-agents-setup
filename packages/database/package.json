@@ -17,7 +17,7 @@
     "seed:clear": "tsx ./src/seed.ts --clear",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:reset": "sh -c 'psql $DATABASE_URL -c \"DROP SCHEMA public CASCADE; DROP SCHEMA IF EXISTS drizzle CASCADE; CREATE SCHEMA public;\" && drizzle-kit migrate'"
+    "db:reset": "tsx scripts/reset.ts && drizzle-kit migrate"
   },
   "dependencies": {
     "@faker-js/faker": "^9.9.0",
