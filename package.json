@@ -3,16 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "server",
-    "client",
-    "mcp-database-service",
-    "packages/*"
-  ],
   "scripts": {
     "build": "pnpm -r build --if-present",
-    "dev:server": "pnpm --filter server dev",
-    "dev:client": "pnpm --filter client dev",
+    "dev:server": "pnpm --filter ./apps/backend dev",
+    "dev:client": "pnpm --filter ./apps/frontend dev",
     "dev": "concurrently \"pnpm:dev:server\" \"pnpm:dev:client\"",
     "db:generate": "pnpm --filter @model_md/database db:generate",
     "db:migrate": "pnpm --filter @model_md/database db:migrate",
@@ -20,16 +14,19 @@
     "db:seed:clear": "pnpm --filter @model_md/database seed:clear",
     "db:reset": "pnpm --filter @model_md/database db:reset",
     "test:db": "pnpm --filter @model_md/database test",
-    "supabase:start": "supabase start --workdir ./packages/database",
-    "supabase:status": "supabase status --workdir ./packages/database"
+    "supabase:start": "./bin/supabase start --workdir ./packages/database",
+    "supabase:stop": "./bin/supabase stop --workdir ./packages/database",
+    "supabase:status": "supabase status --workdir ./packages/database",
+    "typecheck": "pnpm exec tsc --build --verbose",
+    "clean": "find . -name '*.tsbuildinfo' -delete && find . -name 'dist' -type d -exec rm -rf {} +"
   },
   "devDependencies": {
     "@types/node": "^25.3.3",
     "concurrently": "^9.2.1",
-    "supabase": "^2.76.15",
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@faker-js/faker": "^9.9.0",
     "dotenv": "^17.3.1"
   }
 }

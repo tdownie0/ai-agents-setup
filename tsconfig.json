@@ -1,0 +1,9 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./apps/backend" },
+    { "path": "./apps/frontend" },
+    { "path": "./apps/mcp-servers/mcp-database-service" },
+    { "path": "./packages/database" }
+  ]
+}

@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
-import { Bell, Check, Trash2 } from 'lucide-react';
-import { notificationApi } from '../lib/notifications';
-import type { Notification } from '../types/notification';
-import { cn } from '../lib/utils';
+import { useState, useEffect, useRef } from "react";
+import { Bell, Check, Trash2 } from "lucide-react";
+import { notificationApi } from "../lib/notifications";
+import type { Notification } from "../types/notification";
+import { cn } from "../lib/utils";
 
 interface NotificationBellProps {
   userId: number;
@@ -19,10 +19,10 @@ export function NotificationBell({ userId }: NotificationBellProps) {
   const fetchNotifications = async () => {
     setIsLoading(true);
     try {
-      const data = await notificationApi.list(userId);
+      const data = await notificationApi.list();
       setNotifications(data);
     } catch (error) {
-      console.error('Failed to fetch notifications:', error);
+      console.error("Failed to fetch notifications:", error);
     } finally {
       setIsLoading(false);
     }
@@ -36,22 +36,25 @@ export function NotificationBell({ userId }: NotificationBellProps) {
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
         setIsOpen(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const handleMarkAsRead = async (id: number) => {
     try {
       await notificationApi.markAsRead(id);
       setNotifications((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+        prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
       );
     } catch (error) {
-      console.error('Failed to mark as read:', error);
+      console.error("Failed to mark as read:", error);
     }
   };
 
@@ -60,17 +63,17 @@ export function NotificationBell({ userId }: NotificationBellProps) {
       await notificationApi.delete(id);
       setNotifications((prev) => prev.filter((n) => n.id !== id));
     } catch (error) {
-      console.error('Failed to delete notification:', error);
+      console.error("Failed to delete notification:", error);
     }
   };
 
   const formatDate = (date: Date | string) => {
     const d = new Date(date);
-    return d.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+    return d.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
   };
 
@@ -84,7 +87,7 @@ export function NotificationBell({ userId }: NotificationBellProps) {
         <Bell className="w-6 h-6 text-gray-700" />
         {unreadCount > 0 && (
           <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold w-5 h-5 flex items-center justify-center rounded-full">
-            {unreadCount > 9 ? '9+' : unreadCount}
+            {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
       </button>
@@ -98,7 +101,7 @@ export function NotificationBell({ userId }: NotificationBellProps) {
               className="text-xs text-blue-600 hover:underline"
               disabled={isLoading}
             >
-              {isLoading ? 'Loading...' : 'Refresh'}
+              {isLoading ? "Loading..." : "Refresh"}
             </button>
           </div>
 
@@ -112,8 +115,8 @@ export function NotificationBell({ userId }: NotificationBellProps) {
                 <div
                   key={notification.id}
                   className={cn(
-                    'p-3 border-b last:border-b-0 hover:bg-gray-50 transition-colors',
-                    !notification.read && 'bg-blue-50'
+                    "p-3 border-b last:border-b-0 hover:bg-gray-50 transition-colors",
+                    !notification.read && "bg-blue-50",
                   )}
                 >
                   <div className="flex items-start justify-between gap-2">

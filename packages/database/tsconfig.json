@@ -1,8 +1,6 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
@@ -10,11 +8,8 @@
     "rootDir": "./src",
     "composite": true,
     "incremental": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "strict": true,
-    "skipLibCheck": true
+    "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/index.ts", "src/schema.ts"], 
-  "exclude": ["node_modules", "dist", "src/seed.ts", "src/**/*.test.ts"]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
 }

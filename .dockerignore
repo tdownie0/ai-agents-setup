@@ -15,6 +15,7 @@ dist
 .turbo
 build
 out
+*.tsbuildinfo
 
 # Misc
 .DS_Store

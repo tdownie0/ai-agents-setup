@@ -2,7 +2,7 @@ import * as React from "react";
 import { useEffect, useState } from "react";
 import { hc } from "hono/client";
 import { supabase } from "@/lib/supabase";
-import type { AppType } from "@server/index";
+import type { AppType } from "@model_md/backend";
 import type { User } from "@model_md/database/schema";
 import {
   type ColumnDef,
@@ -24,7 +24,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react";
 
-const client = hc<AppType>("http://localhost:3000/");
+const client = hc<AppType>("http://localhost:3000/") as any;
 
 const columns: ColumnDef<User>[] = [
   {

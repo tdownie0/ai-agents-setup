@@ -1,0 +1,6 @@
+{
+  "name": "mcp-ast-service",
+  "scripts": {
+    "start": "python main.py"
+  }
+}

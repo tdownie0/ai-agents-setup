@@ -1,7 +1,11 @@
+.pnpm-store/
 node_modules/
+bin/
 .env
 .opencode/*
 dist/
+out/
+*.tsbuildinfo
 .DS_Store
 **/__pycache__/
 *.pyc

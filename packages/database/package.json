@@ -20,9 +20,10 @@
     "db:reset": "sh -c 'psql $DATABASE_URL -c \"DROP SCHEMA public CASCADE; DROP SCHEMA IF EXISTS drizzle CASCADE; CREATE SCHEMA public;\" && drizzle-kit migrate'"
   },
   "dependencies": {
+    "@faker-js/faker": "^9.9.0",
+    "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.1",
-    "postgres": "^3.4.8",
-    "dotenv": "^17.3.1"
+    "postgres": "^3.4.8"
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.9",

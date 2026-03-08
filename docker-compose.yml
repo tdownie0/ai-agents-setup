@@ -2,9 +2,10 @@ services:
   app:
     build:
       context: .
-      target: development
+      target: builder
     command: pnpm run dev
     environment:
+      - PATH=/app/bin:/app/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       - PORT=3000
       - HOST=0.0.0.0
       - VITE_HOST=0.0.0.0
@@ -19,6 +20,10 @@ services:
       - WATCHPACK_POLLING=true
     volumes:
       - .:/app
+      - /app/node_modules
+      - /app/apps/backend/node_modules
+      - /app/apps/frontend/node_modules
+      - /app/packages/database/node_modules
     ports:
       - "3000:3000"
       - "5173:5173"
@@ -30,6 +35,7 @@ services:
 
   mcp-gateway:
     image: docker/mcp-gateway:latest
+    profiles: ["agent"]
     use_api_socket: true
     environment:
       - SUPABASE_URL=${SUPABASE_URL}
