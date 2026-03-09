@@ -4,7 +4,7 @@ set -e
 
 VERSION="2.77.0"
 ARCH="linux_amd64"
-BIN_DIR="./bin"
+BIN_DIR="./bin/supabase"
 
 mkdir -p "$BIN_DIR"
 

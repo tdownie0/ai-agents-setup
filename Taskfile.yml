@@ -1,0 +1,31 @@
+version: '3'
+
+dotenv: ['.env']
+
+tasks:
+
+  build:ast:
+    desc: Build AST service locally
+    dir: apps/mcp-servers/mcp-ast-service
+    cmds:
+      - docker build -t ast-explorer:latest .
+
+  build:db:
+    desc: Build DB service from root
+    dir: .
+    cmds:
+
+      - docker build -t supabase-manager:latest -f apps/mcp-servers/mcp-database-service/Dockerfile .
+
+  setup:mcp:
+    desc: "Generate local MCP configuration files"
+    cmds:
+      - ./bin/mcp-gateway-setup/generate-mcp-gateway-files.sh
+    env:
+      DOCKER_MCP_ROOT: "{{.LOCAL_DOCKER_DESKTOP_CATALOG}}"
+      TASKFILE_DATABASE_URL: "{{.TASKFILE_DATABASE_URL}}"
+
+  install:supabase-cli:
+    desc: "Installs supabase cli for its compose file, as pnpm does not seem to work"
+    cmds:
+      - ./bin/install-cli.sh

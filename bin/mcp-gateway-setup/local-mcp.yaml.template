@@ -1,0 +1,61 @@
+version: 3
+name: local-mcp
+displayName: Local Development Catalog
+registry:
+  ast-explorer:
+    title: "My Custom Python MCP"
+    description: "Personal tools for OpenCode integration"
+    type: server
+    dateAdded: "2026-02-20T17:55:00Z"
+    image: ast-explorer:latest
+    metadata:
+      category: utility
+      tags:
+        - local
+        - python
+    volumes:
+      - ${PROJECT_PARENT_DIRECTORY_PATH}:/app
+    env:
+      - name: PYTHONUNBUFFERED
+        value: "1"
+      - name: REDIS_HOST
+        value: "cache"
+      - name: WORKSPACE_ROOT
+        value: "/app"
+      - name: DEFAULT_PROJECT
+        value: "model_md"
+      - name: DOCKER_MCP_TRANSPORT
+        value: "stdio"
+    tools:
+      - name: get_repo_map
+        description: "Generates a high-level map of classes and functions"
+      - name: find_symbol
+        description: "Search for a symbol, optionally restricted to a specific worktree/project"
+      - name: get_dependents
+        description: "Finds all files that import the given file_path"
+
+  supabase-manager:
+    title: "Supabase DB Manager"
+    description: "MCP for managing Supabase users and stats via Drizzle"
+    type: server
+    dateAdded: "2026-03-04T13:00:00Z"
+    image: supabase-manager:latest
+    metadata:
+      category: database
+      tags:
+        - typescript
+        - postgres
+        - supabase
+    networks:
+      - supabase_network
+    volumes:
+      - ${PROJECT_DIRECTORY_PATH}:/app
+    env:
+      - name: DATABASE_URL
+        value: ${TASKFILE_DATABASE_URL}
+      - name: DOCKER_MCP_TRANSPORT
+        value: "stdio"
+    tools:
+      - name: get_user_stats
+        description: "Returns the total count of users and recent signups from the database."
+

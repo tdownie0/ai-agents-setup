@@ -14,8 +14,8 @@
     "db:seed:clear": "pnpm --filter @model_md/database seed:clear",
     "db:reset": "pnpm --filter @model_md/database db:reset",
     "test:db": "pnpm --filter @model_md/database test",
-    "supabase:start": "./bin/supabase start --workdir ./packages/database",
-    "supabase:stop": "./bin/supabase stop --workdir ./packages/database",
+    "supabase:start": "./bin/supabase/supabase start --workdir ./packages/database",
+    "supabase:stop": "./bin/supabase/supabase stop --workdir ./packages/database",
     "supabase:status": "supabase status --workdir ./packages/database",
     "typecheck": "pnpm exec tsc --build --verbose",
     "clean": "find . -name '*.tsbuildinfo' -delete && find . -name 'dist' -type d -exec rm -rf {} +"
