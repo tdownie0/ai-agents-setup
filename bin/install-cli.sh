@@ -1,18 +1,20 @@
-#!/bin/bash
-# install-cli.sh
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
 VERSION="2.77.0"
 ARCH="linux_amd64"
-BIN_DIR="./bin/supabase"
+TARGET_DIR="./bin/supabase"
 
-mkdir -p "$BIN_DIR"
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
 
-echo "Downloading Supabase CLI v$VERSION for $ARCH..."
-curl -L "https://github.com/supabase/cli/releases/download/v$VERSION/supabase_$VERSION_$ARCH.tar.gz" -o supabase.tar.gz
+mkdir -p "$TARGET_DIR"
 
-echo "Extracting..."
-tar -xzf supabase.tar.gz -C "$BIN_DIR"
-rm supabase.tar.gz
+echo "Downloading Supabase CLI v${VERSION} for ${ARCH}..."
+curl -L -f "https://github.com/supabase/cli/releases/download/v${VERSION}/supabase_${ARCH}.tar.gz" \
+  -o "$TMP_DIR/supabase.tar.gz"
 
-echo "Done! CLI is ready at $BIN_DIR/supabase"
+echo "Extracting to $TARGET_DIR..."
+tar -xzf "$TMP_DIR/supabase.tar.gz" -C "$TARGET_DIR"
+
+echo "Done! CLI is ready at $TARGET_DIR/supabase"

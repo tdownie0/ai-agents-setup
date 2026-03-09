@@ -24,6 +24,8 @@ tasks:
     env:
       DOCKER_MCP_ROOT: "{{.LOCAL_DOCKER_DESKTOP_CATALOG}}"
       TASKFILE_DATABASE_URL: "{{.TASKFILE_DATABASE_URL}}"
+      PROJECT_PARENT_PATH: "{{.PROJECT_PARENT_PATH}}"
+      PROJECT_PATH: "{{.PROJECT_PATH}}"
 
   install:supabase-cli:
     desc: "Installs supabase cli for its compose file, as pnpm does not seem to work"

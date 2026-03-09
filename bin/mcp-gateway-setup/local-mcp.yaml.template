@@ -14,7 +14,7 @@ registry:
         - local
         - python
     volumes:
-      - ${PROJECT_PARENT_DIRECTORY_PATH}:/app
+      - ${PROJECT_PARENT_PATH}:/app
     env:
       - name: PYTHONUNBUFFERED
         value: "1"
@@ -49,7 +49,7 @@ registry:
     networks:
       - supabase_network
     volumes:
-      - ${PROJECT_DIRECTORY_PATH}:/app
+      - ${PROJECT_PATH}:/app
     env:
       - name: DATABASE_URL
         value: ${TASKFILE_DATABASE_URL}

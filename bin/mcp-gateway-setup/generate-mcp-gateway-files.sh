@@ -1,14 +1,9 @@
 #!/bin/bash
-if [ -f .env ]; then
-    export $(grep -v '^#' .env | xargs)
+set -euo pipefail
 
-    envsubst < bin/mcp-gateway-setup/local-mcp.yaml.template > bin/mcp-gateway-setup/local-mcp.yaml
-else
-    echo "Error: .env file not found at root."
-    exit 1
-fi
+MCP_DIR="${DOCKER_MCP_ROOT:-$HOME/.docker/mcp}"
 
-MCP_ROOT="${DOCKER_MCP_ROOT:-$HOME/.docker/mcp}"
+envsubst < bin/mcp-gateway-setup/local-mcp.yaml.template > bin/mcp-gateway-setup/local-mcp.yaml
 
 cat <<EOF > "bin/mcp-gateway-setup/catalog.json"
 {
@@ -26,7 +21,27 @@ cat <<EOF > "bin/mcp-gateway-setup/catalog.json"
 }
 EOF
 
-echo "Files generated in mcp-gateway-setup/."
-echo "Please use these files as an example for the following locations, or move them (though you \
-should not need to update the existing docker-mcp catalog.json entry) to $MCP_ROOT and \
-$MCP_ROOT/local-mcp.yaml respectively."
+cat <<EOF
+
+========================================================================
+Files generated in bin/mcp-gateway-setup/
+========================================================================
+
+Please use these files as an example for populating the local docker/mcp
+configuration. Depending on where Docker Desktop is installed, this
+directory may possibly be located at:
+  ${MCP_DIR}
+
+Place 'local-mcp.yaml' inside the 'catalogs' directory within that path.
+
+Note: Adjust for your OS pathing (e.g., Windows '\\\\', Linux '/').
+
+------------------------------------------------------------------------
+Next Steps:
+------------------------------------------------------------------------
+After configuring, register your MCP servers using:
+  docker mcp server enable supabase-manager
+
+========================================================================
+
+EOF
