@@ -1,37 +1,52 @@
 services:
-  app:
+  backend:
     build:
       context: .
-      target: builder
-    command: pnpm run dev
+      target: development
+    working_dir: /app
+    command: pnpm run dev:server
     environment:
-      - PATH=/app/bin:/app/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       - PORT=3000
-      - HOST=0.0.0.0
-      - VITE_HOST=0.0.0.0
       - DATABASE_URL=${DATABASE_URL}
       - TEST_USER_ID=${TEST_USER_ID}
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
-      - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - REDIS_URL=redis://cache:6379
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - WATCHPACK_POLLING=true
     volumes:
       - .:/app
       - /app/node_modules
       - /app/apps/backend/node_modules
-      - /app/apps/frontend/node_modules
       - /app/packages/database/node_modules
     ports:
       - "3000:3000"
-      - "5173:5173"
     networks:
       - dev-network
       - supabase_network
     depends_on:
       - cache
+
+  frontend:
+    build:
+      context: .
+      target: development
+    working_dir: /app
+    command: pnpm run dev:client
+    environment:
+      - VITE_HOST=0.0.0.0
+      - VITE_PORT=5173
+      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+      - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - VITE_API_URL=http://backend:3000
+      - WATCHPACK_POLLING=true 
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/apps/frontend/node_modules
+    ports:
+      - "5173:5173"
+    networks:
+      - dev-network
+    depends_on:
+      - backend
 
   mcp-gateway:
     image: docker/mcp-gateway:latest

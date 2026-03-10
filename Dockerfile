@@ -29,12 +29,14 @@ CMD ["node", "index.js"]
 
 # --- STAGE 5: Development ---
 FROM base AS development
-# Install tools needed for db:reset and scripts
-RUN apk add --no-cache postgresql-client git curl tar
+WORKDIR /app
 
-# IMPORTANT: Install dependencies so concurrently and other tools exist
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile --recursive
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY apps/backend/package.json ./apps/backend/
+COPY apps/frontend/package.json ./apps/frontend/
+COPY packages/database/package.json ./packages/database/
 
-# Mount the rest of the source code at runtime via docker-compose
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --recursive
+
 CMD ["pnpm", "dev"]
