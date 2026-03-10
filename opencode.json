@@ -2,6 +2,12 @@
   "$schema": "https://opencode.ai/config.json",
   "plugin": ["opencode-orchestrator"],
   "model": "opencode/big-pickle",
+  "instructions": [
+    "AGENTS.md",
+    "packages/database/AGENTS.md",
+    "apps/frontend/AGENTS.md",
+    "apps/backend/AGENTS.md"
+  ],
   "small_model": "opencode/big-pickle",
   "mode": {
     "plan": {
