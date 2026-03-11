@@ -21,7 +21,8 @@
     "test": "vitest run",
     "seed": "tsx ./src/seed.ts",
     "seed:clear": "tsx ./src/seed.ts --clear",
-    "db:generate": "drizzle-kit generate",
+    "db:check": "drizzle-kit check",
+    "db:generate": "tsx node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "drizzle-kit migrate",
     "db:reset": "tsx scripts/reset.ts && drizzle-kit migrate"
   },

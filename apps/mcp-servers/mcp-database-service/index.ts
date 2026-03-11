@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { db } from "@model_md/database";
-import { users } from "@model_md/database/schema";
+import { users } from "@model_md/database";
 import { count as drizzleCount, eq, gte, sql } from "drizzle-orm";
 
 const server = new McpServer({ name: "supabase-manager", version: "1.0.0" });

@@ -9,7 +9,7 @@ const connectionString =
   "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 export default defineConfig({
-  schema: "./src/schema.ts",
+  schema: "./src/schema/*.ts",
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {

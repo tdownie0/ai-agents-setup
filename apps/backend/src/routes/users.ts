@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db } from "@model_md/database";
-import { users } from "@model_md/database/schema";
+import { users } from "@model_md/database";
 import { eq } from "drizzle-orm";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 

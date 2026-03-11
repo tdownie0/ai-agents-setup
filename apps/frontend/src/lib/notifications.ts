@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { Notification } from "@model_md/database/schema";
+import type { Notification } from "@model_md/database";
 
 const API_BASE = "http://localhost:3000/api";
 

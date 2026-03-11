@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { hc } from "hono/client";
 import { supabase } from "@/lib/supabase";
 import type { AppType } from "@model_md/backend";
-import type { User } from "@model_md/database/schema";
+import type { User } from "@model_md/database";
 import {
   type ColumnDef,
   flexRender,

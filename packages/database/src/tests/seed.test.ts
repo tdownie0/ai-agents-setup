@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { db } from "../index";
-import { users } from "../schema";
+import { users } from "../schema/users";
 import { count } from "drizzle-orm";
 
 describe("Database Seeding", () => {

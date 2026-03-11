@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { db } from "./index.js";
-import { users, notifications } from "./schema.js";
+import { users } from "./schema/users.js";
+import { notifications } from "./schema/notifications.js";
 import { faker } from "@faker-js/faker";
 import { sql } from "drizzle-orm";
 
