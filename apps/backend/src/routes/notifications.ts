@@ -17,11 +17,10 @@ notificationsApp
   .get("/", async (c) => {
     const userId = c.get("userId");
 
-    const data = await db
-      .select()
-      .from(notifications)
-      .where(eq(notifications.userId, userId))
-      .orderBy(desc(notifications.createdAt));
+    const data = await db.query.notifications.findMany({
+      where: eq(notifications.userId, userId),
+      orderBy: desc(notifications.createdAt),
+    });
 
     return c.json(data);
   })
