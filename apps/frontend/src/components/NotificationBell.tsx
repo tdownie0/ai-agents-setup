@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Bell, Check, Trash2 } from "lucide-react";
 import { notificationApi } from "../lib/notifications";
-import type { Notification } from "../types/notification";
+import type { Notification } from "@model_md/database/schema";
 import { cn } from "../lib/utils";
 
 interface NotificationBellProps {
