@@ -19,7 +19,7 @@ def initialize_worktree(feature_slug: str) -> str:
     Creates a sibling git worktree, injects .env, and hydrates with pnpm.
     Target: /app/model_md-worktree-{feature_slug}
     """
-    new_path = APP_ROOT / f"model_md-worktree-{feature_slug}"
+    new_path = f"../model_md-worktree-{feature_slug}"
 
     if not BASE_PROJECT.exists():
         return f"Error: Base project directory {BASE_PROJECT} not found."

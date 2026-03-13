@@ -1,7 +1,7 @@
 import { supabase } from "./supabase";
 import type { Notification } from "@model_md/database";
 
-const API_BASE = `${import.meta.env.VITE_API_URL}/api`;
+const API_BASE = "/api";
 
 const getAuthHeaders = async () => {
   const {

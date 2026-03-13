@@ -24,7 +24,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react";
 
-const client = hc<AppType>("http://localhost:3000/") as any;
+const client = hc<AppType>("/");
 
 const columns: ColumnDef<User>[] = [
   {

@@ -1,6 +1,6 @@
 services:
   db:
-    image: supabase/postgres:17.6.0.053-orioledb-multigres
+    image: supabase/postgres:17.6.1.093
     environment:
       - POSTGRES_PASSWORD=password
     ports:
@@ -42,11 +42,9 @@ services:
     command: pnpm run dev:client
     environment:
       - VITE_HOST=0.0.0.0
-      - VITE_PORT=${FRONTEND_PORT:-5173}
+      - VITE_PORT=5173
       - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
       - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - VITE_API_URL=http://localhost:${BACKEND_PORT:-3000}
-      - WATCHPACK_POLLING=true
     volumes:
       - .:/app
       - /app/node_modules

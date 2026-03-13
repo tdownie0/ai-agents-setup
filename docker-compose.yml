@@ -37,7 +37,6 @@ services:
       - VITE_PORT=5173
       - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
       - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - VITE_API_URL=http://localhost:${BACKEND_PORT:-3000}
       - WATCHPACK_POLLING=true 
     volumes:
       - .:/app
