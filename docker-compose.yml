@@ -3,6 +3,7 @@ services:
     build:
       context: .
       target: development
+    image: dev-backend:latest
     working_dir: /app
     command: pnpm run dev:server
     environment:
@@ -28,6 +29,7 @@ services:
     build:
       context: .
       target: development
+    image: dev-frontend:latest
     working_dir: /app
     command: pnpm run dev:client
     environment:
@@ -35,7 +37,7 @@ services:
       - VITE_PORT=5173
       - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
       - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - VITE_API_URL=http://backend:3000
+      - VITE_API_URL=http://localhost:${BACKEND_PORT:-3000}
       - WATCHPACK_POLLING=true 
     volumes:
       - .:/app
@@ -65,13 +67,7 @@ services:
       - supabase_network
 
   opencode:
-    build:
-      context: .
-      dockerfile: Dockerfile.opencode
-      args:
-        - USER_ID=${UID:-1000}
-        - GROUP_ID=${GID:-1000}
-    user: "${UID:-1000}:${GID:-1000}"
+    image: ghcr.io/anomalyco/opencode:latest
     profiles: ["agent"]
     container_name: opencode_agent
     stdin_open: true

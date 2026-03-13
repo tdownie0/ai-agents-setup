@@ -1,0 +1,67 @@
+services:
+  db:
+    image: supabase/postgres:17.6.0.053-orioledb-multigres
+    environment:
+      - POSTGRES_PASSWORD=password
+    ports:
+      - "${DB_PORT:-5433}:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - feature-net
+
+  backend:
+    build:
+      context: .
+      target: development
+    image: dev-backend:latest
+    command: pnpm run dev:server
+    environment:
+      - PORT=3000
+      - DATABASE_URL=${DATABASE_URL:-postgres://postgres:password@db:5432/postgres}
+      - TEST_USER_ID=${TEST_USER_ID}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/apps/backend/node_modules
+      - /app/packages/database/node_modules
+    ports:
+      - "${BACKEND_PORT:-3000}:3000"
+    networks:
+      - feature-net
+    depends_on:
+      - db
+
+  frontend:
+    build:
+      context: .
+      target: development
+    image: dev-frontend:latest
+    command: pnpm run dev:client
+    environment:
+      - VITE_HOST=0.0.0.0
+      - VITE_PORT=${FRONTEND_PORT:-5173}
+      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+      - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - VITE_API_URL=http://localhost:${BACKEND_PORT:-3000}
+      - WATCHPACK_POLLING=true
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/apps/frontend/node_modules
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    networks:
+      - feature-net
+    depends_on:
+      - backend
+
+networks:
+  feature-net:
+    driver: bridge
+    name: ${BRANCH:-feature}_net
+
+volumes:
+  db_data:

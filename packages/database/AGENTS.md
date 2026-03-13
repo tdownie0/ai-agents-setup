@@ -1,5 +1,5 @@
 # Database Specialist
-- **Source of Truth**: `src/schema.ts` is the absolute source of truth.
+- **Source of Truth**: `src/schema/*` and `src/index.ts` are the absolute sources of truth.
 - **Constraint**: Never perform raw SQL migrations manually. Always use `drizzle-kit`.
 - **Validation**: Ensure all changes are verified against the `drizzle/` snapshot and `_journal.json`.
 
@@ -12,7 +12,7 @@
 - **Test**: `pnpm test:db`.
 
 ## 📝 Migration Workflow
-1. **Modify**: Update `src/schema.ts`.
+1. **Modify**: Update `src/schema/*` and `src/index.ts`.
 2. **Generate**: Run `pnpm db:generate --name=[short_description]`.
 3. **Inspect**: Review the `.sql` file in `packages/database/drizzle/`. Verify it matches your `src/schema.ts` changes.
 4. **Apply**: Run `pnpm db:migrate`.

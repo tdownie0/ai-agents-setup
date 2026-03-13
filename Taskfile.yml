@@ -31,3 +31,63 @@ tasks:
     desc: "Installs supabase cli for its compose file, as pnpm does not seem to work"
     cmds:
       - ./bin/install-cli.sh
+
+  find-ports:
+    desc: "Finds an available block of three ports (Frontend, Backend, Database)"
+    cmds:
+      - |
+        PORT=5174
+        while true; do
+          # Define the trio
+          FE_PORT=$PORT
+          BE_PORT=$((PORT + 1000))
+          DB_PORT=$((PORT + 2000))
+
+          # Check all three against local processes and Docker containers
+          if ! lsof -i :$FE_PORT > /dev/null && ! docker ps --format '{{.Ports}}' | grep -q ":$FE_PORT->" && \
+             ! lsof -i :$BE_PORT > /dev/null && ! docker ps --format '{{.Ports}}' | grep -q ":$BE_PORT->" && \
+             ! lsof -i :$DB_PORT > /dev/null && ! docker ps --format '{{.Ports}}' | grep -q ":$DB_PORT->"; then
+            echo $FE_PORT
+            break
+          fi
+          PORT=$((PORT+1))
+        done
+    silent: true
+
+  up:
+    desc: "Start a feature environment"
+    vars:
+      BRANCH: '{{.BRANCH | default "dev"}}'
+    cmds:
+      - |
+        FRONT_PORT=$(task find-ports)
+        BACK_PORT=$((FRONT_PORT + 1000))
+        DB_PORT=$((FRONT_PORT + 2000))
+
+        BRANCH={{.BRANCH}} \
+        FRONTEND_PORT=$FRONT_PORT \
+        BACKEND_PORT=$BACK_PORT \
+        DB_PORT=$DB_PORT \
+        DATABASE_URL="postgres://postgres:password@db:5432/postgres" \
+        docker-compose -p {{.BRANCH}} \
+          -f docker-compose.feature.yml \
+          up -d --no-build
+    silent: true
+
+  down:
+    desc: "Tear down a feature environment"
+    cmds:
+      - docker-compose -p {{.BRANCH}} down
+    vars:
+      BRANCH: '{{.BRANCH | default "dev"}}'
+
+  seed:
+    desc: "Run seed for the specific feature branch"
+    vars:
+      BRANCH: '{{.BRANCH | default "dev"}}'
+    cmds:
+      - |
+        # Use the same logic to determine the DB_URL or pass it explicitly
+        # This forces the seed script to use the internal DB hostname
+        export DATABASE_URL="postgres://postgres:password@db:5432/postgres" \
+        docker-compose -p {{.BRANCH}} exec backend pnpm db:seed
