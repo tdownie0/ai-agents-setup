@@ -1,6 +1,7 @@
 .pnpm-store/
 node_modules/
 bin/supabase
+.data/
 .env
 .opencode/*
 dist/

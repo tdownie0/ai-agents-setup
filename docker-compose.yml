@@ -12,11 +12,15 @@ services:
       - TEST_USER_ID=${TEST_USER_ID}
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - PNPM_CONFIG_STORE_DIR=/root/.pnpm-store
     volumes:
       - .:/app
       - /app/node_modules
+      - /app/apps/frontend/node_modules
       - /app/apps/backend/node_modules
       - /app/packages/database/node_modules
+      - /app/apps/mcp-servers/mcp-database-service/node_modules
+      - pnpm_store:/root/.pnpm-store
     ports:
       - "3000:3000"
     networks:
@@ -38,10 +42,15 @@ services:
       - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
       - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - WATCHPACK_POLLING=true 
+      - PNPM_CONFIG_STORE_DIR=/root/.pnpm-store
     volumes:
       - .:/app
       - /app/node_modules
       - /app/apps/frontend/node_modules
+      - /app/apps/backend/node_modules
+      - /app/packages/database/node_modules
+      - /app/apps/mcp-servers/mcp-database-service/node_modules
+      - pnpm_store:/root/.pnpm-store
     ports:
       - "5173:5173"
     networks:
@@ -96,6 +105,8 @@ services:
 
 volumes:
   redis_data:
+  pnpm_store:
+    external: true
 
 networks:
   dev-network:

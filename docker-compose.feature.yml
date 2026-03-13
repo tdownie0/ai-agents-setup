@@ -6,7 +6,7 @@ services:
     ports:
       - "${DB_PORT:-5433}:5432"
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - ./.data/db_${BRANCH:-feature}:/var/lib/postgresql/data
     networks:
       - feature-net
 
@@ -22,11 +22,15 @@ services:
       - TEST_USER_ID=${TEST_USER_ID}
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - PNPM_CONFIG_STORE_DIR=/root/.pnpm-store
     volumes:
       - .:/app
       - /app/node_modules
+      - /app/apps/frontend/node_modules
       - /app/apps/backend/node_modules
       - /app/packages/database/node_modules
+      - /app/apps/mcp-servers/mcp-database-service/node_modules
+      - pnpm_store:/root/.pnpm-store
     ports:
       - "${BACKEND_PORT:-3000}:3000"
     networks:
@@ -45,10 +49,15 @@ services:
       - VITE_PORT=5173
       - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
       - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - PNPM_CONFIG_STORE_DIR=/root/.pnpm-store
     volumes:
       - .:/app
       - /app/node_modules
       - /app/apps/frontend/node_modules
+      - /app/apps/backend/node_modules
+      - /app/packages/database/node_modules
+      - /app/apps/mcp-servers/mcp-database-service/node_modules
+      - pnpm_store:/root/.pnpm-store
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
     networks:
@@ -62,4 +71,5 @@ networks:
     name: ${BRANCH:-feature}_net
 
 volumes:
-  db_data:
+  pnpm_store:
+    external: true
