@@ -18,4 +18,3 @@
 ## ⚠️ Engagement Rules
 - **AST-First**: Use `ast-explorer` to identify affected route handlers before modifying code.
 - **RPC Integrity**: Ensure the Hono `AppType` is strictly typed against the database schema types.
-- **Environment**: If connectivity issues arise with the database, check the Supabase status via `pnpm supabase:status` from the root.

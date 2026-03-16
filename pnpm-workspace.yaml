@@ -2,9 +2,6 @@ packages:
   - apps/*
   - apps/mcp-servers/*
   - packages/*
-  - model_md-worktree-*/apps/*
-  - model_md-worktree-*/apps/mcp-servers/*
-  - model_md-worktree-*/packages/*
 
 ignoredBuiltDependencies:
   - esbuild

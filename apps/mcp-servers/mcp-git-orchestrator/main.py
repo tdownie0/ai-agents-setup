@@ -1,71 +1,145 @@
 import sys
 import os
-from mcp.server.fastmcp import FastMCP
+import json
+import socket
 import subprocess
 from pathlib import Path
+from mcp.server.fastmcp import FastMCP
 
+# Environment configuration
 UID = os.getenv("USER_ID", "1000")
 GID = os.getenv("GROUP_ID", "1000")
-
 mcp = FastMCP("Worktree-Orchestrator")
+
 APP_ROOT = Path("/app")
 BASE_PROJECT = APP_ROOT / "model_md"
-
 print(f"Orchestrator initialized as UID:{UID}, GID:{GID}", file=sys.stderr, flush=True)
+
+def find_available_port_block(start_port=5174) -> tuple[int, int, int]:
+    """Finds a block of three consecutive available ports."""
+    def is_port_in_use(port):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            return s.connect_ex(('localhost', port)) == 0
+
+    port = start_port
+    while True:
+        fe, be, db = port, port + 1000, port + 2000
+        if not any(is_port_in_use(p) for p in (fe, be, db)):
+            docker_check = subprocess.run(
+                ["docker", "ps", "--format", "{{.Ports}}"],
+                capture_output=True, text=True
+            )
+            if not any(f":{p}->" in docker_check.stdout for p in (fe, be, db)):
+                return fe, be, db
+        port += 1
 
 @mcp.tool()
 def initialize_worktree(feature_slug: str) -> str:
-    """
-    Creates a sibling git worktree, injects .env, and hydrates with pnpm.
-    Target: /app/model_md-worktree-{feature_slug}
-    """
-    new_path = f"../model_md-worktree-{feature_slug}"
+    """Creates worktree, allocates ports, spins up Docker, and hydrates pnpm."""
+    new_path = APP_ROOT / f"model_md-worktree-{feature_slug}"
 
     if not BASE_PROJECT.exists():
         return f"Error: Base project directory {BASE_PROJECT} not found."
-
     if new_path.exists():
         return f"Error: Worktree path {new_path} already exists."
 
     try:
         subprocess.run(
             ["git", "worktree", "add", str(new_path), "-b", feature_slug],
-            cwd=BASE_PROJECT, 
-            check=True, 
-            capture_output=True, 
-            text=True
+            cwd=BASE_PROJECT, check=True, capture_output=True, text=True
         )
+
+        try:
+            subprocess.run(
+                ["pnpm", "install", "--frozen-lockfile"],
+                cwd=new_path, 
+                check=True, 
+                capture_output=True, 
+                text=True
+            )
+        except subprocess.CalledProcessError as e:
+            return f"Dependency Installation Failed: {e.stderr}"
 
         env_file = BASE_PROJECT / ".env"
         if env_file.exists():
             (new_path / ".env").write_text(env_file.read_text())
 
+        fe_port, be_port, db_port = find_available_port_block()
+        services_data = {
+            "branch": feature_slug,
+            "frontend": fe_port,
+            "backend": be_port,
+            "db": db_port
+        }
+        (new_path / "services.json").write_text(json.dumps(services_data))
+
+        env = os.environ.copy()
+        env.update({
+            "BRANCH": feature_slug,
+            "FRONTEND_PORT": str(fe_port),
+            "BACKEND_PORT": str(be_port),
+            "DB_PORT": str(db_port)
+        })
+
         subprocess.run(
-            ["pnpm", "install", "--frozen-lockfile"], 
-            cwd=new_path, 
-            check=True, 
-            capture_output=True, 
-            text=True
+            ["docker", "compose", "-f", "docker-compose.feature.yml", "up", "-d"],
+            cwd=new_path, env=env, check=True, capture_output=True, text=True
         )
 
-        return f"Successfully initialized worktree at {new_path}"
+        return (f"✅ Environment initialized at {new_path}\n"
+                f"Services: Frontend:{fe_port}, Backend:{be_port}, DB:{db_port}")
 
     except subprocess.CalledProcessError as e:
-        return f"Init Error: {e.stderr or e.stdout}"
+        return f"Initialization Failed: {e.stderr or e.stdout}"
     except Exception as e:
         return f"Unexpected Error: {str(e)}"
 
 @mcp.tool()
-def git_ops(feature_slug: str, command: str, args: list[str] = None) -> str:
-    """
-    Executes safe git commands within a worktree.
-    Args:
-        feature_slug: The identifier for the worktree.
-        command: The git verb (e.g., 'add', 'commit', 'status').
-        args: A list of arguments (e.g., ['file.sql', '-m', 'message']).
-    """
-    ALLOWED_COMMANDS = ["add", "commit", "status", "diff", "log", "branch"]
+def execute_lifecycle(feature_slug: str, action: str) -> str:
+    """Executes a lifecycle action via the containers."""
+    target_path = APP_ROOT / f"model_md-worktree-{feature_slug}"
+    actions = {
+        "initialize": [
+            ["docker", "compose", "-p", feature_slug, "exec", "-T", "backend", "pnpm", "db:reset"],
+            ["docker", "compose", "-p", feature_slug, "exec", "-T", "backend", "pnpm", "db:migrate"],
+            ["docker", "compose", "-p", feature_slug, "exec", "-T", "backend", "pnpm", "db:seed"]
+        ],
+        "generate": [
+            ["docker", "compose", "-p", feature_slug, "exec", "-T", "backend", "pnpm", "db:generate"],
+        ],
+        "migrate": [
+            ["docker", "compose", "-p", feature_slug, "exec", "-T", "backend", "pnpm", "db:migrate"],
+        ],
+        "seed": [
+            ["docker", "compose", "-p", feature_slug, "exec", "-T", "backend", "pnpm", "db:seed"],
+        ],
+        "verify": [
+            ["docker", "compose", "-p", feature_slug, "exec", "-T", "backend", "pnpm", "test:db"],
+            ["docker", "compose", "-p", feature_slug, "exec", "-T", "frontend", "pnpm", "build"]
+        ],
+        "build": [
+            ["docker", "compose", "-p", feature_slug, "exec", "-T", "backend", "pnpm", "build"],
+            ["docker", "compose", "-p", feature_slug, "exec", "-T", "frontend", "pnpm", "build"]
+        ]
+    }
 
+    if action not in actions:
+        return f"Error: Action '{action}' not recognized."
+
+    results = []
+    for cmd in actions[action]:
+        try:
+            res = subprocess.run(cmd, cwd=target_path, capture_output=True, text=True, check=True)
+            results.append(res.stdout)
+        except subprocess.CalledProcessError as e:
+            return f"Action '{action}' failed at {' '.join(cmd)}: {e.stderr}"
+
+    return "\n".join(results)
+
+@mcp.tool()
+def git_ops(feature_slug: str, command: str, args: list[str] = None) -> str:
+    """Executes safe git commands within a worktree."""
+    ALLOWED_COMMANDS = ["add", "commit", "status", "diff", "log", "branch"]
     if command not in ALLOWED_COMMANDS:
         return f"Error: Command '{command}' is not permitted."
 
@@ -73,59 +147,35 @@ def git_ops(feature_slug: str, command: str, args: list[str] = None) -> str:
     full_cmd = ["git", command] + (args if args else [])
 
     try:
-        res = subprocess.run(
-            full_cmd, 
-            cwd=target_path, 
-            capture_output=True, 
-            text=True, 
-            check=True
-        )
+        res = subprocess.run(full_cmd, cwd=target_path, capture_output=True, text=True, check=True)
         return res.stdout
 
     except subprocess.CalledProcessError as e:
         return f"Git Error: {e.stderr}"
 
 @mcp.tool()
-def prepare_merge(feature_slug: str) -> str:
-    """Verifies worktree status and prepares the branch for merging."""
-    # Ensure no uncommitted changes exist before signaling readiness
-    target_path = APP_ROOT / f"model_md-worktree-{feature_slug}"
-    status = subprocess.run(["git", "status", "--porcelain"], cwd=target_path, capture_output=True, text=True)
-    if status.stdout.strip():
-        return "Error: Worktree has uncommitted changes. Please commit first."
-    return "Worktree clean and ready for merge."
+def get_environment_status(feature_slug: str) -> str:
+    """Returns the status of all containers for a given feature."""
+    res = subprocess.run(["docker", "compose", "-p", feature_slug, "ps"], capture_output=True, text=True)
+    return res.stdout
 
 @mcp.tool()
-def execute_merge(feature_slug: str, target_branch: str) -> str:
-    """
-    Merges a worktree branch into a target integration branch.
-    Prevents merging into protected branches like 'main' or 'prod'.
-    """
-    PROTECTED_BRANCHES = ["main", "master", "prod", "production", "stable"]
-
-    if target_branch in PROTECTED_BRANCHES:
-        return f"Access Denied: Agents are not permitted to merge directly into {target_branch}."
+def stop_environment(feature_slug: str) -> str:
+    """Tears down the docker-compose environment for a feature."""
+    target_path = APP_ROOT / f"model_md-worktree-{feature_slug}"
 
     try:
-        # 1. Ensure we are in the base repo to perform the merge
-        # 2. Checkout the integration branch (e.g., feat/ui-refresh)
-        subprocess.run(["git", "checkout", target_branch], cwd=BASE_PROJECT, check=True, capture_output=True)
+        subprocess.run(["docker", "compose", "-p", feature_slug, "down", "-v"], 
+                       cwd=target_path, check=True, capture_output=True)
+        return f"Environment for {feature_slug} stopped and cleaned."
+    except Exception as e:
+        return f"Stop Error: {str(e)}"
 
-        # 3. Merge the specific feature worktree branch
-        subprocess.run(["git", "merge", feature_slug], cwd=BASE_PROJECT, check=True, capture_output=True)
-
-        # 4. Cleanup the worktree after successful merge
-        # We use --force if needed, but standard remove is safer
-        subprocess.run(["git", "worktree", "remove", f"../model_md-worktree-{feature_slug}"], 
-                       cwd=BASE_PROJECT, check=True, capture_output=True)
-
-        # 5. Delete the now-merged local branch
-        subprocess.run(["git", "branch", "-d", feature_slug], cwd=BASE_PROJECT, check=True, capture_output=True)
-
-        return f"Successfully merged {feature_slug} into {target_branch} and cleaned up worktree."
-
-    except subprocess.CalledProcessError as e:
-        return f"Merge Conflict or Git Error: {e.stderr.decode()}"
+@mcp.tool()
+def list_features() -> str:
+    """Lists all active feature worktrees."""
+    worktrees = [p.name for p in APP_ROOT.glob("model_md-worktree-*")]
+    return "\n".join(worktrees) if worktrees else "No active feature worktrees."
 
 if __name__ == "__main__":
     mcp.run(transport='stdio')

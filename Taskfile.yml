@@ -14,7 +14,6 @@ tasks:
     desc: Build DB service from root
     dir: .
     cmds:
-
       - docker build -t supabase-manager:latest -f apps/mcp-servers/mcp-database-service/Dockerfile .
 
   setup:mcp:
@@ -55,7 +54,7 @@ tasks:
     silent: true
 
   feature-up:
-    desc: "Start a feature environment"
+    desc: "Start a feature environment and save metadata"
     vars:
       BRANCH: '{{.BRANCH | default "dev"}}'
     cmds:
@@ -64,11 +63,7 @@ tasks:
         BACK_PORT=$((FRONT_PORT + 1000))
         DB_PORT=$((FRONT_PORT + 2000))
 
-        # Echo the ports for visibility
-        echo "🚀 Environment for branch: {{.BRANCH}}"
-        echo "  - Frontend: http://localhost:$FRONT_PORT"
-        echo "  - Backend:  http://localhost:$BACK_PORT"
-        echo "  - Database: localhost:$DB_PORT"
+        echo "{\"branch\": \"{{.BRANCH}}\", \"frontend\": $FRONT_PORT, \"backend\": $BACK_PORT, \"db\": $DB_PORT}" > services.json
 
         BRANCH={{.BRANCH}} \
         FRONTEND_PORT=$FRONT_PORT \
@@ -78,7 +73,6 @@ tasks:
         docker-compose -p {{.BRANCH}} \
           -f docker-compose.feature.yml \
           up -d --no-build
-    silent: true
 
   feature-down:
     desc: "Tear down a feature environment"
@@ -126,3 +120,12 @@ tasks:
         docker-compose -p {{.BRANCH}} -f docker-compose.feature.yml exec -T db sh -c 'until pg_isready -U postgres; do sleep 1; done'
         echo "✅ Database is online."
     silent: true
+
+  feature-verify:
+    desc: "Run full test suite in the isolated feature environment"
+    vars:
+      BRANCH: '{{.BRANCH | default "dev"}}'
+    cmds:
+      - docker-compose -p {{.BRANCH}} exec -T backend pnpm test
+      - docker-compose -p {{.BRANCH}} exec -T frontend pnpm lint
+      - echo "✅ Feature verification passed."
