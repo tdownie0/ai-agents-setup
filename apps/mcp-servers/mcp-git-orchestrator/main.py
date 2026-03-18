@@ -35,7 +35,7 @@ def find_available_port_block(start_port=5174) -> tuple[int, int, int]:
 
 @mcp.tool()
 def initialize_worktree(feature_slug: str) -> str:
-    """Creates worktree, allocates ports, spins up Docker, and hydrates pnpm."""
+    """Creates worktree, translates paths for Docker Host, and spins up services."""
     new_path = APP_ROOT / f"model_md-worktree-{feature_slug}"
 
     if not BASE_PROJECT.exists():
@@ -49,16 +49,12 @@ def initialize_worktree(feature_slug: str) -> str:
             cwd=BASE_PROJECT, check=True, capture_output=True, text=True
         )
 
-        try:
-            subprocess.run(
-                ["pnpm", "install", "--frozen-lockfile"],
-                cwd=new_path, 
-                check=True, 
-                capture_output=True, 
-                text=True
-            )
-        except subprocess.CalledProcessError as e:
-            return f"Dependency Installation Failed: {e.stderr}"
+        git_file = new_path / ".git"
+        if git_file.exists():
+            content = git_file.read_text()
+            if "gitdir: /app/" in content:
+                relative_content = content.replace("gitdir: /app/", "gitdir: ../")
+                git_file.write_text(relative_content)
 
         env_file = BASE_PROJECT / ".env"
         if env_file.exists():
@@ -82,7 +78,12 @@ def initialize_worktree(feature_slug: str) -> str:
         })
 
         subprocess.run(
-            ["docker", "compose", "-f", "docker-compose.feature.yml", "up", "-d"],
+            [
+                "docker", "compose",
+                "-p", feature_slug,
+                "-f", "docker-compose.feature.yml",
+                "up", "-d"
+            ],
             cwd=new_path, env=env, check=True, capture_output=True, text=True
         )
 
