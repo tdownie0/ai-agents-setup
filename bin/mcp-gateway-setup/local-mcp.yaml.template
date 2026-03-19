@@ -59,3 +59,38 @@ registry:
       - name: get_user_stats
         description: "Returns the total count of users and recent signups from the database."
 
+  git-orchestrator:
+    title: "Git Worktree Orchestrator"
+    description: "Atomic management of isolated feature environments and git worktrees"
+    type: server
+    image: git-orchestrator:latest
+    allowedPaths:
+      - "${PROJECT_PARENT_PATH}"
+      - "/app/"
+    volumes:
+      - ${PROJECT_PARENT_PATH}:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    env:
+      - name: PYTHONUNBUFFERED
+        value: "1"
+      - name: WORKSPACE_ROOT
+        value: "/app"
+      - name: PROJECT_PARENT_PATH
+        value: "${PROJECT_PARENT_PATH}"
+      - name: USER_ID
+        value: "1000"
+      - name: GROUP_ID
+        value: "1000"
+    tools:
+      - name: initialize_worktree
+        description: "Creates a new git worktree, allocates ports, and starts the feature Docker environment."
+      - name: execute_lifecycle
+        description: "Executes a container-based lifecycle action: 'initialize' (db reset/seed), 'generate' (drizzle/codegen), 'migrate', 'seed', 'verify' (tests/lint), or 'build'."
+      - name: git_ops
+        description: "Executes safe Git commands (add, commit, status, diff, log, branch)."
+      - name: get_environment_status
+        description: "Returns the status of all containers for a given feature branch."
+      - name: list_features
+        description: "Lists all active feature worktrees."
+      - name: stop_environment
+        description: "Tears down the docker-compose environment and cleans up volumes."

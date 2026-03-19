@@ -16,6 +16,12 @@ tasks:
     cmds:
       - docker build -t supabase-manager:latest -f apps/mcp-servers/mcp-database-service/Dockerfile .
 
+  build:git-orchestrator:
+    desc: Build git-orchestrator from root
+    dir: .
+    cmds:
+      - docker build -t git-orchestrator:latest -f apps/mcp-servers/mcp-git-orchestrator/Dockerfile .
+
   setup:mcp:
     desc: "Generate local MCP configuration files"
     cmds:
