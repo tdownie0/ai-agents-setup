@@ -5,6 +5,52 @@ Create a type-safe User interface, add shadcn Table component, and build a UserT
 
 **Status**: ALL TASKS COMPLETED ✅
 
+---
+
+## User Registration Feature - COMPLETED ✅
+
+**Feature Branch**: `feat-user-registration`  
+**Completed**: 2026-03-19  
+**Summary**: Complete registration flow integrating Supabase Auth with local PostgreSQL database
+
+### Implementation Summary
+
+**Backend**:
+- Created `/apps/backend/src/routes/auth.ts` with POST `/register` endpoint
+- Endpoint accepts `{ fullName, supabaseUserId, email }` and inserts into users table
+- Proper error handling for missing fields (400) and duplicate users (409)
+
+**Frontend**:
+- Created `/apps/frontend/src/components/RegistrationForm.tsx` (222 lines)
+  - Full form with fullName, email, password, confirmPassword fields
+  - Client-side validation (email regex, password min 8 chars, match validation)
+  - Supabase signUp integration
+  - Backend API sync via Hono RPC
+  - Loading states and error handling
+- Updated `/apps/frontend/src/components/Auth.tsx` (126 lines)
+  - Toggle between login and registration modes
+  - Integration with RegistrationForm component
+  - Success state display
+
+**Architecture**:
+```
+Frontend (RegistrationForm)
+    ↓ Supabase signUp (email, password)
+    ↓ POST /api/auth/register (fullName, supabaseUserId, email)
+Backend (/apps/backend/src/routes/auth.ts)
+    ↓ Insert into local users table
+Database (users table)
+```
+
+**Files Changed**:
+| File | Action | Lines |
+|------|--------|-------|
+| apps/backend/src/routes/auth.ts | CREATE | 56 |
+| apps/frontend/src/components/RegistrationForm.tsx | CREATE | 222 |
+| apps/frontend/src/components/Auth.tsx | MODIFY | 126 |
+
+**Documentation**: See `FEATURE_README.md` for full API documentation
+
 ## M1: Create User Type Interface ✅
 ### T1.1: Setup types directory | agent:Worker | size:S | status:completed
 - [x] Create `client/src/types/` directory
