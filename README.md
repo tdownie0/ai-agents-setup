@@ -1,3 +1,107 @@
+# AI-Agents-Setup
+
+## Introduction
+
+This repository was created with the aim of being a helpful development bootstrap for developers
+that would like to harness AI tools while working on software development tasks. Specifically in
+this case, the application included in the repository is a web application. This does not mean
+that this structure can only be used for web application purposes, rather it is more of a blueprint
+for workflow automation with AI. To demonstrate this end, the custom MCP servers included in
+`apps/mcp-servers` serve as examples of the extension capabilities with this setup, relying on
+Docker Desktop's MCP toolkit to bring these additional tools in. Once they are incorporated through
+this medium, these MCPs can be incoprorated in multiple applications, as long as they work with
+mcp-gateway (Docker's MCP orchestrator), or directly with the MCP toolkit. Such examples could be 
+CLI tools like opencode, or even GUI frontends like Cluade Desktop.
+
+With those details out of the way, we can move on to the installation phase. Really, once Docker
+is configured correctly, this application should work out of the box, allowing users to spin up the
+Opencode container, and begin having it develop features in isolated environments.
+
+### Installation
+This structure requires access to the parent directory of where ever the main project will live.
+In order to facilitate creating separate worktrees that are sibling directories to the main
+directory, this structure is required. It also requires that the end user has Docker Desktop
+installed on their machine (though users may be able to get away with another containerization
+strategy as long as they can build the mcp-gateway and register MCP servers).
+
+The first Taskfile command will build these MCP servers as docker images so we can use their
+containers.
+```bash
+task build:mcp-servers
+```
+
+Next we will generate a local MCP configuration files to be added to whichever path the machine's
+Docker Desktop installation happens to live:
+```bash
+task setup:mcp
+```
+
+Running this should generate output the instructs the user where these files should live. For this
+to work properly, .env variables will have to be populated properly, and then the process should
+be automated for generation. After this, the user will just have to move the files to the proper
+locations, and then enable the MCP servers through docker mcp server.
+
+Now, the supabase CLI can be installed to interact with the main project directory, and have 
+access to the GUI for the database. This is installed separate due to not working as a node_module
+with pnpm:
+```bash
+install:supabase-cli
+```
+
+Once this is done, these commands can be used to interact with the service (which provides the 
+auth for the application):
+```bash
+pnpm supabase:start
+
+pnpm supabase:stop
+```
+
+Additionally, we will need this volume created for the application:
+```bash
+docker volume create pnpm_store
+```
+
+After this, the stack can be built using this Docker command:
+```bash
+docker compose --profile agent up --build
+```
+
+The agent profile includes the mcp-gateway and the opencode container being spun up in addition
+to the application. Once this is all up, opencode can be interacted with like so:
+```bash
+docker compose exec opencode opencode
+```
+
+This repository includes a package with opencode that allows for /task to be called, along with
+a prompt, and multiple agents should spin up and develop a feature. Examples are provided in the 
+samples/ directory. The file, session-ses_auth_sample, includes a run that build the registration
+page, along with the prompt used to get the agents to do so. In particular, if this prompt is used
+along with the MCPs, the ast-explorer and git-orchestrator should assist in building a feature,
+creating it in a separate worktree, as well as analyzing the structure of the code files included.
+
+Both the of MCPs used in this example are tied to working with code, but both can be customized
+in any manner by the end user. This allows for any tool to be refined further, improving their
+implementations, or making them very specific to a subset of languages or particular workflows.
+Both can be extended further in a similar manner to allow for more capabilities. They were designed
+with the intention of demonstrating that this process can be reproduced to fit any particular need
+of the end user.
+
+Security wise, one of the biggest advantages with this Docker oriented setup is that volumes can
+serve as a boundary for AI development tasks, which delegate which directories the agents can
+interact with. This means that if an agent were to malfunction for some reason, there should be
+some reasonable contraints already in place so that only the project could be destroyed, and not
+the computer's entire file system.
+
+Additionally, the MCPs themselves serve as an example of security boundaries. They are based on
+Dockerfiles that define what technologies that MCP is able to use, and also these technologies
+are gated behind the tool calls designed in the MCP. With this, even if an MCP has git installed,
+it cannot just call any git command. This contrasts with an AI agent installed locally, that would
+have access to many of the tools installed on natively on a computer, allowing it to try its
+hand at calling them in the ways it desires.
+
+
+Here comes the AI description:
+
 # AI Assisted Code Development Workstation 🚀
 
 A high-performance, containerized development environment designed for **Agent-Host Parity**. 
