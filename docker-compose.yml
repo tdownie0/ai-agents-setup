@@ -75,7 +75,9 @@ services:
       - supabase_network
 
   opencode:
-    image: ghcr.io/anomalyco/opencode:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.opencode
     profiles: ["agent"]
     container_name: opencode_agent
     stdin_open: true
@@ -93,7 +95,7 @@ services:
     networks:
       - dev-network
     depends_on:
-      - mcp-gateway 
+      - mcp-gateway
 
   cache:
     image: redis:alpine
