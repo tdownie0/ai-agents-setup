@@ -25,7 +25,7 @@ services:
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - PNPM_CONFIG_STORE_DIR=/home/node/.pnpm-store
     volumes:
-      - .:/app
+      - ${HOST_WORKTREE_PATH}:/app
       - /app/node_modules
       - /app/apps/frontend/node_modules
       - /app/apps/backend/node_modules
@@ -53,7 +53,7 @@ services:
       - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - PNPM_CONFIG_STORE_DIR=/home/node/.pnpm-store
     volumes:
-      - .:/app
+      - ${HOST_WORKTREE_PATH}:/app
       - /app/node_modules
       - /app/apps/frontend/node_modules
       - /app/apps/backend/node_modules

@@ -13,6 +13,7 @@ mcp = FastMCP("Worktree-Orchestrator")
 
 APP_ROOT = Path("/app")
 BASE_PROJECT = APP_ROOT / "model_md"
+HOST_ROOT = Path(os.getenv("PROJECT_PARENT_PATH", "/home/user/project"))
 print(f"Orchestrator initialized as UID:{UID}, GID:{GID}", file=sys.stderr, flush=True)
 
 def find_available_port_block(start_port=5174) -> tuple[int, int, int]:
@@ -37,6 +38,7 @@ def find_available_port_block(start_port=5174) -> tuple[int, int, int]:
 def initialize_worktree(feature_slug: str) -> str:
     """Creates worktree, translates paths for Docker Host, and spins up services."""
     new_path = APP_ROOT / f"model_md-worktree-{feature_slug}"
+    new_path_host = HOST_ROOT / f"model_md-worktree-{feature_slug}"
 
     if not BASE_PROJECT.exists():
         return f"Error: Base project directory {BASE_PROJECT} not found."
@@ -74,7 +76,8 @@ def initialize_worktree(feature_slug: str) -> str:
             "BRANCH": feature_slug,
             "FRONTEND_PORT": str(fe_port),
             "BACKEND_PORT": str(be_port),
-            "DB_PORT": str(db_port)
+            "DB_PORT": str(db_port),
+            "HOST_WORKTREE_PATH": str(new_path_host)
         })
 
         subprocess.run(
