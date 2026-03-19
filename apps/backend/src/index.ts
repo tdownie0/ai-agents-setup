@@ -4,6 +4,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import usersHandler from "./routes/users.js";
 import notificationsHandler from "./routes/notifications.js";
+import authHandler from "./routes/auth.js";
 
 const app = new Hono().basePath("/api");
 
@@ -16,7 +17,8 @@ app.get("/health", (c) =>
 
 const routes = app
   .route("/users", usersHandler)
-  .route("/notifications", notificationsHandler);
+  .route("/notifications", notificationsHandler)
+  .route("/auth", authHandler);
 
 // Export Type for Hono RPC (Frontend Type Safety)
 export type AppType = typeof routes;
