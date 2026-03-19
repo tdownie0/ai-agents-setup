@@ -77,7 +77,8 @@ def initialize_worktree(feature_slug: str) -> str:
             "FRONTEND_PORT": str(fe_port),
             "BACKEND_PORT": str(be_port),
             "DB_PORT": str(db_port),
-            "HOST_WORKTREE_PATH": str(new_path_host)
+            "HOST_WORKTREE_PATH": str(new_path_host),
+            "DATABASE_URL": "postgres://postgres:password@db:5432/postgres"
         })
 
         subprocess.run(

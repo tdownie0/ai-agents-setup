@@ -16,7 +16,8 @@ services:
       target: development
     image: dev-backend:latest
     container_name: ${BRANCH}-backend
-    command: pnpm run dev:server
+    command: >
+      sh -c "pnpm --filter @model_md/database build && pnpm run dev:server"
     environment:
       - PORT=3000
       - DATABASE_URL=${DATABASE_URL:-postgres://postgres:password@db:5432/postgres}
