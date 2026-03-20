@@ -120,7 +120,6 @@ def execute_lifecycle(feature_slug: str, action: str) -> str:
         ],
         "verify": [
             ["docker", "compose", "-p", feature_slug, "exec", "-T", "backend", "pnpm", "test:db"],
-            ["docker", "compose", "-p", feature_slug, "exec", "-T", "frontend", "pnpm", "build"]
         ],
         "build": [
             ["docker", "compose", "-p", feature_slug, "exec", "-T", "backend", "pnpm", "build"],

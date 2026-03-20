@@ -70,6 +70,8 @@ tasks:
     desc: "Start a feature environment and save metadata"
     vars:
       BRANCH: '{{.BRANCH | default "dev"}}'
+      HOST_WORKTREE_PATH:
+        sh: pwd
     cmds:
       - |
         FRONT_PORT=$(task find-ports)
@@ -83,6 +85,7 @@ tasks:
         BACKEND_PORT=$BACK_PORT \
         DB_PORT=$DB_PORT \
         DATABASE_URL="postgres://postgres:password@db:5432/postgres" \
+        HOST_WORKTREE_PATH={{.HOST_WORKTREE_PATH}} \
         docker-compose -p {{.BRANCH}} \
           -f docker-compose.feature.yml \
           up -d --no-build
