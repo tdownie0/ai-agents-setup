@@ -66,6 +66,42 @@ After this, the stack can be built using this Docker command:
 docker compose --profile agent up --build
 ```
 
+Once this is completed, for anyone that would like to log into the demonstration site and create a
+user to interact with it, they can visit `http://localhost:54323/project/default`. From here, at
+the top right of the screen is a menu toggle, and once this is selected, `Authentication` can be
+clicked upon. After doing so, we should see a green button for `Add user` on the screen. This
+can be toggled, and `Create new user` selected. At this point, any email and password can be
+selected for a testing account. The option `Auto Confirm User?` can be left selected so the
+account is automatically verified for authentication.
+
+From here, we should be able to login to the site and see the Users page load. If we would like
+to create data for this specific user, we can populate the `.env` variable `TEST_USER_ID` with
+the UID that was created in the process, and that should now be on the Supabase page.
+
+Since an environment variable has been updated, we will have to run these commands specifically
+for the backend to update the value:
+```bash
+docker compose stop backend
+
+docker compose up backend
+```
+The Users model can be seeded with data so that users can appear in the table. To do so, we run
+the following commands:
+```bash
+docker compose exec backend pnpm db:migrate
+
+docker compose exec backend pnpm db:seed
+```
+
+If this does not cause the current logged in user to have notifications, or if the database needs
+to be reset, this following command can be ran, which will reset the database and run migrations.
+The database can be seeded again as well.
+```bash
+docker compose exec backend pnpm db:reset
+
+docker compose exec backend pnpm db:seed
+```
+
 The agent profile includes the mcp-gateway and the opencode container being spun up in addition
 to the application. Once this is all up, opencode can be interacted with like so:
 ```bash
