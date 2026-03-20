@@ -45,7 +45,7 @@ Now, the supabase CLI can be installed to interact with the main project directo
 access to the GUI for the database. This is installed separate due to not working as a node_module
 with pnpm:
 ```bash
-install:supabase-cli
+task install:supabase-cli
 ```
 
 Once this is done, these commands can be used to interact with the service (which provides the 
