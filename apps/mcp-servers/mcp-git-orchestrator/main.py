@@ -16,11 +16,13 @@ BASE_PROJECT = APP_ROOT / "model_md"
 HOST_ROOT = Path(os.getenv("PROJECT_PARENT_PATH", "/home/user/project"))
 print(f"Orchestrator initialized as UID:{UID}, GID:{GID}", file=sys.stderr, flush=True)
 
+
 def find_available_port_block(start_port=5174) -> tuple[int, int, int]:
     """Finds a block of three consecutive available ports."""
+
     def is_port_in_use(port):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            return s.connect_ex(('localhost', port)) == 0
+            return s.connect_ex(("localhost", port)) == 0
 
     port = start_port
     while True:
@@ -28,11 +30,13 @@ def find_available_port_block(start_port=5174) -> tuple[int, int, int]:
         if not any(is_port_in_use(p) for p in (fe, be, db)):
             docker_check = subprocess.run(
                 ["docker", "ps", "--format", "{{.Ports}}"],
-                capture_output=True, text=True
+                capture_output=True,
+                text=True,
             )
             if not any(f":{p}->" in docker_check.stdout for p in (fe, be, db)):
                 return fe, be, db
         port += 1
+
 
 @mcp.tool()
 def initialize_worktree(feature_slug: str) -> str:
@@ -48,7 +52,10 @@ def initialize_worktree(feature_slug: str) -> str:
     try:
         subprocess.run(
             ["git", "worktree", "add", str(new_path), "-b", feature_slug],
-            cwd=BASE_PROJECT, check=True, capture_output=True, text=True
+            cwd=BASE_PROJECT,
+            check=True,
+            capture_output=True,
+            text=True,
         )
 
         git_file = new_path / ".git"
@@ -67,37 +74,50 @@ def initialize_worktree(feature_slug: str) -> str:
             "branch": feature_slug,
             "frontend": fe_port,
             "backend": be_port,
-            "db": db_port
+            "db": db_port,
         }
         (new_path / "services.json").write_text(json.dumps(services_data))
 
         env = os.environ.copy()
-        env.update({
-            "BRANCH": feature_slug,
-            "FRONTEND_PORT": str(fe_port),
-            "BACKEND_PORT": str(be_port),
-            "DB_PORT": str(db_port),
-            "HOST_WORKTREE_PATH": str(new_path_host),
-            "DATABASE_URL": "postgres://postgres:password@db:5432/postgres"
-        })
+        env.update(
+            {
+                "BRANCH": feature_slug,
+                "FRONTEND_PORT": str(fe_port),
+                "BACKEND_PORT": str(be_port),
+                "DB_PORT": str(db_port),
+                "HOST_WORKTREE_PATH": str(new_path_host),
+                "DATABASE_URL": "postgres://postgres:password@db:5432/postgres",
+            }
+        )
 
         subprocess.run(
             [
-                "docker", "compose",
-                "-p", feature_slug,
-                "-f", "docker-compose.feature.yml",
-                "up", "-d"
+                "docker",
+                "compose",
+                "-p",
+                feature_slug,
+                "-f",
+                "docker-compose.feature.yml",
+                "up",
+                "-d",
             ],
-            cwd=new_path, env=env, check=True, capture_output=True, text=True
+            cwd=new_path,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
         )
 
-        return (f"✅ Environment initialized at {new_path}\n"
-                f"Services: Frontend:{fe_port}, Backend:{be_port}, DB:{db_port}")
+        return (
+            f"✅ Environment initialized at {new_path}\n"
+            f"Services: Frontend:{fe_port}, Backend:{be_port}, DB:{db_port}"
+        )
 
     except subprocess.CalledProcessError as e:
         return f"Initialization Failed: {e.stderr or e.stdout}"
     except Exception as e:
         return f"Unexpected Error: {str(e)}"
+
 
 @mcp.tool()
 def execute_lifecycle(feature_slug: str, action: str) -> str:
@@ -105,26 +125,116 @@ def execute_lifecycle(feature_slug: str, action: str) -> str:
     target_path = APP_ROOT / f"model_md-worktree-{feature_slug}"
     actions = {
         "initialize": [
-            ["docker", "compose", "-p", feature_slug, "exec", "-T", "backend", "pnpm", "db:reset"],
-            ["docker", "compose", "-p", feature_slug, "exec", "-T", "backend", "pnpm", "db:migrate"],
-            ["docker", "compose", "-p", feature_slug, "exec", "-T", "backend", "pnpm", "db:seed"]
+            [
+                "docker",
+                "compose",
+                "-p",
+                feature_slug,
+                "exec",
+                "-T",
+                "backend",
+                "pnpm",
+                "db:reset",
+            ],
+            [
+                "docker",
+                "compose",
+                "-p",
+                feature_slug,
+                "exec",
+                "-T",
+                "backend",
+                "pnpm",
+                "db:migrate",
+            ],
+            [
+                "docker",
+                "compose",
+                "-p",
+                feature_slug,
+                "exec",
+                "-T",
+                "backend",
+                "pnpm",
+                "db:seed",
+            ],
         ],
         "generate": [
-            ["docker", "compose", "-p", feature_slug, "exec", "-T", "backend", "pnpm", "db:generate"],
+            [
+                "docker",
+                "compose",
+                "-p",
+                feature_slug,
+                "exec",
+                "-T",
+                "backend",
+                "pnpm",
+                "db:generate",
+            ],
         ],
         "migrate": [
-            ["docker", "compose", "-p", feature_slug, "exec", "-T", "backend", "pnpm", "db:migrate"],
+            [
+                "docker",
+                "compose",
+                "-p",
+                feature_slug,
+                "exec",
+                "-T",
+                "backend",
+                "pnpm",
+                "db:migrate",
+            ],
         ],
         "seed": [
-            ["docker", "compose", "-p", feature_slug, "exec", "-T", "backend", "pnpm", "db:seed"],
+            [
+                "docker",
+                "compose",
+                "-p",
+                feature_slug,
+                "exec",
+                "-T",
+                "backend",
+                "pnpm",
+                "db:seed",
+            ],
         ],
         "verify": [
-            ["docker", "compose", "-p", feature_slug, "exec", "-T", "backend", "pnpm", "test:db"],
+            [
+                "docker",
+                "compose",
+                "-p",
+                feature_slug,
+                "exec",
+                "-T",
+                "backend",
+                "pnpm",
+                "test:db",
+            ],
         ],
         "build": [
-            ["docker", "compose", "-p", feature_slug, "exec", "-T", "backend", "pnpm", "build"],
-            ["docker", "compose", "-p", feature_slug, "exec", "-T", "frontend", "pnpm", "build"]
-        ]
+            [
+                "docker",
+                "compose",
+                "-p",
+                feature_slug,
+                "exec",
+                "-T",
+                "backend",
+                "pnpm",
+                "build",
+            ],
+            [
+                "docker",
+                "compose",
+                "-p",
+                feature_slug,
+                "exec",
+                "-T",
+                "frontend",
+                "pnpm",
+                "build",
+            ],
+        ],
     }
 
     if action not in actions:
@@ -133,15 +243,54 @@ def execute_lifecycle(feature_slug: str, action: str) -> str:
     results = []
     for cmd in actions[action]:
         try:
-            res = subprocess.run(cmd, cwd=target_path, capture_output=True, text=True, check=True)
+            res = subprocess.run(
+                cmd, cwd=target_path, capture_output=True, text=True, check=True
+            )
             results.append(res.stdout)
         except subprocess.CalledProcessError as e:
             return f"Action '{action}' failed at {' '.join(cmd)}: {e.stderr}"
 
     return "\n".join(results)
 
+
 @mcp.tool()
-def git_ops(feature_slug: str, command: str, args: list[str] = None) -> str:
+def get_environment_logs(
+    feature_slug: str, service: str | None = None, tail: int = 50
+) -> str:
+    """
+    Retrieves the last 'n' lines of logs for a feature's containers.
+    If 'service' is provided (e.g., 'backend', 'db'), only those logs are returned.
+    """
+    target_path = APP_ROOT / f"model_md-worktree-{feature_slug}"
+
+    cmd = [
+        "docker",
+        "compose",
+        "-p",
+        feature_slug,
+        "logs",
+        f"--tail={tail}",
+        "--no-color",
+    ]
+
+    if service:
+        cmd.append(service)
+
+    try:
+        res = subprocess.run(
+            cmd, cwd=target_path, capture_output=True, text=True, check=True
+        )
+        if not res.stdout and not res.stderr:
+            return (
+                f"No logs found for {feature_slug} {f'({service})' if service else ''}."
+            )
+        return res.stdout or res.stderr
+    except subprocess.CalledProcessError as e:
+        return f"Failed to retrieve logs: {e.stderr}"
+
+
+@mcp.tool()
+def git_ops(feature_slug: str, command: str, args: list[str] | None = None) -> str:
     """Executes safe git commands within a worktree."""
     ALLOWED_COMMANDS = ["add", "commit", "status", "diff", "log", "branch"]
     if command not in ALLOWED_COMMANDS:
@@ -151,17 +300,23 @@ def git_ops(feature_slug: str, command: str, args: list[str] = None) -> str:
     full_cmd = ["git", command] + (args if args else [])
 
     try:
-        res = subprocess.run(full_cmd, cwd=target_path, capture_output=True, text=True, check=True)
+        res = subprocess.run(
+            full_cmd, cwd=target_path, capture_output=True, text=True, check=True
+        )
         return res.stdout
 
     except subprocess.CalledProcessError as e:
         return f"Git Error: {e.stderr}"
 
+
 @mcp.tool()
 def get_environment_status(feature_slug: str) -> str:
     """Returns the status of all containers for a given feature."""
-    res = subprocess.run(["docker", "compose", "-p", feature_slug, "ps"], capture_output=True, text=True)
+    res = subprocess.run(
+        ["docker", "compose", "-p", feature_slug, "ps"], capture_output=True, text=True
+    )
     return res.stdout
+
 
 @mcp.tool()
 def stop_environment(feature_slug: str) -> str:
@@ -169,11 +324,16 @@ def stop_environment(feature_slug: str) -> str:
     target_path = APP_ROOT / f"model_md-worktree-{feature_slug}"
 
     try:
-        subprocess.run(["docker", "compose", "-p", feature_slug, "down", "-v"], 
-                       cwd=target_path, check=True, capture_output=True)
+        subprocess.run(
+            ["docker", "compose", "-p", feature_slug, "down", "-v"],
+            cwd=target_path,
+            check=True,
+            capture_output=True,
+        )
         return f"Environment for {feature_slug} stopped and cleaned."
     except Exception as e:
         return f"Stop Error: {str(e)}"
+
 
 @mcp.tool()
 def list_features() -> str:
@@ -181,5 +341,6 @@ def list_features() -> str:
     worktrees = [p.name for p in APP_ROOT.glob("model_md-worktree-*")]
     return "\n".join(worktrees) if worktrees else "No active feature worktrees."
 
+
 if __name__ == "__main__":
-    mcp.run(transport='stdio')
+    mcp.run(transport="stdio")

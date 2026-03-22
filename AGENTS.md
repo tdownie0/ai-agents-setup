@@ -1,17 +1,22 @@
 # 📖 Project Manual: Global Orchestration & AI Governance
 
 ## 🚨 CRITICAL: ARCHITECTURAL & OPERATIONAL GUARDRAILS
-**STRICT PROHIBITION**: Direct file access to `/app/model_md` is blocked for all development. All operations MUST be executed within an isolated Git worktree.
+**STRICT PROHIBITION**: Direct file access to `/app/model_md` is blocked for all development.
+All operations MUST be executed within an isolated Git worktree. Never work on features in the
+`/app/model_md` directory.
 
 ## 🔍 CODE EXPLORATION & ANALYSIS PROTOCOL (Tool-First Policy)
 You are an "Architectural Analyst." To maintain system stability, you must follow this exploration hierarchy. **NEVER use glob/read as your first step.**
 
-1. **Hierarchy Discovery**: Always start by calling `MCP_DOCKER_get_repo_map(path="model_md-worktree-<slug>")`.
-2. **Symbol Navigation**: Use `MCP_DOCKER_find_symbol` to locate definitions and `MCP_DOCKER_get_dependents` to analyze impact.
+1. **Perform Initialization**: Make sure to follow the initialization sequence below before using these exploration tools, but do not resort to glob or read until the following MCP tools are used.
+2. **Hierarchy Discovery**: Always start by calling `MCP_DOCKER_get_repo_map(path="model_md-worktree-<slug>")`.
+3. **Symbol Navigation**: Use `MCP_DOCKER_find_symbol` to locate definitions and `MCP_DOCKER_get_dependents` to analyze impact.
 
 ### 🛠️ MANDATORY INITIALIZATION SEQUENCE
 Failure to follow this sequence will result in environment drift and mission failure.
-1. **Provision**: `MCP_DOCKER_initialize_worktree(feature_slug="feat-<name>")`.
+1. **Provision**: `MCP_DOCKER_initialize_worktree(feature_slug="feat-<name>")`. Always use this
+process for a new feature implementation, unless otherwise specified to work on an existing
+feature. Additionally, always perform work in this feature directory.
 2. **Bootstrap**: `MCP_DOCKER_execute_lifecycle(feature_slug="feat-<name>", action="initialize")`.
 3. **Verify**: `MCP_DOCKER_execute_lifecycle(feature_slug="feat-<name>", action="verify")`.
 4. **Context Loading**: `MCP_DOCKER_get_repo_map(path="model_md-worktree-<slug>")`.
