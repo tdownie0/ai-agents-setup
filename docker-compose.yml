@@ -90,6 +90,7 @@ services:
       - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/sse
     volumes:
       - ..:/app
+      - .:/app/${PROJECT_NAME}:ro
       - ~/.config/opencode:/home/devuser/.config/opencode
       - ~/.local/share/opencode:/home/devuser/.local/share/opencode
     networks:

@@ -9,6 +9,11 @@
     "apps/backend/AGENTS.md"
   ],
   "small_model": "opencode/big-pickle",
+  "permission": {
+    "external_directory": {
+      "/app/**": "allow"
+    }
+  },
   "mode": {
     "plan": {
       "model": "opencode/big-pickle",
