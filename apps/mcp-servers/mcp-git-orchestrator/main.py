@@ -291,13 +291,34 @@ def get_environment_logs(
 
 @mcp.tool()
 def git_ops(feature_slug: str, command: str, args: list[str] | None = None) -> str:
-    """Executes safe git commands within a worktree."""
+    """
+    Executes permitted git commands within a specific feature worktree.
+
+    Allowed commands: add, commit, status, diff, log, branch.
+
+    Args:
+        feature_slug: The unique identifier for the feature (e.g., 'lint-addition').
+        command: The git command to run.
+        args: A list of string arguments.
+              Example for add: ["."] or ["apps/backend/package.json"]
+              Example for commit: ["-m", "your message"]
+              Note: 'add' defaults to ["."] and 'commit' provides a default message if args are empty.
+    """
     ALLOWED_COMMANDS = ["add", "commit", "status", "diff", "log", "branch"]
     if command not in ALLOWED_COMMANDS:
         return f"Error: Command '{command}' is not permitted."
 
     target_path = APP_ROOT / f"model_md-worktree-{feature_slug}"
-    full_cmd = ["git", command] + (args if args else [])
+
+    safe_args = args if args is not None else []
+
+    if command == "add" and not safe_args:
+        safe_args = ["."]
+
+    if command == "commit" and not any(arg in safe_args for arg in ["-m", "--message"]):
+        safe_args = ["-m", "Agent: implemented feature changes"] + safe_args
+
+    full_cmd = ["git", command] + safe_args
 
     try:
         res = subprocess.run(
