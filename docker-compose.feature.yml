@@ -19,6 +19,7 @@ services:
     command: >
       sh -c "pnpm --filter @model_md/database build && pnpm run dev:server"
     environment:
+      - CI=true
       - PORT=3000
       - DATABASE_URL=${DATABASE_URL:-postgres://postgres:password@db:5432/postgres}
       - TEST_USER_ID=${TEST_USER_ID}
@@ -48,6 +49,7 @@ services:
     container_name: ${BRANCH}-frontend
     command: pnpm run dev:client
     environment:
+      - CI=true
       - VITE_HOST=0.0.0.0
       - VITE_PORT=5173
       - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}

@@ -40,43 +40,53 @@ def find_available_port_block(start_port=5174) -> tuple[int, int, int]:
 
 @mcp.tool()
 def initialize_worktree(feature_slug: str) -> str:
-    """Creates worktree, translates paths for Docker Host, and spins up services."""
+    """
+    Ensures a git worktree exists and its Docker services are running.
+    If the worktree already exists, it skips git creation and just restarts services.
+    """
     new_path = APP_ROOT / f"model_md-worktree-{feature_slug}"
     new_path_host = HOST_ROOT / f"model_md-worktree-{feature_slug}"
+    services_file = new_path / "services.json"
 
     if not BASE_PROJECT.exists():
         return f"Error: Base project directory {BASE_PROJECT} not found."
-    if new_path.exists():
-        return f"Error: Worktree path {new_path} already exists."
 
     try:
-        subprocess.run(
-            ["git", "worktree", "add", str(new_path), "-b", feature_slug],
-            cwd=BASE_PROJECT,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        if not new_path.exists():
+            subprocess.run(
+                ["git", "worktree", "add", str(new_path), "-b", feature_slug],
+                cwd=BASE_PROJECT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
 
-        git_file = new_path / ".git"
-        if git_file.exists():
-            content = git_file.read_text()
-            if "gitdir: /app/" in content:
-                relative_content = content.replace("gitdir: /app/", "gitdir: ../")
-                git_file.write_text(relative_content)
+            git_file = new_path / ".git"
+            if git_file.exists():
+                content = git_file.read_text()
+                if "gitdir: /app/" in content:
+                    git_file.write_text(content.replace("gitdir: /app/", "gitdir: ../"))
 
-        env_file = BASE_PROJECT / ".env"
-        if env_file.exists():
-            (new_path / ".env").write_text(env_file.read_text())
+            env_file = BASE_PROJECT / ".env"
+            if env_file.exists():
+                (new_path / ".env").write_text(env_file.read_text())
 
-        fe_port, be_port, db_port = find_available_port_block()
-        services_data = {
-            "branch": feature_slug,
-            "frontend": fe_port,
-            "backend": be_port,
-            "db": db_port,
-        }
-        (new_path / "services.json").write_text(json.dumps(services_data))
+            fe_port, be_port, db_port = find_available_port_block()
+            services_data = {
+                "branch": feature_slug,
+                "frontend": fe_port,
+                "backend": be_port,
+                "db": db_port,
+            }
+            services_file.write_text(json.dumps(services_data))
+        else:
+            if services_file.exists():
+                services_data = json.loads(services_file.read_text())
+                fe_port = services_data["frontend"]
+                be_port = services_data["backend"]
+                db_port = services_data["db"]
+            else:
+                fe_port, be_port, db_port = find_available_port_block()
 
         env = os.environ.copy()
         env.update(
@@ -108,8 +118,11 @@ def initialize_worktree(feature_slug: str) -> str:
             text=True,
         )
 
+        status_msg = (
+            "recovered and started" if new_path.exists() else "created and started"
+        )
         return (
-            f"✅ Environment initialized at {new_path}\n"
+            f"✅ Environment {status_msg} at {new_path}\n"
             f"Services: Frontend:{fe_port}, Backend:{be_port}, DB:{db_port}"
         )
 
@@ -121,124 +134,61 @@ def initialize_worktree(feature_slug: str) -> str:
 
 @mcp.tool()
 def execute_lifecycle(feature_slug: str, action: str) -> str:
-    """Executes a lifecycle action via the containers."""
+    """
+    Executes a predefined lifecycle action within the feature-specific Docker containers.
+
+    This tool is the primary way to manage the environment state after making code changes.
+    Always run 'install' if package.json files have been modified.
+
+    Available Actions:
+        - install: Runs 'pnpm install' in both backend and frontend containers.
+        - initialize: Performs a full database reset, migration, and seeding.
+        - generate: Runs Drizzle schema generation.
+        - migrate: Applies pending database migrations.
+        - seed: Populates the database with seed data.
+        - verify: Runs database-related tests.
+        - build: Compiles the backend and frontend applications.
+
+    Args:
+        feature_slug: The unique identifier for the feature worktree.
+        action: One of 'install', 'initialize', 'generate', 'migrate', 'seed', 'verify', 'build'.
+    """
     target_path = APP_ROOT / f"model_md-worktree-{feature_slug}"
+
+    def compose_exec(service: str, args: list[str]):
+        return [
+            "docker",
+            "compose",
+            "-p",
+            feature_slug,
+            "exec",
+            "-T",
+            service,
+            "pnpm",
+        ] + args
+
     actions = {
+        "install": [
+            compose_exec("backend", ["install"]),
+            compose_exec("frontend", ["install"]),
+        ],
         "initialize": [
-            [
-                "docker",
-                "compose",
-                "-p",
-                feature_slug,
-                "exec",
-                "-T",
-                "backend",
-                "pnpm",
-                "db:reset",
-            ],
-            [
-                "docker",
-                "compose",
-                "-p",
-                feature_slug,
-                "exec",
-                "-T",
-                "backend",
-                "pnpm",
-                "db:migrate",
-            ],
-            [
-                "docker",
-                "compose",
-                "-p",
-                feature_slug,
-                "exec",
-                "-T",
-                "backend",
-                "pnpm",
-                "db:seed",
-            ],
+            compose_exec("backend", ["db:reset"]),
+            compose_exec("backend", ["db:migrate"]),
+            compose_exec("backend", ["db:seed"]),
         ],
-        "generate": [
-            [
-                "docker",
-                "compose",
-                "-p",
-                feature_slug,
-                "exec",
-                "-T",
-                "backend",
-                "pnpm",
-                "db:generate",
-            ],
-        ],
-        "migrate": [
-            [
-                "docker",
-                "compose",
-                "-p",
-                feature_slug,
-                "exec",
-                "-T",
-                "backend",
-                "pnpm",
-                "db:migrate",
-            ],
-        ],
-        "seed": [
-            [
-                "docker",
-                "compose",
-                "-p",
-                feature_slug,
-                "exec",
-                "-T",
-                "backend",
-                "pnpm",
-                "db:seed",
-            ],
-        ],
-        "verify": [
-            [
-                "docker",
-                "compose",
-                "-p",
-                feature_slug,
-                "exec",
-                "-T",
-                "backend",
-                "pnpm",
-                "test:db",
-            ],
-        ],
+        "generate": [compose_exec("backend", ["db:generate"])],
+        "migrate": [compose_exec("backend", ["db:migrate"])],
+        "seed": [compose_exec("backend", ["db:seed"])],
+        "verify": [compose_exec("backend", ["test:db"])],
         "build": [
-            [
-                "docker",
-                "compose",
-                "-p",
-                feature_slug,
-                "exec",
-                "-T",
-                "backend",
-                "pnpm",
-                "build",
-            ],
-            [
-                "docker",
-                "compose",
-                "-p",
-                feature_slug,
-                "exec",
-                "-T",
-                "frontend",
-                "pnpm",
-                "build",
-            ],
+            compose_exec("backend", ["build"]),
+            compose_exec("frontend", ["build"]),
         ],
     }
 
     if action not in actions:
-        return f"Error: Action '{action}' not recognized."
+        return f"Error: Action '{action}' not recognized. Available: {list(actions.keys())}"
 
     results = []
     for cmd in actions[action]:
@@ -246,11 +196,14 @@ def execute_lifecycle(feature_slug: str, action: str) -> str:
             res = subprocess.run(
                 cmd, cwd=target_path, capture_output=True, text=True, check=True
             )
-            results.append(res.stdout)
+            results.append(f"Success ({' '.join(cmd)}):\n{res.stdout}")
         except subprocess.CalledProcessError as e:
-            return f"Action '{action}' failed at {' '.join(cmd)}: {e.stderr}"
+            return (
+                f"Action '{action}' failed at command: {' '.join(cmd)}\n"
+                f"STDOUT: {e.stdout}\nSTDERR: {e.stderr}"
+            )
 
-    return "\n".join(results)
+    return "\n---\n".join(results)
 
 
 @mcp.tool()
