@@ -9,11 +9,7 @@ const usersApp = new Hono<{ Variables: { userId: string } }>();
 
 usersApp.get("/me", authMiddleware, async (c) => {
   const userId = c.get("userId");
-  const [user] = await db
-    .select()
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
+  const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
 
   if (!user) {
     return c.json({ error: "User profile not found" }, 404);

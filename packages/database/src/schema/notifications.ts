@@ -1,11 +1,4 @@
-import {
-  pgTable,
-  serial,
-  text,
-  timestamp,
-  boolean,
-  uuid,
-} from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, boolean, uuid } from "drizzle-orm/pg-core";
 import type { InferSelectModel } from "drizzle-orm";
 import { users } from "./users.js";
 
@@ -16,8 +9,7 @@ export const notificationTypes = {
   error: "error",
 } as const;
 
-export type NotificationType =
-  (typeof notificationTypes)[keyof typeof notificationTypes];
+export type NotificationType = (typeof notificationTypes)[keyof typeof notificationTypes];
 
 export const notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),

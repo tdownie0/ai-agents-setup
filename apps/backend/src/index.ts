@@ -11,9 +11,7 @@ const app = new Hono().basePath("/api");
 app.use("*", cors());
 app.use("*", logger());
 
-app.get("/health", (c) =>
-  c.json({ status: "ok", time: new Date().toISOString() }),
-);
+app.get("/health", (c) => c.json({ status: "ok", time: new Date().toISOString() }));
 
 const routes = app
   .route("/users", usersHandler)

@@ -1,30 +1,31 @@
-import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
-import { UserTable } from './components/UserTable'
-import { NotificationBell } from './components/NotificationBell'
-import { Auth } from './components/Auth'
-import { Button } from './components/ui/button'
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+import { UserTable } from "./components/UserTable";
+import { NotificationBell } from "./components/NotificationBell";
+import { Auth } from "./components/Auth";
+import { Button } from "./components/ui/button";
 
 function App() {
-  const [session, setSession] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
+  const [session, setSession] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setLoading(false)
-    })
+      setSession(session);
+      setLoading(false);
+    });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-    })
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
 
-    return () => subscription.unsubscribe()
-  }, [])
+    return () => subscription.unsubscribe();
+  }, []);
 
   if (loading) {
-    return <div className="flex min-h-screen items-center justify-center">Loading...</div>
-
+    return <div className="flex min-h-screen items-center justify-center">Loading...</div>;
   }
 
   return (
@@ -56,7 +57,7 @@ function App() {
         )}
       </div>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;

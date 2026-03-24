@@ -10,8 +10,8 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@model_md/database": "workspace:*",
     "@hono/node-server": "^1.19.9",
+    "@model_md/database": "workspace:*",
     "@supabase/supabase-js": "^2.98.0",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.11.9"

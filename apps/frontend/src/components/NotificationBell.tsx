@@ -36,10 +36,7 @@ export function NotificationBell({ userId }: NotificationBellProps) {
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node)
-      ) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
     };
@@ -50,9 +47,7 @@ export function NotificationBell({ userId }: NotificationBellProps) {
   const handleMarkAsRead = async (id: number) => {
     try {
       await notificationApi.markAsRead(id);
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
-      );
+      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
     } catch (error) {
       console.error("Failed to mark as read:", error);
     }
@@ -107,9 +102,7 @@ export function NotificationBell({ userId }: NotificationBellProps) {
 
           <div className="max-h-96 overflow-y-auto">
             {notifications.length === 0 ? (
-              <div className="p-4 text-center text-gray-500">
-                No notifications
-              </div>
+              <div className="p-4 text-center text-gray-500">No notifications</div>
             ) : (
               notifications.map((notification) => (
                 <div

@@ -39,9 +39,7 @@ async function seed() {
 
     await db.insert(users).values(fakeUsers);
 
-    console.log(
-      `🔔 Seeding notifications for your Real ID: ${MY_REAL_USER_ID}...`,
-    );
+    console.log(`🔔 Seeding notifications for your Real ID: ${MY_REAL_USER_ID}...`);
     const initialNotifications = [
       {
         userId: MY_REAL_USER_ID,
@@ -53,8 +51,7 @@ async function seed() {
         userId: MY_REAL_USER_ID,
         type: "success" as const,
         title: "RLS Verified",
-        message:
-          "Only you can see this notification because of Row Level Security.",
+        message: "Only you can see this notification because of Row Level Security.",
       },
     ];
 

@@ -1,9 +1,8 @@
-version: '3'
+version: "3"
 
-dotenv: ['.env']
+dotenv: [".env"]
 
 tasks:
-
   build:ast:
     desc: Build AST service locally
     dir: apps/mcp-servers/mcp-ast-service
@@ -103,7 +102,7 @@ tasks:
       BRANCH: '{{.BRANCH | default "dev"}}'
     cmds:
       - task: feature-wait
-        vars: { BRANCH: '{{.BRANCH}}' }
+        vars: { BRANCH: "{{.BRANCH}}" }
       - docker-compose -p {{.BRANCH}} exec backend pnpm db:reset
       - docker-compose -p {{.BRANCH}} exec backend pnpm db:seed
 

@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r build --if-present",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
     "dev:server": "pnpm --filter ./apps/backend dev",
     "dev:client": "pnpm --filter ./apps/frontend dev",
     "dev": "concurrently \"pnpm:dev:server\" \"pnpm:dev:client\"",
@@ -21,13 +25,15 @@
     "typecheck": "pnpm exec tsc --build --verbose",
     "clean": "find . -name '*.tsbuildinfo' -delete && find . -name 'dist' -type d -exec rm -rf {} +"
   },
-  "devDependencies": {
-    "@types/node": "^25.3.3",
-    "concurrently": "^9.2.1",
-    "typescript": "^5.9.3"
-  },
   "dependencies": {
     "@faker-js/faker": "^9.9.0",
     "dotenv": "^17.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.3",
+    "concurrently": "^9.2.1",
+    "oxfmt": "^0.41.0",
+    "oxlint": "^1.56.0",
+    "typescript": "^5.9.3"
   }
 }

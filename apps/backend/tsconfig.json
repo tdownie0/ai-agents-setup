@@ -3,11 +3,9 @@
   "compilerOptions": {
     "outDir": "./dist",
     "verbatimModuleSyntax": true,
-    "types": ["node"] 
+    "types": ["node"]
   },
-  "references": [
-    { "path": "../../packages/database" }
-  ],
+  "references": [{ "path": "../../packages/database" }],
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
 }

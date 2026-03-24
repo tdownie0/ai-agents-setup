@@ -13,10 +13,7 @@ server.registerTool(
     description: "Returns the total count of users or recent signups.",
     inputSchema: z.object({
       filterByEmail: z.string().optional().describe("Filter by email"),
-      days: z
-        .number()
-        .optional()
-        .describe("Count users joined in the last X days"),
+      days: z.number().optional().describe("Count users joined in the last X days"),
     }),
   },
 
@@ -29,10 +26,7 @@ server.registerTool(
 
     if (days) {
       query = query.where(
-        gte(
-          users.createdAt,
-          sql`now() - interval '${sql.raw(days.toString())} days'`,
-        ),
+        gte(users.createdAt, sql`now() - interval '${sql.raw(days.toString())} days'`),
       ) as any;
     }
 
@@ -40,10 +34,8 @@ server.registerTool(
     const total = result?.value ?? 0;
 
     let message = `There are ${total} users total.`;
-    if (days)
-      message = `There are ${total} users who joined in the last ${days} days.`;
-    if (filterByEmail)
-      message = `There are ${total} users matching "${filterByEmail}".`;
+    if (days) message = `There are ${total} users who joined in the last ${days} days.`;
+    if (filterByEmail) message = `There are ${total} users matching "${filterByEmail}".`;
 
     return { content: [{ type: "text", text: message }] };
   },

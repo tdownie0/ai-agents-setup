@@ -1,10 +1,6 @@
 import { Hono } from "hono";
 import { db } from "@model_md/database";
-import {
-  notifications,
-  notificationTypes,
-  type NotificationType,
-} from "@model_md/database";
+import { notifications, notificationTypes, type NotificationType } from "@model_md/database";
 import { eq, desc, and } from "drizzle-orm";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 

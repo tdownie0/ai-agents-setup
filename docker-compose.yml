@@ -41,7 +41,7 @@ services:
       - VITE_PORT=5173
       - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
       - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - WATCHPACK_POLLING=true 
+      - WATCHPACK_POLLING=true
       - PNPM_CONFIG_STORE_DIR=/home/node/.pnpm-store
     volumes:
       - .:/app

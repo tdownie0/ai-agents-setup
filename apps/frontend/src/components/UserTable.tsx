@@ -89,9 +89,7 @@ interface UserTableProps {
   caption?: string;
 }
 
-export function UserTable({
-  caption = "A list of all users in the system.",
-}: UserTableProps) {
+export function UserTable({ caption = "A list of all users in the system." }: UserTableProps) {
   const [data, setData] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -120,18 +118,14 @@ export function UserTable({
           if (res.status === 401) {
             throw new Error("You must be logged in to view users.");
           }
-          throw new Error(
-            `Failed to fetch users: ${res.status} ${res.statusText}`,
-          );
+          throw new Error(`Failed to fetch users: ${res.status} ${res.statusText}`);
         }
 
         const users = await res.json();
         setData(users);
       } catch (err) {
         console.error("Failed to fetch users:", err);
-        setError(
-          err instanceof Error ? err.message : "An unknown error occurred",
-        );
+        setError(err instanceof Error ? err.message : "An unknown error occurred");
       } finally {
         setLoading(false);
       }
@@ -170,11 +164,7 @@ export function UserTable({
   }
 
   if (data.length === 0) {
-    return (
-      <div className="text-center p-8 text-muted-foreground">
-        No users found.
-      </div>
-    );
+    return <div className="text-center p-8 text-muted-foreground">No users found.</div>;
   }
 
   return (
@@ -189,10 +179,7 @@ export function UserTable({
                     <TableHead key={header.id}>
                       {header.isPlaceholder
                         ? null
-                        : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext(),
-                          )}
+                        : flexRender(header.column.columnDef.header, header.getContext())}
                     </TableHead>
                   );
                 })}
@@ -202,26 +189,17 @@ export function UserTable({
           <TableBody>
             {table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  data-state={row.getIsSelected() && "selected"}
-                >
+                <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
                   ))}
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="h-24 text-center"
-                >
+                <TableCell colSpan={columns.length} className="h-24 text-center">
                   No results.
                 </TableCell>
               </TableRow>
@@ -233,14 +211,10 @@ export function UserTable({
       {/* Pagination */}
       <div className="flex items-center justify-between px-2">
         <div className="flex-1 text-sm text-muted-foreground">
-          Showing{" "}
-          {table.getState().pagination.pageIndex *
-            table.getState().pagination.pageSize +
-            1}{" "}
+          Showing {table.getState().pagination.pageIndex * table.getState().pagination.pageSize + 1}{" "}
           to{" "}
           {Math.min(
-            (table.getState().pagination.pageIndex + 1) *
-              table.getState().pagination.pageSize,
+            (table.getState().pagination.pageIndex + 1) * table.getState().pagination.pageSize,
             data.length,
           )}{" "}
           of {data.length} users
