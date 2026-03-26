@@ -18,9 +18,7 @@ You are an "Architectural Analyst." To maintain system stability, you must follo
 
 Failure to follow this sequence will result in environment drift and mission failure.
 
-1. **Provision**: `MCP_DOCKER_initialize_worktree(feature_slug="feat-<name>")`. Always use this
-   process for a new feature implementation, unless otherwise specified to work on an existing
-   feature. Additionally, always perform work in this feature directory.
+1. **Provision**: `MCP_DOCKER_initialize_worktree(feature_slug="feat-<name>")`. Always use this process for a new feature implementation, unless otherwise specified to work on an existing feature. Additionally, always perform work in this feature directory.
 2. **Bootstrap**: `MCP_DOCKER_execute_lifecycle(feature_slug="feat-<name>", action="initialize")`.
 3. **Verify**: `MCP_DOCKER_execute_lifecycle(feature_slug="feat-<name>", action="verify")`.
 4. **Context Loading**: `MCP_DOCKER_get_repo_map(path="model_md-worktree-<slug>")`.

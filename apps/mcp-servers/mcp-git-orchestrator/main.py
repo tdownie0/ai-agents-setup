@@ -147,6 +147,7 @@ def execute_lifecycle(feature_slug: str, action: str) -> str:
         - migrate: Applies pending database migrations.
         - seed: Populates the database with seed data.
         - verify: Runs database-related tests.
+        - format: Automatically fixes linting errors and formats code (pnpm lint & pnpm fmt).
         - build: Compiles the backend and frontend applications.
 
     Args:
@@ -181,6 +182,12 @@ def execute_lifecycle(feature_slug: str, action: str) -> str:
         "migrate": [compose_exec("backend", ["db:migrate"])],
         "seed": [compose_exec("backend", ["db:seed"])],
         "verify": [compose_exec("backend", ["test:db"])],
+        "format": [
+            compose_exec("backend", ["lint:fix"]),
+            compose_exec("backend", ["fmt"]),
+            compose_exec("frontend", ["lint:fix"]),
+            compose_exec("frontend", ["fmt"]),
+        ],
         "build": [
             compose_exec("backend", ["build"]),
             compose_exec("frontend", ["build"]),
