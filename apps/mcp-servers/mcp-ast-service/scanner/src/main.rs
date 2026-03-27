@@ -24,6 +24,56 @@ const IGNORE_DIRS: &[&str] = &[
     "obj",
 ];
 
+struct LangConfig {
+    definitions: &'static [&'static str],
+    imports: &'static [&'static str],
+}
+
+fn get_config_for_ext(ext: &str) -> LangConfig {
+    match ext {
+        "rs" => LangConfig {
+            definitions: &[
+                "function_item",
+                "struct_item",
+                "enum_item",
+                "trait_item",
+                "impl_item",
+                "mod_item",
+                "type_item",
+                "const_item",
+            ],
+            imports: &["use_declaration", "extern_crate_declaration"],
+        },
+        "py" => LangConfig {
+            definitions: &["class_definition", "function_definition"],
+            imports: &["import_statement", "import_from_statement"],
+        },
+        "ts" | "tsx" | "js" => LangConfig {
+            definitions: &[
+                "interface_declaration",
+                "function_definition",
+                "method_definition",
+                "type_alias_declaration",
+                "lexical_declaration",
+                "class_declaration",
+            ],
+            imports: &["import_statement"],
+        },
+        "go" => LangConfig {
+            definitions: &[
+                "function_declaration",
+                "method_declaration",
+                "type_declaration",
+            ],
+            imports: &["import_declaration"],
+        },
+        _ => LangConfig {
+            definitions: &["function_definition", "function_item"],
+            imports: &[],
+        },
+    }
+}
+
 const SUPPORTED_EXTENSIONS: &[&str] = &["py", "js", "ts", "tsx", "go", "rs", "cpp", "h", "cs"];
 
 fn main() {
@@ -81,7 +131,6 @@ fn scan_directory(path: &str) {
         .map(|entry| {
             let p_str = entry.path().to_string_lossy().to_string();
             let summary = parse_file_to_summary(&p_str).unwrap_or_else(|e| format!("Error: {}", e));
-
             json!({
                 "path": p_str,
                 "summary": summary
@@ -99,7 +148,9 @@ fn parse_file_to_summary(file_path: &str) -> Result<String, String> {
         .and_then(|s| s.to_str())
         .unwrap_or("");
 
+    let config = get_config_for_ext(extension);
     let mut parser = Parser::new();
+
     let lang = match extension {
         "py" => tree_sitter_python::language(),
         "ts" | "tsx" => tree_sitter_typescript::language_tsx(),
@@ -112,71 +163,73 @@ fn parse_file_to_summary(file_path: &str) -> Result<String, String> {
     parser.set_language(&lang).map_err(|e| e.to_string())?;
     let tree = parser.parse(&source_code, None).ok_or("Failed to parse")?;
     let mut summary = Vec::new();
-    get_summary(tree.root_node(), &source_code, 0, &mut summary);
+    get_summary(
+        tree.root_node(),
+        &source_code,
+        0,
+        &mut summary,
+        &config,
+        extension,
+    );
 
     Ok(summary.join("\n"))
 }
 
-fn get_summary(node: Node, source: &str, depth: usize, summary: &mut Vec<String>) {
+fn get_summary(
+    node: Node,
+    source: &str,
+    depth: usize,
+    summary: &mut Vec<String>,
+    config: &LangConfig,
+    ext: &str,
+) {
     let indent = "  ".repeat(depth);
     let node_type = node.kind();
-    let definition_types = [
-        // Python/TS/JS
-        "class_definition",
-        "function_definition",
-        "method_definition",
-        "interface_declaration",
-        "type_alias_declaration",
-        "lexical_declaration",
-        // Rust Specific
-        "function_item",
-        "struct_item",
-        "enum_item",
-        "trait_item",
-        "impl_item",
-        "mod_item",
-        "type_item",
-        "const_item",
-    ];
-    let import_types = ["import_statement", "import_from_statement"];
 
-    if definition_types.contains(&node_type) {
+    if config.definitions.contains(&node_type) {
         let signature = source[node.start_byte()..node.end_byte()]
             .lines()
             .next()
             .unwrap_or("");
         let line_no = node.start_position().row + 1;
+
         summary.push(format!(
             "{}{}[{}] # Line {}",
             indent, signature, node_type, line_no
         ));
 
-        // Docstring extraction
-        for child in node.children(&mut node.walk()) {
-            if child.kind() == "block" {
-                if let Some(first_expr) = child.child(0) {
-                    if first_expr.kind() == "expression_statement" {
-                        let doc = &source[first_expr.start_byte()..first_expr.end_byte()].trim();
-                        let snippet = if doc.len() > 50 {
-                            format!("{}...", &doc[..50])
-                        } else {
-                            doc.to_string()
-                        };
-                        summary.push(format!("{}  {}", indent, snippet));
+        // Language-Specific Docstring Extraction
+        if ext == "py" {
+            for child in node.children(&mut node.walk()) {
+                if child.kind() == "block" {
+                    if let Some(first_expr) = child.child(0) {
+                        if first_expr.kind() == "expression_statement" {
+                            let doc = source[first_expr.start_byte()..first_expr.end_byte()].trim();
+                            summary.push(format!("{}  {}", indent, truncate(doc, 50)));
+                        }
                     }
                 }
             }
         }
 
+        // Recurse deeper for nested definitions (classes/modules)
         for child in node.children(&mut node.walk()) {
-            get_summary(child, source, depth + 1, summary);
+            get_summary(child, source, depth + 1, summary, config, ext);
         }
-    } else if import_types.contains(&node_type) {
+    } else if config.imports.contains(&node_type) {
         let import_text = source[node.start_byte()..node.end_byte()].trim();
         summary.push(format!("{}[Import] {}", indent, import_text));
     } else {
         for child in node.children(&mut node.walk()) {
-            get_summary(child, source, depth, summary);
+            get_summary(child, source, depth, summary, config, ext);
         }
+    }
+}
+
+fn truncate(s: &str, max_chars: usize) -> String {
+    if s.len() > max_chars {
+        format!("{}...", &s[..max_chars])
+    } else {
+        s.to_string()
     }
 }

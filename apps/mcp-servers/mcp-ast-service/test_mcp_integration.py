@@ -3,6 +3,7 @@ import json
 import sys
 import subprocess
 import os
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -90,11 +91,17 @@ async def run_scenario():
 
         # 2. Index the repo
         print("📦 Indexing model_md...")
+
+        start_time = time.perf_counter()
+
         repo_response = await call(
             "tools/call",
             {"name": "get_repo_map", "arguments": {"path": "model_md"}},
             msg_id=2,
         )
+
+        end_time = time.perf_counter()
+        duration = end_time - start_time
 
         # Extract the text from the MCP content block
         if repo_response and "result" in repo_response:
@@ -102,9 +109,11 @@ async def run_scenario():
 
             with open("repo_map_debug.txt", "w") as f:
                 f.write(full_map_text)
+
+            print(f"⏱️  Indexing completed in: {duration:.4f} seconds")
             print("💾 Full map saved to repo_map_debug.txt")
         else:
-            print(f"❌ Indexing failed: {repo_response}")
+            print(f"❌ Indexing failed (after {duration:.4f}s): {repo_response}")
 
         # 3. Test find_symbol (Looking for the 'users' table definition)
         print("🔍 Testing 'find_symbol' for 'pgTable'...")
