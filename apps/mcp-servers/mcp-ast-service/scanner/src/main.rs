@@ -121,12 +121,22 @@ fn get_summary(node: Node, source: &str, depth: usize, summary: &mut Vec<String>
     let indent = "  ".repeat(depth);
     let node_type = node.kind();
     let definition_types = [
+        // Python/TS/JS
         "class_definition",
         "function_definition",
         "method_definition",
         "interface_declaration",
         "type_alias_declaration",
         "lexical_declaration",
+        // Rust Specific
+        "function_item",
+        "struct_item",
+        "enum_item",
+        "trait_item",
+        "impl_item",
+        "mod_item",
+        "type_item",
+        "const_item",
     ];
     let import_types = ["import_statement", "import_from_statement"];
 
