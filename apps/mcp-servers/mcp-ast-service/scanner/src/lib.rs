@@ -1,6 +1,9 @@
 use ignore::WalkBuilder;
+use pyo3::exceptions::PyRuntimeError;
+use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyList};
 use rayon::prelude::*;
-use std::env;
+use redis::Commands;
 use std::fs;
 use std::path::Path;
 use tree_sitter::{Node, Parser};
@@ -24,10 +27,20 @@ const IGNORE_DIRS: &[&str] = &[
 
 const SUPPORTED_EXTENSIONS: &[&str] = &["py", "js", "ts", "tsx", "go", "rs", "cpp", "h", "cs"];
 
+#[derive(Debug, Clone)]
+struct ScanResult {
+    path: String,
+    rel_path: String,
+    hash: String,
+    summary: String,
+}
+
 struct LangConfig {
     definitions: &'static [&'static str],
     imports: &'static [&'static str],
 }
+
+// --- CONFIGURATION ---
 
 fn get_config_for_ext(ext: &str) -> LangConfig {
     match ext {
@@ -55,6 +68,7 @@ fn get_config_for_ext(ext: &str) -> LangConfig {
                 "method_definition",
                 "type_alias_declaration",
                 "lexical_declaration",
+                "variable_declaration",
                 "class_declaration",
             ],
             imports: &["import_statement"],
@@ -74,9 +88,8 @@ fn get_config_for_ext(ext: &str) -> LangConfig {
     }
 }
 
-// --- CORE LOGIC (Future PyO3 Exports) ---
+// --- CORE LOGIC ---
 
-/// It returns (hash, summary) or an error.
 pub fn scan_file_internal(path: &str) -> Result<(String, String), String> {
     let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
     let hash = format!("{:x}", md5::compute(&content));
@@ -84,30 +97,12 @@ pub fn scan_file_internal(path: &str) -> Result<(String, String), String> {
     Ok((hash, summary))
 }
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
-
-    if args.len() < 2 {
-        eprintln!("Usage: ast-scanner <file_path> OR ast-scanner --dir <directory_path>");
-        std::process::exit(1);
-    }
-
-    if args[1] == "--dir" && args.len() > 2 {
-        perform_parallel_scan(&args[2]);
-    } else {
-        let file_path = &args[1];
-        match scan_file_internal(file_path) {
-            Ok((_hash, summary)) => println!("{}", summary),
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
-            }
-        }
-    }
-}
-
-fn perform_parallel_scan(path: &str) -> Vec<ScanResult> {
-    let walker = WalkBuilder::new(path)
+fn perform_parallel_scan(
+    dir_path: &str,
+    workspace_root: &str,
+    redis_url: Option<&str>,
+) -> Vec<ScanResult> {
+    let walker = WalkBuilder::new(dir_path)
         .hidden(true)
         .filter_entry(|entry| {
             let name = entry.file_name().to_str().unwrap_or("");
@@ -128,21 +123,41 @@ fn perform_parallel_scan(path: &str) -> Vec<ScanResult> {
         })
         .collect();
 
+    // Prepare Redis client if URL is provided
+    let redis_client = redis_url.and_then(|url| redis::Client::open(url).ok());
+
     let results: Vec<ScanResult> = files
         .par_iter()
         .map(|entry| {
             let p_str = entry.path().to_string_lossy().to_string();
-            match scan_file_internal(&p_str) {
-                Ok((hash, summary)) => ScanResult {
-                    path: p_str,
-                    hash: hash,
-                    summary: summary,
-                },
-                Err(e) => ScanResult {
-                    path: p_str,
-                    hash: "ERROR".to_string(),
-                    summary: format!("Error: {}", e),
-                },
+
+            let rel_path = entry
+                .path()
+                .strip_prefix(workspace_root)
+                .unwrap_or(entry.path())
+                .to_string_lossy()
+                .to_string()
+                .trim_start_matches('/')
+                .to_string();
+
+            let (hash, summary) = match scan_file_internal(&p_str) {
+                Ok(res) => res,
+                Err(e) => ("ERROR".to_string(), format!("Error: {}", e)),
+            };
+
+            // IN-LOOP CACHING: Push to Redis immediately while on a background thread
+            if let Some(ref client) = redis_client {
+                if let Ok(mut con) = client.get_connection() {
+                    let _: Result<(), _> = con.set_ex(format!("ast:{}", rel_path), &summary, 3600);
+                    let _: Result<(), _> = con.set_ex(format!("hash:{}", rel_path), &hash, 3600);
+                }
+            }
+
+            ScanResult {
+                path: p_str,
+                rel_path,
+                hash,
+                summary,
             }
         })
         .collect();
@@ -150,12 +165,13 @@ fn perform_parallel_scan(path: &str) -> Vec<ScanResult> {
     results
 }
 
+// --- TREE-SITTER HELPERS ---
+
 fn parse_content_to_summary(source_code: &str, file_path: &str) -> Result<String, String> {
     let extension = Path::new(file_path)
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("");
-
     let config = get_config_for_ext(extension);
     let mut parser = Parser::new();
 
@@ -169,7 +185,6 @@ fn parse_content_to_summary(source_code: &str, file_path: &str) -> Result<String
     };
 
     parser.set_language(&lang).map_err(|e| e.to_string())?;
-
     let tree = parser.parse(source_code, None).ok_or("Failed to parse")?;
     let mut summary = Vec::new();
 
@@ -181,7 +196,6 @@ fn parse_content_to_summary(source_code: &str, file_path: &str) -> Result<String
         &config,
         extension,
     );
-
     Ok(summary.join("\n"))
 }
 
@@ -202,13 +216,11 @@ fn get_summary(
             .next()
             .unwrap_or("");
         let line_no = node.start_position().row + 1;
-
         summary.push(format!(
             "{}{}[{}] # Line {}",
             indent, signature, node_type, line_no
         ));
 
-        // Language-Specific Docstring Extraction
         if ext == "py" {
             for child in node.children(&mut node.walk()) {
                 if child.kind() == "block" {
@@ -221,8 +233,6 @@ fn get_summary(
                 }
             }
         }
-
-        // Recurse deeper for nested definitions (classes/modules)
         for child in node.children(&mut node.walk()) {
             get_summary(child, source, depth + 1, summary, config, ext);
         }
@@ -244,25 +254,26 @@ fn truncate(s: &str, max_chars: usize) -> String {
     }
 }
 
-use pyo3::exceptions::PyRuntimeError;
-use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
-
-struct ScanResult {
-    path: String,
-    hash: String,
-    summary: String,
-}
+// --- PY03 EXPORTS ---
 
 #[pyfunction]
-fn scan_directory(py: Python<'_>, dir_path: String) -> PyResult<Bound<'_, PyList>> {
-    let results: Vec<ScanResult> = perform_parallel_scan(&dir_path);
+#[pyo3(signature = (dir_path, workspace_root, redis_url=None))]
+fn scan_directory(
+    py: Python<'_>,
+    dir_path: String,
+    workspace_root: String,
+    redis_url: Option<String>,
+) -> PyResult<Bound<'_, PyList>> {
+    // Run the heavy lifting
+
+    let results =
+        py.detach(|| perform_parallel_scan(&dir_path, &workspace_root, redis_url.as_deref()));
 
     let list = PyList::empty(py);
-
     for res in results {
         let dict = PyDict::new(py);
         dict.set_item("path", res.path)?;
+        dict.set_item("rel_path", res.rel_path)?;
         dict.set_item("hash", res.hash)?;
         dict.set_item("summary", res.summary)?;
         list.append(dict)?;
@@ -271,13 +282,11 @@ fn scan_directory(py: Python<'_>, dir_path: String) -> PyResult<Bound<'_, PyList
     Ok(list)
 }
 
-// This wraps your internal logic for Python
 #[pyfunction]
 fn scan_file(path: String) -> PyResult<(String, String)> {
     scan_file_internal(&path).map_err(|e| PyRuntimeError::new_err(e))
 }
 
-// This defines the Python module name
 #[pymodule]
 fn ast_scanner_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(scan_file, m)?)?;

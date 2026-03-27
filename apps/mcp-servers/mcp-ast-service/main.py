@@ -14,15 +14,17 @@ MAX_CONCURRENCY = 20
 io_semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
 CACHE_TTL = 3600
 
+REDIS_HOST = os.getenv("REDIS_HOST", "cache")
+REDIS_PORT = os.getenv("REDIS_PORT", "6379")
+REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}"
+
 _redis_client = None
 
 
 def get_redis_client():
     global _redis_client
     if _redis_client is None:
-        _redis_client = redis.Redis(
-            host=os.getenv("REDIS_HOST", "cache"), port=6379, decode_responses=True
-        )
+        _redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
     return _redis_client
 
 
@@ -36,11 +38,7 @@ async def process_file(file_path, r_client):
         cached = await r_client.mget(ast_key, hash_key)
 
         if cached[0] and cached[1]:
-            # If using a redis client that returns bytes, decode them
-            ast_val = (
-                cached[0].decode("utf-8") if isinstance(cached[0], bytes) else cached[0]
-            )
-            return f"--- {rel_path} (Cached) ---\n{ast_val}"
+            return f"--- {rel_path} (Cached) ---\n{cached[0]}"
 
         try:
             # Rust handles the heavy lifting: Read -> Hash -> Parse
@@ -80,7 +78,9 @@ async def get_repo_map(path: str | None = None) -> str:
         return "Access Denied."
 
     try:
-        data = await asyncio.to_thread(ast_scanner_rust.scan_directory, target)
+        data = await asyncio.to_thread(
+            ast_scanner_rust.scan_directory, target, WORKSPACE_ROOT, REDIS_URL
+        )
 
         return "\n\n".join(
             [

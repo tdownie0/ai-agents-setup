@@ -8,6 +8,7 @@ name = "ast_scanner_rust"   # This MUST match your #[pymodule] name
 crate-type = ["cdylib"]
 
 [dependencies]
+redis="1.1.0"
 pyo3 = { version = "0.28.2", features = ["extension-module"] }
 tree-sitter = "0.22" 
 tree-sitter-python = "0.21"
