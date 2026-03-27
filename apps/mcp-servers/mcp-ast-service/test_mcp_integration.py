@@ -1,6 +1,7 @@
 import asyncio
 import json
 import sys
+import argparse
 import subprocess
 import os
 import time
@@ -50,54 +51,55 @@ DOCKER_CMD = [
     "main.py",
 ]
 
-RESET_CACHE = True  # Set to False to test "Warm" performance
-
 
 def prepare_test_env():
     CACHE_CONTAINER = "model_md-cache-1"
 
-    if RESET_CACHE:
-        check_running = subprocess.run(
-            ["docker", "inspect", "-f", "{{.State.Running}}", CACHE_CONTAINER],
-            capture_output=True,
-            text=True,
-        )
+    check_running = subprocess.run(
+        ["docker", "inspect", "-f", "{{.State.Running}}", CACHE_CONTAINER],
+        capture_output=True,
+        text=True,
+    )
 
-        if check_running.returncode != 0 or "true" not in check_running.stdout:
-            print("⚠️  Warning: 'cache' container not running. Skipping cache reset.")
-            return
+    if check_running.returncode != 0 or "true" not in check_running.stdout:
+        print("⚠️  Warning: 'cache' container not running. Skipping cache reset.")
+        return
 
-        print("Cleaning Redis cache for cold test...")
-        # Execute a command in the existing 'cache' container to clear AST keys
-        subprocess.run(
-            [
-                "docker",
-                "exec",
-                CACHE_CONTAINER,
-                "redis-cli",
-                "eval",
-                "for _,k in ipairs(redis.call('keys','ast:*')) do redis.call('del',k) end",
-                "0",
-            ],
-            capture_output=True,
-        )
+    print("Cleaning Redis cache for cold test...")
+    # Execute a command in the existing 'cache' container to clear AST keys
+    subprocess.run(
+        [
+            "docker",
+            "exec",
+            CACHE_CONTAINER,
+            "redis-cli",
+            "eval",
+            "for _,k in ipairs(redis.call('keys','ast:*')) do redis.call('del',k) end",
+            "0",
+        ],
+        capture_output=True,
+    )
 
-        subprocess.run(
-            [
-                "docker",
-                "exec",
-                CACHE_CONTAINER,
-                "redis-cli",
-                "eval",
-                "for _,k in ipairs(redis.call('keys','hash:*')) do redis.call('del',k) end",
-                "0",
-            ],
-            capture_output=True,
-        )
+    subprocess.run(
+        [
+            "docker",
+            "exec",
+            CACHE_CONTAINER,
+            "redis-cli",
+            "eval",
+            "for _,k in ipairs(redis.call('keys','hash:*')) do redis.call('del',k) end",
+            "0",
+        ],
+        capture_output=True,
+    )
 
 
-async def run_scenario():
-    prepare_test_env()
+async def run_scenario(force_clear=False):
+    if force_clear:
+        print("🧼 Force clear requested...")
+        prepare_test_env()
+    else:
+        print("⏩ Skipping cache clear (Warm Start)...")
 
     print(f"🚀 Launching Named Container: {CONTAINER_NAME}")
     proc = await asyncio.create_subprocess_exec(
@@ -195,4 +197,21 @@ async def run_scenario():
 
 
 if __name__ == "__main__":
-    asyncio.run(run_scenario())
+    parser = argparse.ArgumentParser(description="MCP AST Service Integration Test")
+
+    # Adding --clear or -c flag. 'store_true' means it defaults to False
+    # unless the flag is present.
+    parser.add_argument(
+        "--clear",
+        "-c",
+        action="store_true",
+        help="Force a Redis cache clear before running tests",
+    )
+
+    args = parser.parse_args()
+
+    try:
+        asyncio.run(run_scenario(force_clear=args.clear))
+    except KeyboardInterrupt:
+        print("\n✅ Stopped by user.")
+        sys.exit(0)
