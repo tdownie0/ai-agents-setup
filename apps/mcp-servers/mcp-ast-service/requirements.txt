@@ -4,3 +4,4 @@ tree-sitter-language-pack
 redis
 uvicorn
 starlette
+maturin==1.12.6

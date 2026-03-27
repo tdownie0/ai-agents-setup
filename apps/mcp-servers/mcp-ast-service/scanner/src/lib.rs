@@ -1,12 +1,10 @@
 use ignore::WalkBuilder;
 use rayon::prelude::*;
-use serde_json::json;
 use std::env;
 use std::fs;
 use std::path::Path;
 use tree_sitter::{Node, Parser};
 
-// --- Configuration ---
 const IGNORE_DIRS: &[&str] = &[
     "node_modules",
     "vendor",
@@ -23,6 +21,8 @@ const IGNORE_DIRS: &[&str] = &[
     "bin",
     "obj",
 ];
+
+const SUPPORTED_EXTENSIONS: &[&str] = &["py", "js", "ts", "tsx", "go", "rs", "cpp", "h", "cs"];
 
 struct LangConfig {
     definitions: &'static [&'static str],
@@ -74,7 +74,15 @@ fn get_config_for_ext(ext: &str) -> LangConfig {
     }
 }
 
-const SUPPORTED_EXTENSIONS: &[&str] = &["py", "js", "ts", "tsx", "go", "rs", "cpp", "h", "cs"];
+// --- CORE LOGIC (Future PyO3 Exports) ---
+
+/// It returns (hash, summary) or an error.
+pub fn scan_file_internal(path: &str) -> Result<(String, String), String> {
+    let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let hash = format!("{:x}", md5::compute(&content));
+    let summary = parse_content_to_summary(&content, path)?;
+    Ok((hash, summary))
+}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -85,13 +93,11 @@ fn main() {
     }
 
     if args[1] == "--dir" && args.len() > 2 {
-        scan_directory(&args[2]);
+        perform_parallel_scan(&args[2]);
     } else {
-        // Single file mode
         let file_path = &args[1];
-        match parse_file_to_summary(file_path) {
-            Ok(summary) => println!("{}", summary),
-
+        match scan_file_internal(file_path) {
+            Ok((_hash, summary)) => println!("{}", summary),
             Err(e) => {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
@@ -100,12 +106,9 @@ fn main() {
     }
 }
 
-fn scan_directory(path: &str) {
-    let mut builder = WalkBuilder::new(path);
-
-    // Configure the walker to skip your IGNORE_DIRS
-    let walker = builder
-        .hidden(true) // Skip hidden files (.git, etc)
+fn perform_parallel_scan(path: &str) -> Vec<ScanResult> {
+    let walker = WalkBuilder::new(path)
+        .hidden(true)
         .filter_entry(|entry| {
             let name = entry.file_name().to_str().unwrap_or("");
             !IGNORE_DIRS.contains(&name)
@@ -125,24 +128,29 @@ fn scan_directory(path: &str) {
         })
         .collect();
 
-    // Parallel processing with Rayon
-    let results: Vec<_> = files
+    let results: Vec<ScanResult> = files
         .par_iter()
         .map(|entry| {
             let p_str = entry.path().to_string_lossy().to_string();
-            let summary = parse_file_to_summary(&p_str).unwrap_or_else(|e| format!("Error: {}", e));
-            json!({
-                "path": p_str,
-                "summary": summary
-            })
+            match scan_file_internal(&p_str) {
+                Ok((hash, summary)) => ScanResult {
+                    path: p_str,
+                    hash: hash,
+                    summary: summary,
+                },
+                Err(e) => ScanResult {
+                    path: p_str,
+                    hash: "ERROR".to_string(),
+                    summary: format!("Error: {}", e),
+                },
+            }
         })
         .collect();
 
-    println!("{}", serde_json::to_string(&results).unwrap());
+    results
 }
 
-fn parse_file_to_summary(file_path: &str) -> Result<String, String> {
-    let source_code = fs::read_to_string(file_path).map_err(|e| e.to_string())?;
+fn parse_content_to_summary(source_code: &str, file_path: &str) -> Result<String, String> {
     let extension = Path::new(file_path)
         .extension()
         .and_then(|s| s.to_str())
@@ -161,11 +169,13 @@ fn parse_file_to_summary(file_path: &str) -> Result<String, String> {
     };
 
     parser.set_language(&lang).map_err(|e| e.to_string())?;
-    let tree = parser.parse(&source_code, None).ok_or("Failed to parse")?;
+
+    let tree = parser.parse(source_code, None).ok_or("Failed to parse")?;
     let mut summary = Vec::new();
+
     get_summary(
         tree.root_node(),
-        &source_code,
+        source_code,
         0,
         &mut summary,
         &config,
@@ -232,4 +242,45 @@ fn truncate(s: &str, max_chars: usize) -> String {
     } else {
         s.to_string()
     }
+}
+
+use pyo3::exceptions::PyRuntimeError;
+use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyList};
+
+struct ScanResult {
+    path: String,
+    hash: String,
+    summary: String,
+}
+
+#[pyfunction]
+fn scan_directory(py: Python<'_>, dir_path: String) -> PyResult<Bound<'_, PyList>> {
+    let results: Vec<ScanResult> = perform_parallel_scan(&dir_path);
+
+    let list = PyList::empty(py);
+
+    for res in results {
+        let dict = PyDict::new(py);
+        dict.set_item("path", res.path)?;
+        dict.set_item("hash", res.hash)?;
+        dict.set_item("summary", res.summary)?;
+        list.append(dict)?;
+    }
+
+    Ok(list)
+}
+
+// This wraps your internal logic for Python
+#[pyfunction]
+fn scan_file(path: String) -> PyResult<(String, String)> {
+    scan_file_internal(&path).map_err(|e| PyRuntimeError::new_err(e))
+}
+
+// This defines the Python module name
+#[pymodule]
+fn ast_scanner_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(scan_file, m)?)?;
+    m.add_function(wrap_pyfunction!(scan_directory, m)?)?;
+    Ok(())
 }

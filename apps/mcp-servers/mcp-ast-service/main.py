@@ -1,9 +1,8 @@
 import os
-import hashlib
 import redis.asyncio as redis
 import asyncio
 import sys
-import json
+import ast_scanner_rust
 from mcp.server.fastmcp import FastMCP
 
 WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", "/app")
@@ -30,30 +29,24 @@ def get_redis_client():
 async def process_file(file_path, r_client):
     async with io_semaphore:
         rel_path = os.path.relpath(file_path, WORKSPACE_ROOT).lstrip("/")
-
-        with open(file_path, "rb") as f:
-            file_hash = hashlib.md5(f.read()).hexdigest()
-
         ast_key = f"ast:{rel_path}"
         hash_key = f"hash:{rel_path}"
 
-        cached_ast = await r_client.get(ast_key)
-        cached_hash = await r_client.get(hash_key)
-        if cached_ast and cached_hash == file_hash:
-            return f"--- {rel_path} (Cached) ---\n{cached_ast}"
+        # mget returns a list: [val1, val2]. If a key is missing, the value is None.
+        cached = await r_client.mget(ast_key, hash_key)
+
+        if cached[0] and cached[1]:
+            # If using a redis client that returns bytes, decode them
+            ast_val = (
+                cached[0].decode("utf-8") if isinstance(cached[0], bytes) else cached[0]
+            )
+            return f"--- {rel_path} (Cached) ---\n{ast_val}"
 
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "ast-scanner",
-                file_path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            # Rust handles the heavy lifting: Read -> Hash -> Parse
+            file_hash, ast_summary = await asyncio.to_thread(
+                ast_scanner_rust.scan_file, file_path
             )
-            stdout, stderr = await proc.communicate()
-            if proc.returncode != 0:
-                return f"Error: {stderr.decode()}"
-
-            ast_summary = stdout.decode().strip()
 
             async with r_client.pipeline(transaction=True) as pipe:
                 pipe.set(ast_key, ast_summary, ex=CACHE_TTL)
@@ -61,8 +54,9 @@ async def process_file(file_path, r_client):
                 await pipe.execute()
 
             return f"--- {rel_path} ---\n{ast_summary}"
+
         except Exception as e:
-            return f"Error: {str(e)}"
+            return f"Error scanning {rel_path}: {str(e)}"
 
 
 @mcp.tool()
@@ -82,39 +76,21 @@ async def get_repo_map(path: str | None = None) -> str:
     target_slug = path if path else DEFAULT_PROJECT
     target = os.path.normpath(os.path.join(WORKSPACE_ROOT, target_slug))
 
-    # Security check remains vital
     if not target.startswith(os.path.abspath(WORKSPACE_ROOT)):
         return "Access Denied."
 
-    proc = await asyncio.create_subprocess_exec(
-        "ast-scanner",
-        "--dir",
-        target,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await proc.communicate()
+    try:
+        data = await asyncio.to_thread(ast_scanner_rust.scan_directory, target)
 
-    if proc.returncode != 0:
-        return f"Rust Error: {stderr.decode()}"
+        return "\n\n".join(
+            [
+                f"--- {os.path.relpath(item['path'], WORKSPACE_ROOT)} ---\n{item['summary']}"
+                for item in data
+            ]
+        )
 
-    data = json.loads(stdout.decode())
-    r_client = get_redis_client()
-
-    async with r_client.pipeline(transaction=True) as pipe:
-        for file_data in data:
-            # Crucial: Use the same relpath logic as process_file
-            rel_path = os.path.relpath(file_data["path"], WORKSPACE_ROOT).lstrip("/")
-            ast_key = f"ast:{rel_path}"
-            pipe.set(ast_key, file_data["summary"], ex=CACHE_TTL)
-        await pipe.execute()
-
-    return "\n\n".join(
-        [
-            f"--- {os.path.relpath(f['path'], WORKSPACE_ROOT)} ---\n{f['summary']}"
-            for f in data
-        ]
-    )
+    except Exception as e:
+        return f"Mapping Error: {str(e)}"
 
 
 @mcp.tool()

@@ -1,0 +1,441 @@
+diff --git a/apps/mcp-servers/mcp-ast-service/Dockerfile b/apps/mcp-servers/mcp-ast-service/Dockerfile
+index 879356f..a520543 100644
+--- a/apps/mcp-servers/mcp-ast-service/Dockerfile
++++ b/apps/mcp-servers/mcp-ast-service/Dockerfile
+@@ -1,19 +1,28 @@
+-FROM rust:1.94.0-slim AS rust-builder
+-WORKDIR /build
+-COPY ./scanner .
+-RUN cargo build --release
++FROM rust:1.94.0-slim AS builder
++# Install python3 and maturin for the build process
++RUN apt-get update && apt-get install -y python3 python3-pip python3-venv && rm -rf /var/lib/apt/lists/*
++RUN pip install --break-system-packages maturin
+ 
+-FROM python:3.12-slim
++WORKDIR /io
++COPY ./scanner /io/scanner
++WORKDIR /io/scanner
++
++# Build the release wheel
++RUN maturin build --release --out dist
++
++FROM python:3.13-slim
+ 
+ # Install runtime dependencies for tree-sitter if necessary
+ RUN apt-get update && apt-get install -y libstdc++6 && rm -rf /var/lib/apt/lists/*
+ 
+ WORKDIR /app/model_md/apps/mcp-servers/mcp-ast-service
+-COPY --from=rust-builder /build/target/release/ast-scanner /usr/local/bin/ast-scanner
+ 
+ COPY requirements.txt .
+ RUN pip install --no-cache-dir -r requirements.txt
+ 
++COPY --from=builder /io/scanner/dist/*.whl .
++RUN pip install *.whl && rm *.whl
++
+ COPY . .
+ 
+ ENV PYTHONUNBUFFERED=1
+diff --git a/apps/mcp-servers/mcp-ast-service/main.py b/apps/mcp-servers/mcp-ast-service/main.py
+index d534525..c4a5a76 100644
+--- a/apps/mcp-servers/mcp-ast-service/main.py
++++ b/apps/mcp-servers/mcp-ast-service/main.py
+@@ -1,9 +1,8 @@
+ import os
+-import hashlib
+ import redis.asyncio as redis
+ import asyncio
+ import sys
+-import json
++import ast_scanner_rust
+ from mcp.server.fastmcp import FastMCP
+ 
+ WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", "/app")
+@@ -30,30 +29,24 @@ def get_redis_client():
+ async def process_file(file_path, r_client):
+     async with io_semaphore:
+         rel_path = os.path.relpath(file_path, WORKSPACE_ROOT).lstrip("/")
+-
+-        with open(file_path, "rb") as f:
+-            file_hash = hashlib.md5(f.read()).hexdigest()
+-
+         ast_key = f"ast:{rel_path}"
+         hash_key = f"hash:{rel_path}"
+ 
+-        cached_ast = await r_client.get(ast_key)
+-        cached_hash = await r_client.get(hash_key)
+-        if cached_ast and cached_hash == file_hash:
+-            return f"--- {rel_path} (Cached) ---\n{cached_ast}"
++        # mget returns a list: [val1, val2]. If a key is missing, the value is None.
++        cached = await r_client.mget(ast_key, hash_key)
+ 
+-        try:
+-            proc = await asyncio.create_subprocess_exec(
+-                "ast-scanner",
+-                file_path,
+-                stdout=asyncio.subprocess.PIPE,
+-                stderr=asyncio.subprocess.PIPE,
++        if cached[0] and cached[1]:
++            # If using a redis client that returns bytes, decode them
++            ast_val = (
++                cached[0].decode("utf-8") if isinstance(cached[0], bytes) else cached[0]
+             )
+-            stdout, stderr = await proc.communicate()
+-            if proc.returncode != 0:
+-                return f"Error: {stderr.decode()}"
++            return f"--- {rel_path} (Cached) ---\n{ast_val}"
+ 
+-            ast_summary = stdout.decode().strip()
++        try:
++            # Rust handles the heavy lifting: Read -> Hash -> Parse
++            file_hash, ast_summary = await asyncio.to_thread(
++                ast_scanner_rust.scan_file, file_path
++            )
+ 
+             async with r_client.pipeline(transaction=True) as pipe:
+                 pipe.set(ast_key, ast_summary, ex=CACHE_TTL)
+@@ -61,8 +54,9 @@ async def process_file(file_path, r_client):
+                 await pipe.execute()
+ 
+             return f"--- {rel_path} ---\n{ast_summary}"
++
+         except Exception as e:
+-            return f"Error: {str(e)}"
++            return f"Error scanning {rel_path}: {str(e)}"
+ 
+ 
+ @mcp.tool()
+@@ -82,39 +76,32 @@ async def get_repo_map(path: str | None = None) -> str:
+     target_slug = path if path else DEFAULT_PROJECT
+     target = os.path.normpath(os.path.join(WORKSPACE_ROOT, target_slug))
+ 
+-    # Security check remains vital
+     if not target.startswith(os.path.abspath(WORKSPACE_ROOT)):
+         return "Access Denied."
+ 
+-    proc = await asyncio.create_subprocess_exec(
+-        "ast-scanner",
+-        "--dir",
+-        target,
+-        stdout=asyncio.subprocess.PIPE,
+-        stderr=asyncio.subprocess.PIPE,
+-    )
+-    stdout, stderr = await proc.communicate()
++    try:
++        data = await asyncio.to_thread(ast_scanner_rust.scan_directory, target)
+ 
+-    if proc.returncode != 0:
+-        return f"Rust Error: {stderr.decode()}"
++        results = []
++        r_client = get_redis_client()
+ 
+-    data = json.loads(stdout.decode())
+-    r_client = get_redis_client()
++        async with r_client.pipeline(transaction=True) as pipe:
++            for item in data:
++                # 'item' is now a dict: {"path": "...", "hash": "...", "summary": "..."}
++                rel_path = os.path.relpath(item["path"], WORKSPACE_ROOT).lstrip("/")
++
++                # Update Redis
++                pipe.set(f"ast:{rel_path}", item["summary"], ex=CACHE_TTL)
++                pipe.set(f"hash:{rel_path}", item["hash"], ex=CACHE_TTL)
++
++                results.append(f"--- {rel_path} ---\n{item['summary']}")
++
++            await pipe.execute()
++
++        return "\n\n".join(results)
+ 
+-    async with r_client.pipeline(transaction=True) as pipe:
+-        for file_data in data:
+-            # Crucial: Use the same relpath logic as process_file
+-            rel_path = os.path.relpath(file_data["path"], WORKSPACE_ROOT).lstrip("/")
+-            ast_key = f"ast:{rel_path}"
+-            pipe.set(ast_key, file_data["summary"], ex=CACHE_TTL)
+-        await pipe.execute()
+-
+-    return "\n\n".join(
+-        [
+-            f"--- {os.path.relpath(f['path'], WORKSPACE_ROOT)} ---\n{f['summary']}"
+-            for f in data
+-        ]
+-    )
++    except Exception as e:
++        return f"Mapping Error: {str(e)}"
+ 
+ 
+ @mcp.tool()
+diff --git a/apps/mcp-servers/mcp-ast-service/requirements.txt b/apps/mcp-servers/mcp-ast-service/requirements.txt
+index a2db28c..176ad5a 100644
+--- a/apps/mcp-servers/mcp-ast-service/requirements.txt
++++ b/apps/mcp-servers/mcp-ast-service/requirements.txt
+@@ -4,3 +4,4 @@ tree-sitter-language-pack
+ redis
+ uvicorn
+ starlette
++maturin==1.12.6
+diff --git a/apps/mcp-servers/mcp-ast-service/scanner/Cargo.toml b/apps/mcp-servers/mcp-ast-service/scanner/Cargo.toml
+index e03b446..72cd3aa 100644
+--- a/apps/mcp-servers/mcp-ast-service/scanner/Cargo.toml
++++ b/apps/mcp-servers/mcp-ast-service/scanner/Cargo.toml
+@@ -3,7 +3,12 @@ name = "ast-scanner"
+ version = "0.1.0"
+ edition = "2021"
+ 
++[lib]
++name = "ast_scanner_rust"   # This MUST match your #[pymodule] name
++crate-type = ["cdylib"]
++
+ [dependencies]
++pyo3 = { version = "0.28.2", features = ["extension-module"] }
+ tree-sitter = "0.22" 
+ tree-sitter-python = "0.21"
+ tree-sitter-typescript = "0.21"
+@@ -14,4 +19,4 @@ rayon = "1.10"
+ ignore = "0.4"
+ serde = { version = "1.0", features = ["derive"] }
+ serde_json = "1.0"
+-
++md5 = "0.7"
+diff --git a/apps/mcp-servers/mcp-ast-service/scanner/src/main.rs b/apps/mcp-servers/mcp-ast-service/scanner/src/main.rs
+deleted file mode 100644
+index fd5c9ad..0000000
+--- a/apps/mcp-servers/mcp-ast-service/scanner/src/main.rs
++++ /dev/null
+@@ -1,235 +0,0 @@
+-use ignore::WalkBuilder;
+-use rayon::prelude::*;
+-use serde_json::json;
+-use std::env;
+-use std::fs;
+-use std::path::Path;
+-use tree_sitter::{Node, Parser};
+-
+-// --- Configuration ---
+-const IGNORE_DIRS: &[&str] = &[
+-    "node_modules",
+-    "vendor",
+-    ".git",
+-    ".svn",
+-    ".hg",
+-    "__pycache__",
+-    "venv",
+-    ".venv",
+-    "env",
+-    "dist",
+-    "build",
+-    "target",
+-    "bin",
+-    "obj",
+-];
+-
+-struct LangConfig {
+-    definitions: &'static [&'static str],
+-    imports: &'static [&'static str],
+-}
+-
+-fn get_config_for_ext(ext: &str) -> LangConfig {
+-    match ext {
+-        "rs" => LangConfig {
+-            definitions: &[
+-                "function_item",
+-                "struct_item",
+-                "enum_item",
+-                "trait_item",
+-                "impl_item",
+-                "mod_item",
+-                "type_item",
+-                "const_item",
+-            ],
+-            imports: &["use_declaration", "extern_crate_declaration"],
+-        },
+-        "py" => LangConfig {
+-            definitions: &["class_definition", "function_definition"],
+-            imports: &["import_statement", "import_from_statement"],
+-        },
+-        "ts" | "tsx" | "js" => LangConfig {
+-            definitions: &[
+-                "interface_declaration",
+-                "function_definition",
+-                "method_definition",
+-                "type_alias_declaration",
+-                "lexical_declaration",
+-                "class_declaration",
+-            ],
+-            imports: &["import_statement"],
+-        },
+-        "go" => LangConfig {
+-            definitions: &[
+-                "function_declaration",
+-                "method_declaration",
+-                "type_declaration",
+-            ],
+-            imports: &["import_declaration"],
+-        },
+-        _ => LangConfig {
+-            definitions: &["function_definition", "function_item"],
+-            imports: &[],
+-        },
+-    }
+-}
+-
+-const SUPPORTED_EXTENSIONS: &[&str] = &["py", "js", "ts", "tsx", "go", "rs", "cpp", "h", "cs"];
+-
+-fn main() {
+-    let args: Vec<String> = env::args().collect();
+-
+-    if args.len() < 2 {
+-        eprintln!("Usage: ast-scanner <file_path> OR ast-scanner --dir <directory_path>");
+-        std::process::exit(1);
+-    }
+-
+-    if args[1] == "--dir" && args.len() > 2 {
+-        scan_directory(&args[2]);
+-    } else {
+-        // Single file mode
+-        let file_path = &args[1];
+-        match parse_file_to_summary(file_path) {
+-            Ok(summary) => println!("{}", summary),
+-
+-            Err(e) => {
+-                eprintln!("Error: {}", e);
+-                std::process::exit(1);
+-            }
+-        }
+-    }
+-}
+-
+-fn scan_directory(path: &str) {
+-    let mut builder = WalkBuilder::new(path);
+-
+-    // Configure the walker to skip your IGNORE_DIRS
+-    let walker = builder
+-        .hidden(true) // Skip hidden files (.git, etc)
+-        .filter_entry(|entry| {
+-            let name = entry.file_name().to_str().unwrap_or("");
+-            !IGNORE_DIRS.contains(&name)
+-        })
+-        .build();
+-
+-    let files: Vec<_> = walker
+-        .filter_map(|e| e.ok())
+-        .filter(|e| {
+-            let path = e.path();
+-            path.is_file()
+-                && path
+-                    .extension()
+-                    .and_then(|s| s.to_str())
+-                    .map(|ext| SUPPORTED_EXTENSIONS.contains(&ext))
+-                    .unwrap_or(false)
+-        })
+-        .collect();
+-
+-    // Parallel processing with Rayon
+-    let results: Vec<_> = files
+-        .par_iter()
+-        .map(|entry| {
+-            let p_str = entry.path().to_string_lossy().to_string();
+-            let summary = parse_file_to_summary(&p_str).unwrap_or_else(|e| format!("Error: {}", e));
+-            json!({
+-                "path": p_str,
+-                "summary": summary
+-            })
+-        })
+-        .collect();
+-
+-    println!("{}", serde_json::to_string(&results).unwrap());
+-}
+-
+-fn parse_file_to_summary(file_path: &str) -> Result<String, String> {
+-    let source_code = fs::read_to_string(file_path).map_err(|e| e.to_string())?;
+-    let extension = Path::new(file_path)
+-        .extension()
+-        .and_then(|s| s.to_str())
+-        .unwrap_or("");
+-
+-    let config = get_config_for_ext(extension);
+-    let mut parser = Parser::new();
+-
+-    let lang = match extension {
+-        "py" => tree_sitter_python::language(),
+-        "ts" | "tsx" => tree_sitter_typescript::language_tsx(),
+-        "js" => tree_sitter_javascript::language(),
+-        "go" => tree_sitter_go::language(),
+-        "rs" => tree_sitter_rust::language(),
+-        _ => tree_sitter_python::language(),
+-    };
+-
+-    parser.set_language(&lang).map_err(|e| e.to_string())?;
+-    let tree = parser.parse(&source_code, None).ok_or("Failed to parse")?;
+-    let mut summary = Vec::new();
+-    get_summary(
+-        tree.root_node(),
+-        &source_code,
+-        0,
+-        &mut summary,
+-        &config,
+-        extension,
+-    );
+-
+-    Ok(summary.join("\n"))
+-}
+-
+-fn get_summary(
+-    node: Node,
+-    source: &str,
+-    depth: usize,
+-    summary: &mut Vec<String>,
+-    config: &LangConfig,
+-    ext: &str,
+-) {
+-    let indent = "  ".repeat(depth);
+-    let node_type = node.kind();
+-
+-    if config.definitions.contains(&node_type) {
+-        let signature = source[node.start_byte()..node.end_byte()]
+-            .lines()
+-            .next()
+-            .unwrap_or("");
+-        let line_no = node.start_position().row + 1;
+-
+-        summary.push(format!(
+-            "{}{}[{}] # Line {}",
+-            indent, signature, node_type, line_no
+-        ));
+-
+-        // Language-Specific Docstring Extraction
+-        if ext == "py" {
+-            for child in node.children(&mut node.walk()) {
+-                if child.kind() == "block" {
+-                    if let Some(first_expr) = child.child(0) {
+-                        if first_expr.kind() == "expression_statement" {
+-                            let doc = source[first_expr.start_byte()..first_expr.end_byte()].trim();
+-                            summary.push(format!("{}  {}", indent, truncate(doc, 50)));
+-                        }
+-                    }
+-                }
+-            }
+-        }
+-
+-        // Recurse deeper for nested definitions (classes/modules)
+-        for child in node.children(&mut node.walk()) {
+-            get_summary(child, source, depth + 1, summary, config, ext);
+-        }
+-    } else if config.imports.contains(&node_type) {
+-        let import_text = source[node.start_byte()..node.end_byte()].trim();
+-        summary.push(format!("{}[Import] {}", indent, import_text));
+-    } else {
+-        for child in node.children(&mut node.walk()) {
+-            get_summary(child, source, depth, summary, config, ext);
+-        }
+-    }
+-}
+-
+-fn truncate(s: &str, max_chars: usize) -> String {
+-    if s.len() > max_chars {
+-        format!("{}...", &s[..max_chars])
+-    } else {
+-        s.to_string()
+-    }
+-}
