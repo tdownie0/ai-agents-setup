@@ -4,6 +4,7 @@ import asyncio
 import sys
 import ast_scanner_rust
 from mcp.server.fastmcp import FastMCP
+from typing import List, Dict, cast
 
 WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", "/app")
 DEFAULT_PROJECT = os.getenv("DEFAULT_PROJECT", "model_md")
@@ -78,16 +79,18 @@ async def get_repo_map(path: str | None = None) -> str:
         return "Access Denied."
 
     try:
-        data = await asyncio.to_thread(
+        raw_data = await asyncio.to_thread(
             ast_scanner_rust.scan_directory, target, WORKSPACE_ROOT, REDIS_URL
         )
+        data = cast(List[Dict[str, str]], raw_data)
 
-        return "\n\n".join(
-            [
-                f"--- {os.path.relpath(item['path'], WORKSPACE_ROOT)} ---\n{item['summary']}"
-                for item in data
-            ]
-        )
+        formatted_results = []
+        for item in data:
+            # Type checker is now happy with item["path"]
+            rel = os.path.relpath(item["path"], WORKSPACE_ROOT)
+            formatted_results.append(f"--- {rel} ---\n{item['summary']}")
+
+        return "\n\n".join(formatted_results)
 
     except Exception as e:
         return f"Mapping Error: {str(e)}"

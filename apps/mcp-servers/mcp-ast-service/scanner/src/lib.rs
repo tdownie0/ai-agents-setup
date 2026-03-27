@@ -2,8 +2,10 @@ use ignore::WalkBuilder;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use r2d2_redis::r2d2;
+use r2d2_redis::redis::Commands;
+use r2d2_redis::RedisConnectionManager;
 use rayon::prelude::*;
-use redis::Commands;
 use std::fs;
 use std::path::Path;
 use tree_sitter::{Node, Parser};
@@ -123,20 +125,24 @@ fn perform_parallel_scan(
         })
         .collect();
 
-    // Prepare Redis client if URL is provided
-    let redis_client = redis_url.and_then(|url| redis::Client::open(url).ok());
+    // 1. Initialize the Connection Pool
+    let pool = redis_url.and_then(|url| {
+        let manager = RedisConnectionManager::new(url).ok()?;
+        r2d2::Pool::builder()
+            .max_size(16) // Adjust based on your CPU core count
+            .build(manager)
+            .ok()
+    });
 
     let results: Vec<ScanResult> = files
         .par_iter()
         .map(|entry| {
             let p_str = entry.path().to_string_lossy().to_string();
-
             let rel_path = entry
                 .path()
                 .strip_prefix(workspace_root)
                 .unwrap_or(entry.path())
                 .to_string_lossy()
-                .to_string()
                 .trim_start_matches('/')
                 .to_string();
 
@@ -145,9 +151,11 @@ fn perform_parallel_scan(
                 Err(e) => ("ERROR".to_string(), format!("Error: {}", e)),
             };
 
-            // IN-LOOP CACHING: Push to Redis immediately while on a background thread
-            if let Some(ref client) = redis_client {
-                if let Ok(mut con) = client.get_connection() {
+            // 2. Use the Pool inside the loop
+            if let Some(ref p) = pool {
+                // get() retrieves a connection from the pool.
+                // It's much faster than get_connection() on a raw client.
+                if let Ok(mut con) = p.get() {
                     let _: Result<(), _> = con.set_ex(format!("ast:{}", rel_path), &summary, 3600);
                     let _: Result<(), _> = con.set_ex(format!("hash:{}", rel_path), &hash, 3600);
                 }
