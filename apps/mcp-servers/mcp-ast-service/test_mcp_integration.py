@@ -67,34 +67,24 @@ def prepare_test_env():
 
     print("Cleaning Redis cache for cold test...")
     # Execute a command in the existing 'cache' container to clear AST keys
-    subprocess.run(
-        [
-            "docker",
-            "exec",
-            CACHE_CONTAINER,
-            "redis-cli",
-            "eval",
-            "for _,k in ipairs(redis.call('keys','ast:*')) do redis.call('del',k) end",
-            "0",
-        ],
-        capture_output=True,
-    )
-
-    subprocess.run(
-        [
-            "docker",
-            "exec",
-            CACHE_CONTAINER,
-            "redis-cli",
-            "eval",
-            "for _,k in ipairs(redis.call('keys','hash:*')) do redis.call('del',k) end",
-            "0",
-        ],
-        capture_output=True,
-    )
+    for pattern in ["ast:*", "hash:*"]:
+        subprocess.run(
+            [
+                "docker",
+                "exec",
+                CACHE_CONTAINER,
+                "redis-cli",
+                "eval",
+                f"for _,k in ipairs(redis.call('keys','{pattern}')) do redis.call('del',k) end",
+                "0",
+            ],
+            capture_output=True,
+        )
 
 
-async def run_scenario(force_clear=False):
+async def run_scenario(
+    force_clear: bool = False, no_write: bool = False, target_path: str = "model_md"
+):
     if force_clear:
         print("🧼 Force clear requested...")
         prepare_test_env()
@@ -117,7 +107,6 @@ async def run_scenario(force_clear=False):
         await proc.stdin.drain()
 
         line = await proc.stdout.readline()
-
         return json.loads(line.decode()) if line else None
 
     try:
@@ -139,13 +128,13 @@ async def run_scenario(force_clear=False):
         )
 
         # 2. Index the repo
-        print("📦 Indexing model_md...")
+        print(f"📦 Indexing path: {target_path}...")
 
         start_time = time.perf_counter()
 
         repo_response = await call(
             "tools/call",
-            {"name": "get_repo_map", "arguments": {"path": "model_md"}},
+            {"name": "get_repo_map", "arguments": {"path": target_path}},
             msg_id=2,
         )
 
@@ -156,11 +145,14 @@ async def run_scenario(force_clear=False):
         if repo_response and "result" in repo_response:
             full_map_text = repo_response["result"]["content"][0]["text"]
 
-            with open("repo_map_debug.txt", "w") as f:
-                f.write(full_map_text)
+            if not no_write:
+                with open("repo_map_debug.txt", "w") as f:
+                    f.write(full_map_text)
 
+                print("💾 Full map saved to repo_map_debug.txt")
+            else:
+                print("🚫 --no-write active: Skipping disk I/O.")
             print(f"⏱️  Indexing completed in: {duration:.4f} seconds")
-            print("💾 Full map saved to repo_map_debug.txt")
         else:
             print(f"❌ Indexing failed (after {duration:.4f}s): {repo_response}")
 
@@ -208,10 +200,29 @@ if __name__ == "__main__":
         help="Force a Redis cache clear before running tests",
     )
 
+    parser.add_argument(
+        "--no-write",
+        "-n",
+        action="store_true",
+        help="Skip writing the repo map result to a local text file",
+    )
+
+    parser.add_argument(
+        "--path",
+        "-p",
+        type=str,
+        default="model_md",
+        help="The directory path to scan (defaults to 'model_md')",
+    )
+
     args = parser.parse_args()
 
     try:
-        asyncio.run(run_scenario(force_clear=args.clear))
+        asyncio.run(
+            run_scenario(
+                force_clear=args.clear, no_write=args.no_write, target_path=args.path
+            )
+        )
     except KeyboardInterrupt:
         print("\n✅ Stopped by user.")
         sys.exit(0)
