@@ -40,7 +40,7 @@ async function callTool(name: string, args: Record<string, any>): Promise<any> {
           clearTimeout(timeout);
           cleanupListeners();
           resolve(result);
-        } catch (e) {
+        } catch {
           // Incomplete JSON chunk, keep waiting
         }
       }

@@ -18,16 +18,14 @@ server.registerTool(
   },
 
   async ({ filterByEmail, days }) => {
-    let query = db.select({ value: drizzleCount() }).from(users);
+    let query = db.select({ value: drizzleCount() }).from(users).$dynamic();
 
     if (filterByEmail) {
-      query = query.where(eq(users.email, filterByEmail)) as any;
+      query = query.where(eq(users.email, filterByEmail));
     }
 
     if (days) {
-      query = query.where(
-        gte(users.createdAt, sql`now() - interval '${sql.raw(days.toString())} days'`),
-      ) as any;
+      query = query.where(gte(users.createdAt, sql`now() - ${Number(days)} * interval '1 day'`));
     }
 
     const [result] = await query;
