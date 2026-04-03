@@ -1,6 +1,7 @@
 # --- STAGE 1: Builder ---
 FROM node:25-slim AS builder
-RUN npm install -g pnpm
+RUN npm install -g corepack@latest --force
+RUN corepack enable
 WORKDIR /app
 
 # Layer 1: Dependencies (Cached unless lockfile changes)
