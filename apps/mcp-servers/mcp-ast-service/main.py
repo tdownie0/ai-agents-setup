@@ -70,9 +70,17 @@ def get_safe_path(input_path: str) -> str:
 @mcp.tool()
 async def scan_specific_file(file_path: str) -> str:
     """
-    Performs a deep AST scan of a single file.
-    Use this if you need to refresh the cache for a specific file or
-    get details on a file not covered in the general repo map.
+    Performs a deep AST scan of a single file to extract signatures, docstrings, and imports.
+    Use this to refresh the cache for a specific file or to get deep details on a file
+    after locating it via find_symbol or get_repo_map.
+
+    Args:
+        file_path (str): The path to the file relative to the workspace root
+                         (e.g., 'src/main.py' or 'packages/db/schema.ts').
+
+    Returns:
+        str: The formatted AST summary of the file, or an error message if
+             the file cannot be read or is outside the workspace.
     """
     abs_path = get_safe_path(file_path)
     if not abs_path.startswith(os.path.abspath(WORKSPACE_ROOT)):
