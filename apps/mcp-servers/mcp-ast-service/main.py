@@ -58,6 +58,30 @@ async def process_file(file_path, r_client):
             return f"Error scanning {rel_path}: {str(e)}"
 
 
+def get_safe_path(input_path: str) -> str:
+    """Standardizes path resolution for security and Redis key consistency."""
+    root = os.path.abspath(WORKSPACE_ROOT)
+    # lstrip('/') prevents user input from 'resetting' the path to root during join
+    safe_join = os.path.join(root, input_path.lstrip("/"))
+    # normpath removes ../ and ./; abspath makes it final
+    return os.path.abspath(os.path.normpath(safe_join))
+
+
+@mcp.tool()
+async def scan_specific_file(file_path: str) -> str:
+    """
+    Performs a deep AST scan of a single file.
+    Use this if you need to refresh the cache for a specific file or
+    get details on a file not covered in the general repo map.
+    """
+    abs_path = get_safe_path(file_path)
+    if not abs_path.startswith(os.path.abspath(WORKSPACE_ROOT)):
+        return "Access Denied: Path is outside workspace."
+
+    r_client = get_redis_client()
+    return await process_file(abs_path, r_client)
+
+
 @mcp.tool()
 async def get_repo_map(path: str | None = None) -> str:
     """
@@ -73,7 +97,7 @@ async def get_repo_map(path: str | None = None) -> str:
              (signatures, line numbers, and docstrings).
     """
     target_slug = path if path else DEFAULT_PROJECT
-    target = os.path.normpath(os.path.join(WORKSPACE_ROOT, target_slug))
+    target = get_safe_path(target_slug)
 
     if not target.startswith(os.path.abspath(WORKSPACE_ROOT)):
         return "Access Denied."
@@ -96,6 +120,25 @@ async def get_repo_map(path: str | None = None) -> str:
         return f"Mapping Error: {str(e)}"
 
 
+def get_redis_prefix(input_path: str, namespace: str = "ast") -> str:
+    """
+    Converts a user-provided path into a consistent Redis key prefix.
+    Example: 'model_md/' -> 'ast:model_md'
+    """
+    abs_path = get_safe_path(input_path)
+    # Get the path relative to /app
+    rel = os.path.relpath(abs_path, os.path.abspath(WORKSPACE_ROOT))
+
+    # Strip leading slashes and any './' markers to keep keys clean
+    clean_rel = rel.lstrip("./").lstrip("/")
+
+    # If the path is just the root itself, relpath might return '.'
+    if clean_rel == ".":
+        return f"{namespace}:"
+
+    return f"{namespace}:{clean_rel}"
+
+
 @mcp.tool()
 async def find_symbol(symbol_name: str, project_filter: str | None = None) -> str:
     """
@@ -111,7 +154,7 @@ async def find_symbol(symbol_name: str, project_filter: str | None = None) -> st
         str: A newline-separated list of file paths where the symbol was found.
     """
     r_client = get_redis_client()
-    prefix = f"ast:{project_filter.lstrip('/')}" if project_filter else "ast:"
+    prefix = get_redis_prefix(project_filter) if project_filter else "ast:"
     keys = await r_client.keys(f"{prefix}*")
 
     matches = []
@@ -138,11 +181,12 @@ async def get_dependents(file_path: str, project_path: str | None = None) -> str
         str: A list of file paths that contain an import statement referencing the target file.
     """
     target_project = project_path if project_path else DEFAULT_PROJECT
-    target_name = os.path.basename(file_path).split(".")[0]
+    prefix = get_redis_prefix(target_project)
 
+    target_name = os.path.basename(file_path).split(".")[0]
     r_client = get_redis_client()
-    search_prefix = f"ast:{target_project.lstrip('/')}*"
-    keys = await r_client.keys(search_prefix)
+
+    keys = await r_client.keys(f"{prefix}*")
 
     dependents = []
     for key in keys:

@@ -171,23 +171,51 @@ fn perform_parallel_scan(
                 .trim_start_matches('/')
                 .to_string();
 
-            let (hash, summary) = match scan_file_internal(&p_str) {
-                Ok(res) => res,
-                Err(e) => ("ERROR".to_string(), format!("Error: {}", e)),
-            };
+            let mut current_summary = String::new();
+            let mut cache_hit = false;
+
+            let content = fs::read_to_string(&p_str).unwrap_or_default();
+            let current_hash = format!("{:x}", md5::compute(&content));
 
             if let Some(ref p) = pool {
                 if let Ok(mut con) = p.get() {
-                    let _: Result<(), _> = con.set_ex(format!("ast:{}", rel_path), &summary, 3600);
-                    let _: Result<(), _> = con.set_ex(format!("hash:{}", rel_path), &hash, 3600);
+                    let h_key = format!("hash:{}", rel_path);
+                    let a_key = format!("ast:{}", rel_path);
+
+                    if let Ok(Some(existing_hash)) = con.get::<_, Option<String>>(&h_key) {
+                        if existing_hash == current_hash {
+                            if let Ok(cached_summary) = con.get::<_, String>(&a_key) {
+                                current_summary = cached_summary;
+                                cache_hit = true;
+                            }
+                        }
+                    }
+
+                    if !cache_hit {
+                        match parse_content_to_summary(&content, &p_str) {
+                            Ok(summary) => {
+                                current_summary = summary;
+                                let _: Result<(), _> = con.set_ex(&a_key, &current_summary, 3600);
+                                let _: Result<(), _> = con.set_ex(&h_key, &current_hash, 3600);
+                            }
+                            Err(e) => {
+                                current_summary = format!("Error: {}", e);
+                            }
+                        }
+                    }
                 }
+            }
+
+            if current_summary.is_empty() && !cache_hit {
+                current_summary = parse_content_to_summary(&content, &p_str)
+                    .unwrap_or_else(|e| format!("Error: {}", e));
             }
 
             ScanResult {
                 path: p_str,
                 rel_path,
-                hash,
-                summary,
+                hash: current_hash,
+                summary: current_summary,
             }
         })
         .collect()

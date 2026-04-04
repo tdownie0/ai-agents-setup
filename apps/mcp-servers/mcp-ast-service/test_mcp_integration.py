@@ -176,6 +176,24 @@ async def run_scenario(
         )
         print(f"🔗 DEPENDENTS RESULT:\n{dep['result']['content'][0]['text']}\n")
 
+        # 5. Test scan_specific_file (Warm Start - should be Cached)
+        test_file = f"{target_path}/packages/database/src/schema/users.ts"
+        print(f"🎯 Testing 'scan_specific_file' (Warm) for: {test_file}")
+
+        warm_res = await call(
+            "tools/call",
+            {"name": "scan_specific_file", "arguments": {"file_path": test_file}},
+            5,
+        )
+
+        warm_text = warm_res["result"]["content"][0]["text"]
+        print(f"📄 WARM RESULT: {warm_text[:100]}...")
+
+        if "(Cached)" in warm_text:
+            print("✅ Success: Cache hit detected.")
+        else:
+            print("⚠️  Warning: Expected cache hit but got fresh scan.")
+
     finally:
         print(f"🛑 Killing container {CONTAINER_NAME}...")
         # Force shutdown from the host to ensure --rm triggers

@@ -27,12 +27,14 @@ registry:
       - name: DOCKER_MCP_TRANSPORT
         value: "stdio"
     tools:
+      - name: scan_specific_file
+	description: "Deep scan a single file to refresh its AST cache or get detailed signatures. Use when precision is needed for one file."
       - name: get_repo_map
-        description: "Generates a high-level map of classes and functions"
+	description: "Generates a high-level overview of a directory's structure, classes, and functions. Best for initial project exploration."
       - name: find_symbol
-        description: "Search for a symbol, optionally restricted to a specific worktree/project"
+	description: "Search for a symbol name (class/function) across indexed files. Optionally filter by project/folder."
       - name: get_dependents
-        description: "Finds all files that import the given file_path"
+	description: "Lists all files that import the target file. Essential for understanding dependencies and the impact of code changes."
 
   supabase-manager:
     title: "Supabase DB Manager"
