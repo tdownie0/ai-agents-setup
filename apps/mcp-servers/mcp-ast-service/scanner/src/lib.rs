@@ -8,7 +8,9 @@ use r2d2_redis::RedisConnectionManager;
 use rayon::prelude::*;
 use std::fs;
 use std::path::Path;
-use tree_sitter::{Node, Parser};
+use tree_sitter::{Language, Node, Parser};
+
+// --- CONSTANTS ---
 
 const IGNORE_DIRS: &[&str] = &[
     "node_modules",
@@ -27,14 +29,81 @@ const IGNORE_DIRS: &[&str] = &[
     "obj",
 ];
 
-const SUPPORTED_EXTENSIONS: &[&str] = &["py", "js", "ts", "tsx", "go", "rs", "cpp", "h", "cs"];
+// --- ABSTRACTIONS ---
 
-#[derive(Debug, Clone)]
-struct ScanResult {
-    path: String,
-    rel_path: String,
-    hash: String,
-    summary: String,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SupportedLanguage {
+    Rust,
+    Python,
+    TypeScript,
+    JavaScript,
+    Go,
+}
+
+impl SupportedLanguage {
+    fn from_extension(ext: &str) -> Option<Self> {
+        match ext {
+            "rs" => Some(Self::Rust),
+            "py" => Some(Self::Python),
+            "ts" | "tsx" => Some(Self::TypeScript),
+            "js" => Some(Self::JavaScript),
+            "go" => Some(Self::Go),
+            _ => None,
+        }
+    }
+
+    fn ts_language(&self) -> Language {
+        match self {
+            Self::Rust => tree_sitter_rust::language(),
+            Self::Python => tree_sitter_python::language(),
+            Self::TypeScript => tree_sitter_typescript::language_tsx(),
+            Self::JavaScript => tree_sitter_javascript::language(),
+            Self::Go => tree_sitter_go::language(),
+        }
+    }
+
+    fn config(&self) -> LangConfig {
+        match self {
+            Self::Rust => LangConfig {
+                definitions: &[
+                    "function_item",
+                    "struct_item",
+                    "enum_item",
+                    "trait_item",
+                    "impl_item",
+                    "mod_item",
+                    "type_item",
+                    "const_item",
+                ],
+                imports: &["use_declaration", "extern_crate_declaration"],
+            },
+            Self::Python => LangConfig {
+                definitions: &["class_definition", "function_definition"],
+                imports: &["import_statement", "import_from_statement"],
+            },
+
+            Self::TypeScript | Self::JavaScript => LangConfig {
+                definitions: &[
+                    "interface_declaration",
+                    "function_definition",
+                    "method_definition",
+                    "type_alias_declaration",
+                    "lexical_declaration",
+                    "variable_declaration",
+                    "class_declaration",
+                ],
+                imports: &["import_statement"],
+            },
+            Self::Go => LangConfig {
+                definitions: &[
+                    "function_declaration",
+                    "method_declaration",
+                    "type_declaration",
+                ],
+                imports: &["import_declaration"],
+            },
+        }
+    }
 }
 
 struct LangConfig {
@@ -42,52 +111,12 @@ struct LangConfig {
     imports: &'static [&'static str],
 }
 
-// --- CONFIGURATION ---
-
-fn get_config_for_ext(ext: &str) -> LangConfig {
-    match ext {
-        "rs" => LangConfig {
-            definitions: &[
-                "function_item",
-                "struct_item",
-                "enum_item",
-                "trait_item",
-                "impl_item",
-                "mod_item",
-                "type_item",
-                "const_item",
-            ],
-            imports: &["use_declaration", "extern_crate_declaration"],
-        },
-        "py" => LangConfig {
-            definitions: &["class_definition", "function_definition"],
-            imports: &["import_statement", "import_from_statement"],
-        },
-        "ts" | "tsx" | "js" => LangConfig {
-            definitions: &[
-                "interface_declaration",
-                "function_definition",
-                "method_definition",
-                "type_alias_declaration",
-                "lexical_declaration",
-                "variable_declaration",
-                "class_declaration",
-            ],
-            imports: &["import_statement"],
-        },
-        "go" => LangConfig {
-            definitions: &[
-                "function_declaration",
-                "method_declaration",
-                "type_declaration",
-            ],
-            imports: &["import_declaration"],
-        },
-        _ => LangConfig {
-            definitions: &["function_definition", "function_item"],
-            imports: &[],
-        },
-    }
+#[derive(Debug, Clone)]
+struct ScanResult {
+    path: String,
+    rel_path: String,
+    hash: String,
+    summary: String,
 }
 
 // --- CORE LOGIC ---
@@ -120,21 +149,17 @@ fn perform_parallel_scan(
                 && path
                     .extension()
                     .and_then(|s| s.to_str())
-                    .map(|ext| SUPPORTED_EXTENSIONS.contains(&ext))
-                    .unwrap_or(false)
+                    .and_then(SupportedLanguage::from_extension)
+                    .is_some()
         })
         .collect();
 
-    // 1. Initialize the Connection Pool
     let pool = redis_url.and_then(|url| {
         let manager = RedisConnectionManager::new(url).ok()?;
-        r2d2::Pool::builder()
-            .max_size(16) // Adjust based on your CPU core count
-            .build(manager)
-            .ok()
+        r2d2::Pool::builder().max_size(16).build(manager).ok()
     });
 
-    let results: Vec<ScanResult> = files
+    files
         .par_iter()
         .map(|entry| {
             let p_str = entry.path().to_string_lossy().to_string();
@@ -151,10 +176,7 @@ fn perform_parallel_scan(
                 Err(e) => ("ERROR".to_string(), format!("Error: {}", e)),
             };
 
-            // 2. Use the Pool inside the loop
             if let Some(ref p) = pool {
-                // get() retrieves a connection from the pool.
-                // It's much faster than get_connection() on a raw client.
                 if let Ok(mut con) = p.get() {
                     let _: Result<(), _> = con.set_ex(format!("ast:{}", rel_path), &summary, 3600);
                     let _: Result<(), _> = con.set_ex(format!("hash:{}", rel_path), &hash, 3600);
@@ -168,9 +190,7 @@ fn perform_parallel_scan(
                 summary,
             }
         })
-        .collect();
-
-    results
+        .collect()
 }
 
 // --- TREE-SITTER HELPERS ---
@@ -180,19 +200,17 @@ fn parse_content_to_summary(source_code: &str, file_path: &str) -> Result<String
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("");
-    let config = get_config_for_ext(extension);
+
+    let lang_type = SupportedLanguage::from_extension(extension)
+        .ok_or_else(|| format!("Unsupported extension: {}", extension))?;
+
+    let config = lang_type.config();
     let mut parser = Parser::new();
 
-    let lang = match extension {
-        "py" => tree_sitter_python::language(),
-        "ts" | "tsx" => tree_sitter_typescript::language_tsx(),
-        "js" => tree_sitter_javascript::language(),
-        "go" => tree_sitter_go::language(),
-        "rs" => tree_sitter_rust::language(),
-        _ => tree_sitter_python::language(),
-    };
+    parser
+        .set_language(&lang_type.ts_language())
+        .map_err(|e| e.to_string())?;
 
-    parser.set_language(&lang).map_err(|e| e.to_string())?;
     let tree = parser.parse(source_code, None).ok_or("Failed to parse")?;
     let mut summary = Vec::new();
 
@@ -202,7 +220,7 @@ fn parse_content_to_summary(source_code: &str, file_path: &str) -> Result<String
         0,
         &mut summary,
         &config,
-        extension,
+        lang_type,
     );
     Ok(summary.join("\n"))
 }
@@ -213,7 +231,7 @@ fn get_summary(
     depth: usize,
     summary: &mut Vec<String>,
     config: &LangConfig,
-    ext: &str,
+    lang: SupportedLanguage,
 ) {
     let indent = "  ".repeat(depth);
     let node_type = node.kind();
@@ -223,35 +241,49 @@ fn get_summary(
             .lines()
             .next()
             .unwrap_or("");
+
         let line_no = node.start_position().row + 1;
+
         summary.push(format!(
             "{}{}[{}] # Line {}",
             indent, signature, node_type, line_no
         ));
 
-        if ext == "py" {
-            for child in node.children(&mut node.walk()) {
-                if child.kind() == "block" {
-                    if let Some(first_expr) = child.child(0) {
-                        if first_expr.kind() == "expression_statement" {
-                            let doc = source[first_expr.start_byte()..first_expr.end_byte()].trim();
-                            summary.push(format!("{}  {}", indent, truncate(doc, 50)));
-                        }
-                    }
-                }
+        // Extract Python docstrings if applicable
+        if lang == SupportedLanguage::Python {
+            if let Some(doc) = extract_python_docstring(node, source) {
+                summary.push(format!("{}  {}", indent, truncate(&doc, 50)));
             }
         }
+
         for child in node.children(&mut node.walk()) {
-            get_summary(child, source, depth + 1, summary, config, ext);
+            get_summary(child, source, depth + 1, summary, config, lang);
         }
     } else if config.imports.contains(&node_type) {
         let import_text = source[node.start_byte()..node.end_byte()].trim();
         summary.push(format!("{}[Import] {}", indent, import_text));
     } else {
         for child in node.children(&mut node.walk()) {
-            get_summary(child, source, depth, summary, config, ext);
+            get_summary(child, source, depth, summary, config, lang);
         }
     }
+}
+
+fn extract_python_docstring(node: Node, source: &str) -> Option<String> {
+    for child in node.children(&mut node.walk()) {
+        if child.kind() == "block" {
+            if let Some(first_expr) = child.child(0) {
+                if first_expr.kind() == "expression_statement" {
+                    return Some(
+                        source[first_expr.start_byte()..first_expr.end_byte()]
+                            .trim()
+                            .to_string(),
+                    );
+                }
+            }
+        }
+    }
+    None
 }
 
 fn truncate(s: &str, max_chars: usize) -> String {
@@ -272,8 +304,6 @@ fn scan_directory(
     workspace_root: String,
     redis_url: Option<String>,
 ) -> PyResult<Bound<'_, PyList>> {
-    // Run the heavy lifting
-
     let results =
         py.detach(|| perform_parallel_scan(&dir_path, &workspace_root, redis_url.as_deref()));
 
@@ -286,7 +316,6 @@ fn scan_directory(
         dict.set_item("summary", res.summary)?;
         list.append(dict)?;
     }
-
     Ok(list)
 }
 
