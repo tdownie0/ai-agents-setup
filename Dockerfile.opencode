@@ -1,6 +1,46 @@
+# --- Stage 1: Grab Bun binary ---
+FROM oven/bun:alpine AS bun-source
+
+# --- Stage 2: Build Beads from source ---
+# We use golang:alpine to ensure we have a full build environment
+FROM golang:alpine AS beads-builder
+
+RUN apk add --no-cache curl tar
+
+# Build Beads (bd CLI)
+RUN curl -fsSL https://github.com/gastownhall/beads/archive/refs/heads/main.tar.gz -o /tmp/beads.tar.gz && \
+    tar -xzf /tmp/beads.tar.gz -C /tmp && \
+    cd /tmp/beads-main && \
+    CGO_ENABLED=0 go build -o /usr/local/bin/bd ./cmd/bd
+
+# Download Dolt (Database backend)
+RUN curl -fsSL https://github.com/dolthub/dolt/releases/download/v1.85.0/dolt-linux-amd64.tar.gz -o /tmp/dolt.tar.gz && \
+    tar -xzf /tmp/dolt.tar.gz -C /tmp && \
+    mv /tmp/dolt-linux-amd64/bin/dolt /usr/local/bin/dolt
+
+# --- Stage 3: Final Image ---
 FROM ghcr.io/anomalyco/opencode:latest
 
 USER root
+
+# Install dependencies for runtime
+RUN apk add --no-cache \
+    curl \
+    bash \
+    unzip \
+    icu-libs \
+    gcompat
+
+COPY --from=bun-source /usr/local/bin/bun /usr/local/bin/bun
+RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx
+
+COPY --from=beads-builder /usr/local/bin/bd /usr/local/bin/bd
+COPY --from=beads-builder /usr/local/bin/dolt /usr/local/bin/dolt
+
+# Create the Git Shim for Beads stealth mode
+# This allows 'bd init' to work without a real git installation
+RUN echo -e '#!/bin/sh\nexit 0' > /usr/local/bin/git && \
+    chmod +x /usr/local/bin/git
 
 ARG USER_ID=1000
 ARG GROUP_ID=1000
@@ -15,4 +55,13 @@ RUN mkdir -p /home/devuser/.local/share/opencode \
     chown -R devuser:devgroup /home/devuser /app
 
 USER devuser
+RUN bunx oh-my-opencode install --no-tui \
+    --gemini=yes \
+    --claude=no \
+    --copilot=no \
+    --openai=no \
+    --opencode-go=no \
+    --opencode-zen=yes \
+    --zai-coding-plan=yes
+
 WORKDIR /app

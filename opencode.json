@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-orchestrator"],
+  "plugin": ["oh-my-openagent"],
   "model": "opencode/big-pickle",
   "instructions": [
     "AGENTS.md",
