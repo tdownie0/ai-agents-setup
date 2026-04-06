@@ -75,3 +75,35 @@ A mission is complete only when:
 2. **Documentation**: All new architectural decisions are documented in the worktree's `FEATURE_README.md`.
 3. **State**: The root `TODO.md` is updated.
 4. **Clean-up**: Call `MCP_DOCKER_stop_environment(feature_slug="<slug>")` to free host resources.
+
+---
+
+## 🎯 Task Tracking (Beads)
+
+For multi-step features or complex workflows, use **Beads** (bd CLI) for structured task tracking.
+
+### Usage
+```bash
+# Initialize in worktree (stealth mode - no git operations)
+bd init --stealth --server
+
+# Create tasks with priorities
+bd create "Implement feature X" -p 1
+bd create "Add database schema" -p 0
+
+# Link dependencies
+bd dep add bd-a1b2 bd-a1b3  # bd-a1b2 is blocked by bd-a1b3
+
+# Find unblocked work
+bd ready
+
+# Update task status
+bd update bd-a1b2 --claim
+bd close bd-a1b2 "Completed"
+```
+
+### When to Use Beads
+- Complex multi-step implementations with dependencies
+- Long-horizon tasks requiring persistent context
+- Coordinating multiple agents on same feature
+- For simple todo tracking, use the internal todo list instead.

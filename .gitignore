@@ -13,3 +13,9 @@ out/
 bin/mcp-gateway-setup/catalog.json
 bin/mcp-gateway-setup/local-mcp.yaml
 
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads
