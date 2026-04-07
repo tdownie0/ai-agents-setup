@@ -73,6 +73,10 @@ registry:
       - ${PROJECT_PARENT_PATH}:/app
       - /var/run/docker.sock:/var/run/docker.sock
     env:
+      - name: REDIS_HOST
+        value: "cache"
+      - name: REDIS_PORT
+        value: "6379"
       - name: PYTHONUNBUFFERED
         value: "1"
       - name: WORKSPACE_ROOT
@@ -89,7 +93,7 @@ registry:
       - name: execute_lifecycle
         description: "Executes a container-based lifecycle action: 'initialize' (db reset/seed), 'generate' (drizzle/codegen), 'migrate', 'seed', 'verify' (tests/lint), or 'build'."
       - name: git_ops
-        description: "Executes safe Git commands (add, commit, status, diff, log, branch)."
+        description: "Executes safe Git commands (add, commit, status, diff, log, branch, merge)."
       - name: get_environment_status
         description: "Returns the status of all containers for a given feature branch."
       - name: list_features
