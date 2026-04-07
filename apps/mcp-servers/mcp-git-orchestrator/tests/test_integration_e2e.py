@@ -18,6 +18,8 @@ if not WORKSPACE_ROOT:
     print("❌ Error: PROJECT_PARENT_PATH not set in .env")
     sys.exit(1)
 
+
+REDIS_HOST = os.environ.get("REDIS_HOST", "model_md-cache-1")
 CONTAINER_NAME = "git-orchestrator-e2e-test"
 IMAGE_NAME = "git-orchestrator:latest"
 FEATURE_SLUG = "e2e-canary"
@@ -30,6 +32,8 @@ DOCKER_CMD = [
     "--rm",
     "--name",
     CONTAINER_NAME,
+    "--network",
+    "model_md_dev-network",
     "-v",
     "/var/run/docker.sock:/var/run/docker.sock",  # Give it Docker powers
     "-v",
@@ -38,6 +42,8 @@ DOCKER_CMD = [
     "WORKSPACE_ROOT=/app",
     "-e",
     f"PROJECT_PARENT_PATH={WORKSPACE_ROOT}",
+    "-e",
+    f"REDIS_HOST={REDIS_HOST}",
     IMAGE_NAME,
     "python3",
     "main.py",
