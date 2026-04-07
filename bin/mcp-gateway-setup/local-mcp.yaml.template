@@ -92,6 +92,8 @@ registry:
         description: "Creates a new git worktree, allocates ports, and starts the feature Docker environment."
       - name: execute_lifecycle
         description: "Executes a container-based lifecycle action: 'initialize' (db reset/seed), 'generate' (drizzle/codegen), 'migrate', 'seed', 'verify' (tests/lint), or 'build'."
+      - name: get_environment_logs
+        description: "Retrieves the last 'n' lines of logs for a feature's containers. If 'service' is provided (e.g., 'backend', 'db'), only those logs are returned."
       - name: git_ops
         description: "Executes safe Git commands (add, commit, status, diff, log, branch, merge)."
       - name: get_environment_status
