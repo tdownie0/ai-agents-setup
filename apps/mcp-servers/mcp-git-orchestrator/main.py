@@ -1,6 +1,7 @@
 import os
 import json
 import sys
+import shutil
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
@@ -42,8 +43,8 @@ def initialize_worktree(feature_slug: str) -> str:
         return f"Error: Base project directory {BASE_PROJECT} not found."
 
     try:
-        git = GitRunner(BASE_PROJECT)
         if not existed_initially:
+            git = GitRunner(BASE_PROJECT)
             git.run_git("worktree", ["add", str(new_path), "-b", feature_slug])
 
             # Patch .git file for container environment
@@ -83,10 +84,24 @@ def initialize_worktree(feature_slug: str) -> str:
         composer = DockerComposeRunner(feature_slug, new_path, env)
 
         if not existed_initially:
+            fake_git_dir = new_path / ".tmp_bin"
             try:
-                Executor(new_path).run(["bd", "init", "--stealth", "--server"])
+                fake_git_dir.mkdir(parents=True, exist_ok=True)
+                (fake_git_dir / "git").write_text("#!/bin/sh\nexit 1")
+                (fake_git_dir / "git").chmod(0o755)
+
+                custom_env = os.environ.copy()
+                custom_env["PATH"] = f"{fake_git_dir}:{custom_env['PATH']}"
+
+                executor = Executor(new_path, env=custom_env)
+                executor.run(["bd", "init", "--stealth", "--server"], check=False)
+
             except Exception as e:
-                print(f"Warning: Beads init failed: {e}", file=sys.stderr)
+                print(f"Warning: Beads init encountered an issue: {e}", file=sys.stderr)
+
+            finally:
+                if fake_git_dir.exists():
+                    shutil.rmtree(fake_git_dir)
 
         composer.up()
 
