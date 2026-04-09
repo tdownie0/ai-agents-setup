@@ -12,6 +12,7 @@ out/
 *.pyc
 bin/mcp-gateway-setup/catalog.json
 bin/mcp-gateway-setup/local-mcp.yaml
+services.json
 
 
 # Beads / Dolt files (added by bd init)

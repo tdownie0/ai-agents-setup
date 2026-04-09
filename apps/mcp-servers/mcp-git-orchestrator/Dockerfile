@@ -1,3 +1,15 @@
+FROM golang:alpine AS beads-builder
+RUN apk add --no-cache curl tar
+
+RUN curl -fsSL https://github.com/gastownhall/beads/archive/refs/heads/main.tar.gz -o /tmp/beads.tar.gz && \
+    tar -xzf /tmp/beads.tar.gz -C /tmp && \
+    cd /tmp/beads-main && \
+    CGO_ENABLED=0 go build -o /usr/local/bin/bd ./cmd/bd
+
+RUN curl -fsSL https://github.com/dolthub/dolt/releases/download/v1.85.0/dolt-linux-amd64.tar.gz -o /tmp/dolt.tar.gz && \
+    tar -xzf /tmp/dolt.tar.gz -C /tmp && \
+    mv /tmp/dolt-linux-amd64/bin/dolt /usr/local/bin/dolt
+
 FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y \
@@ -36,6 +48,8 @@ RUN curl -L https://github.com/git/git/archive/refs/tags/v2.48.1.tar.gz | tar -x
     make prefix=/usr/local install && \
     cd .. && rm -rf git-2.48.1
 
+COPY --from=beads-builder /usr/local/bin/bd /usr/local/bin/bd
+COPY --from=beads-builder /usr/local/bin/dolt /usr/local/bin/dolt
 
 RUN npm install -g pnpm && \
     mkdir -p /usr/local/lib/node_modules && \

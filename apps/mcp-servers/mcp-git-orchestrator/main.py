@@ -1,103 +1,30 @@
-import sys
 import os
 import json
-import socket
-import subprocess
-import redis
-import time
-from typing import cast, Set
+import sys
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
-# Environment configuration
+# Import our custom modules
+from provider import release_ports, find_available_port_block
+from engine import DockerComposeRunner, GitRunner, Executor
+
+# --- Configuration ---
 UID = os.getenv("USER_ID", "1000")
 GID = os.getenv("GROUP_ID", "1000")
-mcp = FastMCP("Worktree-Orchestrator")
-
 APP_ROOT = Path("/app")
 BASE_PROJECT = APP_ROOT / "model_md"
 HOST_ROOT = Path(os.getenv("PROJECT_PARENT_PATH", "/home/user/project"))
 
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-
-r: redis.Redis = redis.Redis(
-    host=os.getenv("REDIS_HOST", "localhost"),
-    port=int(os.getenv("REDIS_PORT", "6379")),
-    db=0,
-    decode_responses=True,
-)
-
-PORT_REGISTRY_KEY = "active_ports"
-PORT_LOCK_KEY = "lock:port_allocation"
+mcp = FastMCP("Worktree-Orchestrator")
 
 
-def is_port_in_use(port: int) -> bool:
-    """Checks if a port is physically occupied on the host."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(("localhost", port)) == 0
-
-
-def find_available_port_block(start_port=5174, timeout=10) -> tuple[int, int, int]:
-    """Finds three available ports using a global Redis lock and registry."""
-    start_time = time.time()
-
-    # Acquire Distributed Mutex
-    while not r.set(PORT_LOCK_KEY, "locked", nx=True, ex=20):
-        if time.time() - start_time > timeout:
-            print(f"❌ [REDIS] Lock timeout after {timeout}s", file=sys.stderr)
-            raise TimeoutError("Could not acquire port allocation lock")
-        time.sleep(0.1)
-
-    try:
-        # Get currently tracked ports
-        raw_members = cast(Set[str], r.smembers(PORT_REGISTRY_KEY))
-        allocated_ports = {int(p) for p in raw_members}
-        port = start_port
-        while True:
-            fe, be, db = port, port + 1000, port + 2000
-            requested = {fe, be, db}
-
-            # Check Redis registry
-            if not (requested & allocated_ports):
-                # Check OS-level usage
-                if not any(is_port_in_use(p) for p in requested):
-                    # Double check Docker PS to be safe
-                    try:
-                        docker_check = subprocess.run(
-                            ["docker", "ps", "--format", "{{.Ports}}"],
-                            capture_output=True,
-                            text=True,
-                            timeout=5,  # Critical: don't hang the orchestrator
-                        )
-                    except subprocess.TimeoutExpired:
-                        print(
-                            "⚠️ [DOCKER] docker ps timed out! Check socket permissions.",
-                            file=sys.stderr,
-                        )
-                        raise
-
-                    if not any(f":{p}->" in docker_check.stdout for p in requested):
-                        r.sadd(PORT_REGISTRY_KEY, *requested)
-                        return fe, be, db
-                    else:
-                        print(
-                            f"🚧 [DOCKER] Port collision found in running containers for {requested}",
-                            file=sys.stderr,
-                        )
-
-            port += 1
-            if port > start_port + 500:  # Safety break to prevent infinite loops
-                raise RuntimeError("Searched 500 port blocks and found none available.")
-
-    except Exception as e:
-        print(f"💥 [ERROR] find_available_port_block failed: {str(e)}", file=sys.stderr)
-        raise
-    finally:
-        # Clean up the lock
-        locked_by_us = r.get(PORT_LOCK_KEY) == "locked"
-        if locked_by_us:
-            r.delete(PORT_LOCK_KEY)
+# --- Helpers ---
+def get_paths(feature_slug: str):
+    """Utility to keep path logic consistent across all tools."""
+    return {
+        "worktree": APP_ROOT / f"model_md-worktree-{feature_slug}",
+        "host": HOST_ROOT / f"model_md-worktree-{feature_slug}",
+    }
 
 
 @mcp.tool()
@@ -106,8 +33,8 @@ def initialize_worktree(feature_slug: str) -> str:
     Ensures a git worktree exists and its Docker services are running.
     If the worktree already exists, it skips git creation and just restarts services.
     """
-    new_path = APP_ROOT / f"model_md-worktree-{feature_slug}"
-    new_path_host = HOST_ROOT / f"model_md-worktree-{feature_slug}"
+    paths = get_paths(feature_slug)
+    new_path = paths["worktree"]
     services_file = new_path / "services.json"
     existed_initially = new_path.exists()
 
@@ -115,107 +42,61 @@ def initialize_worktree(feature_slug: str) -> str:
         return f"Error: Base project directory {BASE_PROJECT} not found."
 
     try:
-        if not new_path.exists():
-            subprocess.run(
-                ["git", "worktree", "add", str(new_path), "-b", feature_slug],
-                cwd=BASE_PROJECT,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
+        git = GitRunner(BASE_PROJECT)
+        if not existed_initially:
+            git.run_git("worktree", ["add", str(new_path), "-b", feature_slug])
 
+            # Patch .git file for container environment
             git_file = new_path / ".git"
             if git_file.exists():
                 content = git_file.read_text()
-                if "gitdir: /app/" in content:
-                    git_file.write_text(content.replace("gitdir: /app/", "gitdir: ../"))
+                git_file.write_text(content.replace("gitdir: /app/", "gitdir: ../"))
 
+            # Sync .env
             env_file = BASE_PROJECT / ".env"
             if env_file.exists():
                 (new_path / ".env").write_text(env_file.read_text())
 
-            fe_port, be_port, db_port = find_available_port_block()
-            services_data = {
-                "branch": feature_slug,
-                "frontend": fe_port,
-                "backend": be_port,
-                "db": db_port,
-            }
-            services_file.write_text(json.dumps(services_data))
-
-            try:
-                subprocess.run(
-                    ["bd", "init", "--stealth", "--server"],
-                    cwd=new_path,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
-            except Exception as e:
-                print(
-                    f"Warning: Beads initialization failed: {str(e)}", file=sys.stderr
-                )
+        if services_file.exists():
+            data = json.loads(services_file.read_text())
+            fe, be, db = data["frontend"], data["backend"], data["db"]
         else:
-            if services_file.exists():
-                services_data = json.loads(services_file.read_text())
-                fe_port = services_data["frontend"]
-                be_port = services_data["backend"]
-                db_port = services_data["db"]
-            else:
-                fe_port, be_port, db_port = find_available_port_block()
-                services_file.write_text(
-                    json.dumps(
-                        {
-                            "branch": feature_slug,
-                            "frontend": fe_port,
-                            "backend": be_port,
-                            "db": db_port,
-                        }
-                    )
+            fe, be, db = find_available_port_block()
+            services_file.write_text(
+                json.dumps(
+                    {"branch": feature_slug, "frontend": fe, "backend": be, "db": db}
                 )
+            )
 
         env = os.environ.copy()
         env.update(
             {
                 "BRANCH": feature_slug,
-                "FRONTEND_PORT": str(fe_port),
-                "BACKEND_PORT": str(be_port),
-                "DB_PORT": str(db_port),
-                "HOST_WORKTREE_PATH": str(new_path_host),
+                "FRONTEND_PORT": str(fe),
+                "BACKEND_PORT": str(be),
+                "DB_PORT": str(db),
+                "HOST_WORKTREE_PATH": str(paths["host"]),
                 "DATABASE_URL": "postgres://postgres:password@db:5432/postgres",
             }
         )
 
-        subprocess.run(
-            [
-                "docker",
-                "compose",
-                "-p",
-                feature_slug,
-                "-f",
-                "docker-compose.feature.yml",
-                "up",
-                "-d",
-            ],
-            cwd=new_path,
-            env=env,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        composer = DockerComposeRunner(feature_slug, new_path, env)
 
-        status_msg = (
-            "recovered and started" if existed_initially else "created and started"
-        )
+        if not existed_initially:
+            try:
+                Executor(new_path).run(["bd", "init", "--stealth", "--server"])
+            except Exception as e:
+                print(f"Warning: Beads init failed: {e}", file=sys.stderr)
+
+        composer.up()
+
+        status = "recovered" if existed_initially else "created"
         return (
-            f"✅ Environment {status_msg} at {new_path}\n"
-            f"Services: Frontend:{fe_port}, Backend:{be_port}, DB:{db_port}"
+            f"✅ Environment {status} at {new_path}\nPorts: FE:{fe}, BE:{be}, DB:{db}"
         )
 
-    except subprocess.CalledProcessError as e:
-        return f"Initialization Failed: {e.stderr or e.stdout}"
     except Exception as e:
-        return f"Unexpected Error: {str(e)}"
+        return f"❌ Initialization Failed: {str(e)}"
 
 
 @mcp.tool()
@@ -240,63 +121,40 @@ def execute_lifecycle(feature_slug: str, action: str) -> str:
         feature_slug: The unique identifier for the feature worktree.
         action: One of 'install', 'initialize', 'generate', 'migrate', 'seed', 'verify', 'build'.
     """
-    target_path = APP_ROOT / f"model_md-worktree-{feature_slug}"
+    paths = get_paths(feature_slug)
+    composer = DockerComposeRunner(feature_slug, paths["worktree"])
 
-    def compose_exec(service: str, args: list[str]):
-        return [
-            "docker",
-            "compose",
-            "-p",
-            feature_slug,
-            "exec",
-            "-T",
-            service,
-            "pnpm",
-        ] + args
-
-    actions = {
-        "install": [
-            compose_exec("backend", ["install"]),
-            compose_exec("frontend", ["install"]),
-        ],
+    action_map = {
+        "install": [("backend", ["install"]), ("frontend", ["install"])],
         "initialize": [
-            compose_exec("backend", ["db:reset"]),
-            compose_exec("backend", ["db:migrate"]),
-            compose_exec("backend", ["db:seed"]),
+            ("backend", ["db:reset"]),
+            ("backend", ["db:migrate"]),
+            ("backend", ["db:seed"]),
         ],
-        "generate": [compose_exec("backend", ["db:generate"])],
-        "migrate": [compose_exec("backend", ["db:migrate"])],
-        "seed": [compose_exec("backend", ["db:seed"])],
-        "verify": [compose_exec("backend", ["test:db"])],
+        "generate": [("backend", ["db:generate"])],
+        "migrate": [("backend", ["db:migrate"])],
+        "seed": [("backend", ["db:seed"])],
+        "verify": [("backend", ["test:db"])],
         "format": [
-            compose_exec("backend", ["lint:fix"]),
-            compose_exec("backend", ["fmt"]),
-            compose_exec("frontend", ["lint:fix"]),
-            compose_exec("frontend", ["fmt"]),
+            ("backend", ["lint:fix"]),
+            ("backend", ["fmt"]),
+            ("frontend", ["lint:fix"]),
+            ("frontend", ["fmt"]),
         ],
-        "build": [
-            compose_exec("backend", ["build"]),
-            compose_exec("frontend", ["build"]),
-        ],
+        "build": [("backend", ["build"]), ("frontend", ["build"])],
     }
 
-    if action not in actions:
-        return f"Error: Action '{action}' not recognized. Available: {list(actions.keys())}"
+    if action not in action_map:
+        return f"Error: Action '{action}' unknown."
 
     results = []
-    for cmd in actions[action]:
-        try:
-            res = subprocess.run(
-                cmd, cwd=target_path, capture_output=True, text=True, check=True
-            )
-            results.append(f"Success ({' '.join(cmd)}):\n{res.stdout}")
-        except subprocess.CalledProcessError as e:
-            return (
-                f"Action '{action}' failed at command: {' '.join(cmd)}\n"
-                f"STDOUT: {e.stdout}\nSTDERR: {e.stderr}"
-            )
-
-    return "\n---\n".join(results)
+    try:
+        for service, args in action_map[action]:
+            res = composer.exec_pnpm(service, args)
+            results.append(f"Success ({service} pnpm {' '.join(args)}):\n{res.stdout}")
+        return "\n---\n".join(results)
+    except Exception as e:
+        return f"❌ Action '{action}' failed: {str(e)}"
 
 
 @mcp.tool()
@@ -307,27 +165,9 @@ def get_environment_logs(
     Retrieves the last 'n' lines of logs for a feature's containers.
     If 'service' is provided (e.g., 'backend', 'db'), only those logs are returned.
     """
-    target_path = APP_ROOT / f"model_md-worktree-{feature_slug}"
-    cmd = [
-        "docker",
-        "compose",
-        "-p",
-        feature_slug,
-        "logs",
-        f"--tail={tail}",
-        "--no-color",
-    ]
-
-    if service:
-        cmd.append(service)
-
-    try:
-        res = subprocess.run(
-            cmd, cwd=target_path, capture_output=True, text=True, check=True
-        )
-        return res.stdout or "No logs found."
-    except subprocess.CalledProcessError as e:
-        return f"Failed to retrieve logs: {e.stderr}"
+    target_path = get_paths(feature_slug)["worktree"]
+    composer = DockerComposeRunner(feature_slug, target_path)
+    return composer.logs(tail=tail, service=service).stdout
 
 
 @mcp.tool()
@@ -346,85 +186,68 @@ def git_ops(feature_slug: str, command: str, git_args: list[str] | None = None) 
                   - For add: ["."] or ["path/to/file"]
                   - For commit: ["-m", "your message"]
     """
-    ALLOWED_COMMANDS = ["add", "commit", "status", "diff", "log", "branch", "merge"]
-    if command not in ALLOWED_COMMANDS:
-        return f"Error: Command '{command}' is not permitted."
+    ALLOWED = ["add", "commit", "status", "diff", "log", "branch", "merge"]
+    if command not in ALLOWED:
+        return f"Error: '{command}' unauthorized."
 
-    target_path = APP_ROOT / f"model_md-worktree-{feature_slug}"
-
-    # Ensure git_args is treated as a list even if model sends empty
+    target_path = get_paths(feature_slug)["worktree"]
+    git = GitRunner(target_path)
     safe_args = list(git_args) if git_args else []
 
+    # Security: Merging Policy
     if command == "merge":
         if not safe_args:
-            return "Error: Merge requires a branch name in the git_args list. Example: git_args=['feat-branch-name']"
-
+            return "Error: Merge requires a branch."
         for arg in safe_args:
             if arg.startswith("-"):
                 continue
             if not arg.startswith("feat-") or any(
-                p in arg for p in ["main", "master", "develop"]
+                x in arg for x in ["main", "master", "develop"]
             ):
-                return f"Error: Security Violation. Cannot merge '{arg}'."
-
+                return f"Error: Security Violation. Merge of {arg} blocked."
         if "--no-edit" not in safe_args:
             safe_args.append("--no-edit")
 
-    # Handle default 'add' behavior
+    # Defaults
     if command == "add" and not safe_args:
         safe_args = ["."]
-
-    # Handle default 'commit' behavior
-    if command == "commit" and not any(arg in safe_args for arg in ["-m", "--message"]):
-        safe_args = ["-m", "Agent: implemented feature changes"] + safe_args
-
-    full_cmd = ["git", command] + safe_args
+    if command == "commit" and not any(x in safe_args for x in ["-m", "--message"]):
+        safe_args = ["-m", "Agent: implemented changes"] + safe_args
 
     try:
-        res = subprocess.run(
-            full_cmd, cwd=target_path, capture_output=True, text=True, check=True
-        )
-        return res.stdout if res.stdout else f"Success: git {command} executed."
-
-    except subprocess.CalledProcessError as e:
-        return f"Git Error: {e.stderr}"
+        res = git.run_git(command, safe_args)
+        return res.stdout or f"Success: git {command} completed."
+    except Exception as e:
+        return f"Git Error: {str(e)}"
 
 
 @mcp.tool()
 def get_environment_status(feature_slug: str) -> str:
     """Returns the status of all containers for a given feature."""
-    res = subprocess.run(
-        ["docker", "compose", "-p", feature_slug, "ps"], capture_output=True, text=True
-    )
-    return res.stdout
+    target_path = get_paths(feature_slug)["worktree"]
+    composer = DockerComposeRunner(feature_slug, target_path)
+    return composer.ps().stdout
 
 
 @mcp.tool()
 def stop_environment(feature_slug: str) -> str:
     """Tears down the docker-compose environment for a feature."""
-    target_path = APP_ROOT / f"model_md-worktree-{feature_slug}"
+    target_path = get_paths(feature_slug)["worktree"]
     services_file = target_path / "services.json"
 
-    try:
-        if services_file.exists():
-            try:
-                data = json.loads(services_file.read_text())
-                r.srem(PORT_REGISTRY_KEY, data["frontend"], data["backend"], data["db"])
-            except (json.JSONDecodeError, KeyError) as e:
-                print(
-                    f"Warning: Could not parse ports from {services_file}: {e}",
-                    file=sys.stderr,
-                )
+    if services_file.exists():
+        try:
+            data = json.loads(services_file.read_text())
+            release_ports([data["frontend"], data["backend"], data["db"]])
+        except Exception as e:
+            print(f"Warning: Redis cleanup failed: {e}", file=sys.stderr)
 
-        subprocess.run(
-            ["docker", "compose", "-p", feature_slug, "down", "-v"],
-            cwd=target_path,
-            check=True,
-            capture_output=True,
-        )
-        return f"Environment for {feature_slug} stopped and cleaned."
+    try:
+        composer = DockerComposeRunner(feature_slug, target_path)
+        composer.down()
+        return f"✅ Environment for {feature_slug} stopped and cleaned."
     except Exception as e:
-        return f"Stop Error: {str(e)}"
+        return f"❌ Stop Error: {str(e)}"
 
 
 @mcp.tool()
