@@ -20,7 +20,7 @@ mcp = FastMCP("Worktree-Orchestrator")
 
 
 # --- Helpers ---
-def get_paths(feature_slug: str):
+def _get_paths(feature_slug: str):
     """Utility to keep path logic consistent across all tools."""
     return {
         "worktree": APP_ROOT / f"model_md-worktree-{feature_slug}",
@@ -28,49 +28,114 @@ def get_paths(feature_slug: str):
     }
 
 
+def _provision_git_worktree(new_path: Path, feature_slug: str):
+    """Handles the physical creation and patching of the git worktree."""
+    git = GitRunner(BASE_PROJECT)
+    git.run_git("worktree", ["add", str(new_path), "-b", feature_slug])
+
+    # Patch .git file for container environment (relative pathing fix)
+    git_file = new_path / ".git"
+    if git_file.exists():
+        content = git_file.read_text()
+        git_file.write_text(content.replace("gitdir: /app/", "gitdir: ../"))
+
+    # Sync environment configuration
+    env_file = BASE_PROJECT / ".env"
+    if env_file.exists():
+        (new_path / ".env").write_text(env_file.read_text())
+
+
+def _get_or_assign_ports(worktree_path: Path, feature_slug: str):
+    """Retrieves existing ports or allocates a new block via Redis."""
+    services_file = worktree_path / "services.json"
+
+    if services_file.exists():
+        data = json.loads(services_file.read_text())
+        return data["frontend"], data["backend"], data["db"]
+
+    fe, be, db = find_available_port_block()
+    services_file.write_text(
+        json.dumps({"branch": feature_slug, "frontend": fe, "backend": be, "db": db})
+    )
+    return fe, be, db
+
+
+def _bootstrap_agent_env(worktree_path: Path):
+    """Executes the stealth 'beads' initialization for the AI agent."""
+    fake_git_dir = worktree_path / ".tmp_bin"
+    try:
+        fake_git_dir.mkdir(parents=True, exist_ok=True)
+        (fake_git_dir / "git").write_text("#!/bin/sh\nexit 1")
+        (fake_git_dir / "git").chmod(0o755)
+
+        custom_env = os.environ.copy()
+        custom_env["PATH"] = f"{fake_git_dir}:{custom_env['PATH']}"
+
+        executor = Executor(worktree_path, env=custom_env)
+        executor.run(["bd", "init", "--stealth", "--server"], check=False)
+    finally:
+        if fake_git_dir.exists():
+            shutil.rmtree(fake_git_dir)
+
+
+def _validate_git_policy(command: str, args: list[str]) -> str | None:
+    """
+    Enforces security constraints on git operations.
+    Returns an error message string if invalid, otherwise None.
+    """
+    if command == "merge":
+        if not args:
+            return "Error: Merge requires a branch."
+
+        for arg in args:
+            if arg.startswith("-"):
+                continue
+
+            is_valid_feat = arg.startswith("feat-")
+            is_protected = any(x in arg for x in ["main", "master", "develop"])
+
+            if not is_valid_feat or is_protected:
+                return f"Error: Security Violation. Merge of {arg} blocked."
+
+    return None
+
+
+def _apply_git_defaults(command: str, args: list[str]) -> list[str]:
+    """Injects safe defaults for specific git commands."""
+    safe_args = list(args)
+
+    if command == "merge" and "--no-edit" not in safe_args:
+        safe_args.append("--no-edit")
+
+    if command == "add" and not safe_args:
+        safe_args = ["."]
+
+    if command == "commit" and not any(x in safe_args for x in ["-m", "--message"]):
+        safe_args = ["-m", "Agent: implemented changes"] + safe_args
+
+    return safe_args
+
+
 @mcp.tool()
 def initialize_worktree(feature_slug: str) -> str:
     """
     Ensures a git worktree exists and its Docker services are running.
-    If the worktree already exists, it skips git creation and just restarts services.
     """
-    paths = get_paths(feature_slug)
-    new_path = paths["worktree"]
-    services_file = new_path / "services.json"
-    existed_initially = new_path.exists()
+    paths = _get_paths(feature_slug)
+    worktree_path = paths["worktree"]
+    existed_initially = worktree_path.exists()
 
     if not BASE_PROJECT.exists():
-        return f"Error: Base project directory {BASE_PROJECT} not found."
+        return f"❌ Error: Base project directory {BASE_PROJECT} not found."
 
     try:
         if not existed_initially:
-            git = GitRunner(BASE_PROJECT)
-            git.run_git("worktree", ["add", str(new_path), "-b", feature_slug])
+            _provision_git_worktree(worktree_path, feature_slug)
 
-            # Patch .git file for container environment
-            git_file = new_path / ".git"
-            if git_file.exists():
-                content = git_file.read_text()
-                git_file.write_text(content.replace("gitdir: /app/", "gitdir: ../"))
+        fe, be, db = _get_or_assign_ports(worktree_path, feature_slug)
 
-            # Sync .env
-            env_file = BASE_PROJECT / ".env"
-            if env_file.exists():
-                (new_path / ".env").write_text(env_file.read_text())
-
-        if services_file.exists():
-            data = json.loads(services_file.read_text())
-            fe, be, db = data["frontend"], data["backend"], data["db"]
-        else:
-            fe, be, db = find_available_port_block()
-            services_file.write_text(
-                json.dumps(
-                    {"branch": feature_slug, "frontend": fe, "backend": be, "db": db}
-                )
-            )
-
-        env = os.environ.copy()
-        env.update(
+        env_vars = os.environ.copy()
+        env_vars.update(
             {
                 "BRANCH": feature_slug,
                 "FRONTEND_PORT": str(fe),
@@ -81,34 +146,15 @@ def initialize_worktree(feature_slug: str) -> str:
             }
         )
 
-        composer = DockerComposeRunner(feature_slug, new_path, env)
+        composer = DockerComposeRunner(feature_slug, worktree_path, env_vars)
 
         if not existed_initially:
-            fake_git_dir = new_path / ".tmp_bin"
-            try:
-                fake_git_dir.mkdir(parents=True, exist_ok=True)
-                (fake_git_dir / "git").write_text("#!/bin/sh\nexit 1")
-                (fake_git_dir / "git").chmod(0o755)
-
-                custom_env = os.environ.copy()
-                custom_env["PATH"] = f"{fake_git_dir}:{custom_env['PATH']}"
-
-                executor = Executor(new_path, env=custom_env)
-                executor.run(["bd", "init", "--stealth", "--server"], check=False)
-
-            except Exception as e:
-                print(f"Warning: Beads init encountered an issue: {e}", file=sys.stderr)
-
-            finally:
-                if fake_git_dir.exists():
-                    shutil.rmtree(fake_git_dir)
+            _bootstrap_agent_env(worktree_path)
 
         composer.up()
 
         status = "recovered" if existed_initially else "created"
-        return (
-            f"✅ Environment {status} at {new_path}\nPorts: FE:{fe}, BE:{be}, DB:{db}"
-        )
+        return f"✅ Environment {status} at {worktree_path}\nPorts: FE:{fe}, BE:{be}, DB:{db}"
 
     except Exception as e:
         return f"❌ Initialization Failed: {str(e)}"
@@ -136,7 +182,7 @@ def execute_lifecycle(feature_slug: str, action: str) -> str:
         feature_slug: The unique identifier for the feature worktree.
         action: One of 'install', 'initialize', 'generate', 'migrate', 'seed', 'verify', 'build'.
     """
-    paths = get_paths(feature_slug)
+    paths = _get_paths(feature_slug)
     composer = DockerComposeRunner(feature_slug, paths["worktree"])
 
     action_map = {
@@ -180,7 +226,7 @@ def get_environment_logs(
     Retrieves the last 'n' lines of logs for a feature's containers.
     If 'service' is provided (e.g., 'backend', 'db'), only those logs are returned.
     """
-    target_path = get_paths(feature_slug)["worktree"]
+    target_path = _get_paths(feature_slug)["worktree"]
     composer = DockerComposeRunner(feature_slug, target_path)
     return composer.logs(tail=tail, service=service).stdout
 
@@ -205,31 +251,17 @@ def git_ops(feature_slug: str, command: str, git_args: list[str] | None = None) 
     if command not in ALLOWED:
         return f"Error: '{command}' unauthorized."
 
-    target_path = get_paths(feature_slug)["worktree"]
-    git = GitRunner(target_path)
-    safe_args = list(git_args) if git_args else []
+    input_args = git_args or []
 
-    # Security: Merging Policy
-    if command == "merge":
-        if not safe_args:
-            return "Error: Merge requires a branch."
-        for arg in safe_args:
-            if arg.startswith("-"):
-                continue
-            if not arg.startswith("feat-") or any(
-                x in arg for x in ["main", "master", "develop"]
-            ):
-                return f"Error: Security Violation. Merge of {arg} blocked."
-        if "--no-edit" not in safe_args:
-            safe_args.append("--no-edit")
+    error = _validate_git_policy(command, input_args)
+    if error:
+        return error
 
-    # Defaults
-    if command == "add" and not safe_args:
-        safe_args = ["."]
-    if command == "commit" and not any(x in safe_args for x in ["-m", "--message"]):
-        safe_args = ["-m", "Agent: implemented changes"] + safe_args
+    safe_args = _apply_git_defaults(command, input_args)
+    target_path = _get_paths(feature_slug)["worktree"]
 
     try:
+        git = GitRunner(target_path)
         res = git.run_git(command, safe_args)
         return res.stdout or f"Success: git {command} completed."
     except Exception as e:
@@ -239,7 +271,7 @@ def git_ops(feature_slug: str, command: str, git_args: list[str] | None = None) 
 @mcp.tool()
 def get_environment_status(feature_slug: str) -> str:
     """Returns the status of all containers for a given feature."""
-    target_path = get_paths(feature_slug)["worktree"]
+    target_path = _get_paths(feature_slug)["worktree"]
     composer = DockerComposeRunner(feature_slug, target_path)
     return composer.ps().stdout
 
@@ -247,7 +279,7 @@ def get_environment_status(feature_slug: str) -> str:
 @mcp.tool()
 def stop_environment(feature_slug: str) -> str:
     """Tears down the docker-compose environment for a feature."""
-    target_path = get_paths(feature_slug)["worktree"]
+    target_path = _get_paths(feature_slug)["worktree"]
     services_file = target_path / "services.json"
 
     if services_file.exists():
