@@ -23,6 +23,7 @@ REDIS_HOST = os.environ.get("REDIS_HOST", "model_md-cache-1")
 CONTAINER_NAME = "git-orchestrator-e2e-test"
 IMAGE_NAME = "git-orchestrator:latest"
 FEATURE_SLUG = "e2e-canary"
+DBOS_DATABASE = "postgresql://postgres:postgres@supabase_db_model_md:5432/postgres"
 
 # The command to spin up the "Brain" (The Orchestrator)
 DOCKER_CMD = [
@@ -34,6 +35,8 @@ DOCKER_CMD = [
     CONTAINER_NAME,
     "--network",
     "model_md_dev-network",
+    "--network",
+    "supabase_network_model_md",
     "-v",
     "/var/run/docker.sock:/var/run/docker.sock",
     "-v",
@@ -48,6 +51,8 @@ DOCKER_CMD = [
     f"USER_ID={os.getuid()}",
     "-e",
     f"GROUP_ID={os.getgid()}",
+    "-e",
+    f"DBOS_SYSTEM_DATABASE_URL={DBOS_DATABASE}",
     IMAGE_NAME,
     "python3",
     "main.py",
@@ -66,7 +71,8 @@ async def run_e2e_test():
     )
 
     async def call_mcp(method, params=None, msg_id=1):
-        """Helper to send JSON-RPC over stdio"""
+        """Helper to send JSON-RPC and filter out log noise."""
+
         req = {"jsonrpc": "2.0", "id": msg_id, "method": method}
         if params:
             req["params"] = params
@@ -74,8 +80,27 @@ async def run_e2e_test():
         proc.stdin.write(json.dumps(req).encode() + b"\n")
         await proc.stdin.drain()
 
-        line = await proc.stdout.readline()
-        return json.loads(line.decode()) if line else None
+        while True:
+            line = await proc.stdout.readline()
+            if not line:
+                return None
+
+            decoded = line.decode().strip()
+            if not decoded:
+                continue
+
+            if not decoded.startswith("{"):
+                print(f"🖥️  LOG: {decoded}")
+                continue
+
+            try:
+                data = json.loads(decoded)
+
+                if isinstance(data, dict) and data.get("id") == msg_id:
+                    return data
+            except json.JSONDecodeError:
+                print(f"⚠️  Junk ignored: {decoded[:50]}...")
+                continue
 
     try:
         # --- PHASE 1: MCP Handshake ---
@@ -113,11 +138,54 @@ async def run_e2e_test():
         duration = time.perf_counter() - start_time
 
         if resp and "result" in resp:
-            content = resp["result"]["content"][0]["text"]
-            print(f"✅ Response ({duration:.2f}s):\n{content}")
+            content_text = resp["result"]["content"][0]["text"]
+            # Parse the background job info
+            job_info = json.loads(content_text)
+            job_id = job_info.get("job_id")
+            print(f"✅ Job {job_id} queued. Entering polling loop...")
         else:
             print(f"❌ Failed to initialize: {resp}")
             return
+
+        is_ready = False
+        for i in range(18):
+            await asyncio.sleep(10)
+
+            status_resp = await call_mcp(
+                "tools/call",
+                {
+                    "name": "get_job_status",
+                    "arguments": {"job_id": job_id},
+                },
+                msg_id=100 + i,
+            )
+
+            if not status_resp or "result" not in status_resp:
+                print(f"⚠️  Unexpected MCP response: {status_resp}")
+                continue
+
+            content_text = status_resp["result"]["content"][0]["text"]
+
+            try:
+                status_data = json.loads(content_text)
+                current_status = status_data.get("status")
+                print(f"⏳ [{i + 1}/30] Status: {current_status}")
+
+                if current_status == "SUCCESS":
+                    is_ready = True
+                    break
+                elif current_status == "FAILURE":
+                    error_msg = status_data.get("error", "Unknown DBOS Error")
+                    raise Exception(f"Background initialization failed: {error_msg}")
+            except json.JSONDecodeError:
+                print(f"🖥️  Server (non-JSON): {content_text}")
+                if "✅" in content_text or "SUCCESS" in content_text:
+                    is_ready = True
+                    break
+        if not is_ready:
+            raise TimeoutError(
+                f"❌ Environment {FEATURE_SLUG} took too long to initialize (180s+)."
+            )
 
         # --- PHASE 3: Verify via Git ---
         print("🔍 Verifying Git Worktree existence...")

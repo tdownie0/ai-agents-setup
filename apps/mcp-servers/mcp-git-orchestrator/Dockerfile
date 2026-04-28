@@ -76,6 +76,7 @@ RUN git config --global user.email "orchestrator@model-md.local" && \
 ENV PATH="/usr/local/bin:${PATH}"
 ENV PYTHONUNBUFFERED=1
 ENV WORKSPACE_ROOT=/app
+ENV DBOS_SYSTEM_DATABASE_URL="postgresql://postgres:password@db:5432/postgres"
 
 # Copy Requirements and Code
 COPY --chown=devuser:devgroup apps/mcp-servers/mcp-git-orchestrator/requirements.txt .

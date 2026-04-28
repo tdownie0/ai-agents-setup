@@ -1,9 +1,14 @@
 import os
+import argparse
 import json
 import sys
 import shutil
+import signal
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
+from dbos import DBOS, DBOSConfig, Queue, DBOSClient, EnqueueOptions
 
 # Import our custom modules
 from provider import release_ports, find_available_port_block
@@ -17,6 +22,7 @@ BASE_PROJECT = APP_ROOT / "model_md"
 HOST_ROOT = Path(os.getenv("PROJECT_PARENT_PATH", "/home/user/project"))
 
 mcp = FastMCP("Worktree-Orchestrator")
+orchestrator_queue = Queue("orchestrator_queue", worker_concurrency=1)
 
 
 # --- Helpers ---
@@ -28,8 +34,15 @@ def _get_paths(feature_slug: str):
     }
 
 
+@DBOS.step()
 def _provision_git_worktree(new_path: Path, feature_slug: str):
     """Handles the physical creation and patching of the git worktree."""
+    if new_path.exists() and any(new_path.iterdir()):
+        sys.stderr.write(
+            f"Worktree {new_path} already exists and is populated. Skipping.\n"
+        )
+        return
+
     git = GitRunner(BASE_PROJECT)
     git.run_git("worktree", ["add", str(new_path), "-b", feature_slug])
 
@@ -45,7 +58,10 @@ def _provision_git_worktree(new_path: Path, feature_slug: str):
         (new_path / ".env").write_text(env_file.read_text())
 
 
-def _get_or_assign_ports(worktree_path: Path, feature_slug: str):
+@DBOS.step()
+def _get_or_assign_ports(
+    worktree_path: Path, feature_slug: str
+) -> tuple[int, int, int]:
     """Retrieves existing ports or allocates a new block via Redis."""
     services_file = worktree_path / "services.json"
 
@@ -60,8 +76,13 @@ def _get_or_assign_ports(worktree_path: Path, feature_slug: str):
     return fe, be, db
 
 
+@DBOS.step()
 def _bootstrap_agent_env(worktree_path: Path):
     """Executes the stealth 'beads' initialization for the AI agent."""
+    if (worktree_path / ".tmp_bin").exists():
+        sys.stderr.write("Agent environment already bootstrapped. Skipping.\n")
+        return
+
     fake_git_dir = worktree_path / ".tmp_bin"
     try:
         fake_git_dir.mkdir(parents=True, exist_ok=True)
@@ -116,48 +137,145 @@ def _apply_git_defaults(command: str, args: list[str]) -> list[str]:
     return safe_args
 
 
-@mcp.tool()
-def initialize_worktree(feature_slug: str) -> str:
-    """
-    Ensures a git worktree exists and its Docker services are running.
-    """
-    paths = _get_paths(feature_slug)
-    worktree_path = paths["worktree"]
-    existed_initially = worktree_path.exists()
+@DBOS.step()
+def _docker_up_step(
+    feature_slug: str, worktree_path: Path, fe: int, be: int, db: int, host_path: Path
+):
+    """Internal step to execute Docker Compose."""
+    print(f"DEBUG: Internal Path: {worktree_path}", file=sys.stderr)
+    print(f"DEBUG: Host Path: {host_path}", file=sys.stderr)
+    env_vars = os.environ.copy()
+    env_vars.update(
+        {
+            "BRANCH": feature_slug,
+            "FRONTEND_PORT": str(fe),
+            "BACKEND_PORT": str(be),
+            "DB_PORT": str(db),
+            "HOST_WORKTREE_PATH": str(host_path),
+            "DATABASE_URL": "postgres://postgres:password@db:5432/postgres",
+        }
+    )
 
-    if not BASE_PROJECT.exists():
-        return f"❌ Error: Base project directory {BASE_PROJECT} not found."
+    composer = DockerComposeRunner(feature_slug, worktree_path, env_vars)
+    result = composer.up()
+
+    print(f"🐳 Docker Up STDOUT: {result.stdout}")
+    if result.stderr:
+        print(f"⚠️ Docker Up STDERR: {result.stderr}")
+
+    return True
+
+
+@mcp.tool()
+async def get_job_status(job_id: str) -> str:
+    """
+    Checks the current progress of a background environment initialization or
+    lifecycle task.
+
+    Use this tool to poll for completion after calling 'initialize_worktree'.
+
+    Interpret the Response:
+        - PENDING/RUNNING: The environment is still being built. You must wait
+          and poll again. Check 'retry_after_seconds' for a suggested wait time.
+        - SUCCESS: The environment is live. You may now proceed to use
+          'execute_lifecycle', 'git_ops', or 'get_environment_status'.
+        - FAILURE: The setup failed. Read the 'message' or 'suggestion'
+          field to troubleshoot.
+
+    Args:
+        job_id: The unique identifier returned by the initialization tool.
+    """
+    db_url = os.environ.get("DBOS_SYSTEM_DATABASE_URL")
 
     try:
-        if not existed_initially:
-            _provision_git_worktree(worktree_path, feature_slug)
+        # Use a context manager to ensure the connection closes
+        with psycopg2.connect(db_url) as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT status, output FROM dbos.workflow_status WHERE workflow_uuid = %s",
+                    (job_id,),
+                )
+                row = cur.fetchone()
 
-        fe, be, db = _get_or_assign_ports(worktree_path, feature_slug)
+        if not row:
+            return json.dumps({"status": "NOT_FOUND", "job_id": job_id})
 
-        env_vars = os.environ.copy()
-        env_vars.update(
+        status = row["status"]
+        return json.dumps(
             {
-                "BRANCH": feature_slug,
-                "FRONTEND_PORT": str(fe),
-                "BACKEND_PORT": str(be),
-                "DB_PORT": str(db),
-                "HOST_WORKTREE_PATH": str(paths["host"]),
-                "DATABASE_URL": "postgres://postgres:password@db:5432/postgres",
+                "job_id": job_id,
+                "status": status,
+                "details": row["output"] if status == "SUCCESS" else None,
             }
         )
 
-        composer = DockerComposeRunner(feature_slug, worktree_path, env_vars)
-
-        if not existed_initially:
-            _bootstrap_agent_env(worktree_path)
-
-        composer.up()
-
-        status = "recovered" if existed_initially else "created"
-        return f"✅ Environment {status} at {worktree_path}\nPorts: FE:{fe}, BE:{be}, DB:{db}"
-
     except Exception as e:
-        return f"❌ Initialization Failed: {str(e)}"
+        return json.dumps(
+            {"status": "ERROR", "message": f"Direct DB Read Failed: {str(e)}"}
+        )
+
+
+@mcp.tool()
+def initialize_worktree(feature_slug: str) -> str:
+    """
+    Starts a durable, asynchronous background process to create a git worktree
+    and spin up Docker containers for a specific feature.
+
+    This is the first step in starting work on any new feature. Because
+    environment setup (Docker build/up) can take 1-3 minutes, this tool
+    returns a job_id immediately.
+
+    Workflow:
+        1. Call this tool to start the setup.
+        2. Capture the 'job_id' from the response.
+        3. Poll 'get_job_status' every 30 seconds using that job_id.
+        4. DO NOT attempt to use 'execute_lifecycle' or 'git_ops' until
+           'get_job_status' returns 'SUCCESS'.
+
+    Args:
+        feature_slug: The unique identifier for the feature (e.g., 'feat-ui-update').
+    """
+    client = DBOSClient(system_database_url=os.environ["DBOS_SYSTEM_DATABASE_URL"])
+
+    options: EnqueueOptions = {
+        "queue_name": "orchestrator_queue",
+        "workflow_name": "run_initialize_workflow",
+    }
+
+    handle = client.enqueue(options, feature_slug)
+
+    return json.dumps(
+        {
+            "status": "QUEUED",
+            "job_id": handle.workflow_id,
+            "msg": "Job sent to persistent worker queue.",
+        }
+    )
+
+
+@DBOS.workflow()
+def run_initialize_workflow(feature_slug: str) -> str:
+    """
+    The durable background workflow. DBOS checkpoints progress in Supabase
+    after every 'run_step'.
+    """
+    paths = _get_paths(feature_slug)
+    worktree_path = paths["worktree"]
+
+    if not BASE_PROJECT.exists():
+        raise Exception(f"Base project directory {BASE_PROJECT} not found.")
+
+    DBOS.run_step(None, _provision_git_worktree, worktree_path, feature_slug)
+
+    fe, be, db = DBOS.run_step(None, _get_or_assign_ports, worktree_path, feature_slug)
+
+    DBOS.run_step(
+        None, _docker_up_step, feature_slug, worktree_path, fe, be, db, paths["host"]
+    )
+
+    DBOS.run_step(None, _bootstrap_agent_env, worktree_path)
+
+    return f"✅ Environment initialized or recovered at {worktree_path}"
 
 
 @mcp.tool()
@@ -304,5 +422,33 @@ def list_features() -> str:
     return "\n".join(worktrees) if worktrees else "No active feature worktrees."
 
 
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--worker", action="store_true", help="Run as a persistent DBOS worker"
+    )
+    args = parser.parse_args()
+
+    if args.worker:
+        dbos_config: DBOSConfig = {
+            "name": "mcp-git-orchestrator",
+            "system_database_url": os.environ.get("DBOS_SYSTEM_DATABASE_URL"),
+        }
+        DBOS(config=dbos_config)
+        DBOS.listen_queues([orchestrator_queue])
+        DBOS.launch()
+        print("🚀 Worker listening on 'orchestrator_queue'...")
+
+        try:
+            while True:
+                signal.pause()
+
+        except (KeyboardInterrupt, SystemExit):
+            DBOS.destroy()
+
+    else:
+        mcp.run(transport="stdio")
+
+
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    main()

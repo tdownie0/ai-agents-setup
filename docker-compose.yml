@@ -74,6 +74,27 @@ services:
       - dev-network
       - supabase_network
 
+  orchestrator-worker:
+    image: git-orchestrator:latest
+    profiles: ["agent"]
+    use_api_socket: true
+    container_name: orchestrator_worker
+    restart: always
+    command: python main.py --worker
+    environment:
+      - REDIS_HOST=cache
+      - REDIS_PORT=6379
+      - PYTHONUNBUFFERED=1
+      - PROJECT_PARENT_PATH=${PROJECT_PARENT_PATH}
+      - DBOS_SYSTEM_DATABASE_URL=postgresql://postgres:postgres@supabase_db_model_md:5432/postgres
+    volumes:
+      - ..:/app
+    networks:
+      - dev-network
+      - supabase_network
+    depends_on:
+      - cache
+
   opencode:
     build:
       context: .
