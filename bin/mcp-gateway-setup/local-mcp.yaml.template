@@ -71,6 +71,7 @@ registry:
       - "/app/"
     volumes:
       - ${PROJECT_PARENT_PATH}:/app
+      - /var/run/docker.sock:/var/run/docker.sock
     env:
       - name: REDIS_HOST
         value: "cache"

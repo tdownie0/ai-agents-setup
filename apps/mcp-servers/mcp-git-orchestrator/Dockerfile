@@ -24,6 +24,15 @@ RUN curl -fsSL https://github.com/dolthub/dolt/releases/download/v1.85.0/dolt-li
 # --- Stage 3: Base Image (The "Clean" Foundation) ---
 FROM python:3.12-slim AS base
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates procps gnupg lsof && \
+    install -m 0755 -d /etc/apt/keyrings && \
+    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+    $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list && \
+    apt-get update && apt-get install -y docker-ce-cli docker-compose-plugin && \
+    rm -rf /var/lib/apt/lists/*
+
 # 1. Copy Git from git-builder
 COPY --from=git-builder /usr/local/bin/git /usr/local/bin/git
 COPY --from=git-builder /usr/local/share/git-core /usr/local/share/git-core
@@ -54,6 +63,7 @@ USER devuser
 RUN git config --global user.email "orchestrator@model-md.local" && \
     git config --global user.name "Git Orchestrator"
 USER root
+RUN groupadd -g 1001 docker && usermod -aG docker devuser
 
 # --- Stage 4: MCP Server ---
 FROM base AS mcp-server
@@ -63,14 +73,9 @@ CMD ["python", "-u", "main.py"]
 # --- Stage 5: Worker ---
 FROM base AS worker
 RUN install -m 0755 -d /etc/apt/keyrings && \
-    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
-    $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list && \
-    apt-get update && apt-get install -y docker-ce-cli docker-compose-plugin && \
     curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
     apt-get install -y nodejs && npm install -g pnpm && \
     rm -rf /var/lib/apt/lists/*
 
-RUN groupadd -g 1001 docker && usermod -aG docker devuser
 USER devuser
 CMD ["python", "-u", "main.py", "--worker"]
