@@ -19,7 +19,7 @@ tasks:
     desc: Build git-orchestrator from root
     dir: .
     cmds:
-      - docker build -t git-orchestrator:latest -f apps/mcp-servers/mcp-git-orchestrator/Dockerfile .
+      - docker build --target mcp-server -t git-orchestrator:latest -f apps/mcp-servers/mcp-git-orchestrator/Dockerfile .
 
   build:mcp-servers:
     desc: Build all MCP server images

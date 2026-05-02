@@ -38,8 +38,6 @@ DOCKER_CMD = [
     "--network",
     "supabase_network_model_md",
     "-v",
-    "/var/run/docker.sock:/var/run/docker.sock",
-    "-v",
     f"{WORKSPACE_ROOT}:/app",
     "-e",
     "WORKSPACE_ROOT=/app",
@@ -237,10 +235,79 @@ async def run_e2e_test():
         stop_resp = await call_mcp(
             "tools/call",
             {"name": "stop_environment", "arguments": {"feature_slug": FEATURE_SLUG}},
-            3,
+            msg_id=999,
         )
-        print(f"✅ Cleanup response: {stop_resp['result']['content'][0]['text']}")
 
+        if stop_resp and "result" in stop_resp:
+            content_text = stop_resp["result"]["content"][0]["text"]
+
+            # We use a helper-style approach to skip any log noise
+            try:
+                # Find the first '{' to avoid log prefixes
+                json_payload = (
+                    content_text[content_text.find("{") :]
+                    if "{" in content_text
+                    else content_text
+                )
+                stop_job_info = json.loads(json_payload)
+                stop_job_id = stop_job_info.get("job_id")
+                print(f"✅ Stop Job {stop_job_id} queued. Waiting for cleanup...")
+            except (json.JSONDecodeError, ValueError) as e:
+                print(
+                    f"❌ Failed to parse stop response JSON. Raw text: {content_text}"
+                )
+                return
+
+        else:
+            print(f"❌ Failed to initiate teardown: {stop_resp}")
+            return
+
+        is_cleaned = False
+        for i in range(15):
+            await asyncio.sleep(5)
+            status_resp = await call_mcp(
+                "tools/call",
+                {
+                    "name": "get_job_status",
+                    "arguments": {"job_id": stop_job_id},
+                },
+                msg_id=1000 + i,
+            )
+
+            if status_resp and "result" in status_resp:
+                status_text = status_resp["result"]["content"][0]["text"]
+
+                try:
+                    # Again, skip any log noise before parsing
+                    json_payload = (
+                        status_text[status_text.find("{") :]
+                        if "{" in status_text
+                        else status_text
+                    )
+                    status_data = json.loads(json_payload)
+                    current_status = status_data.get("status")
+
+                    print(f"⏳ [Teardown {i + 1}/15] Status: {current_status}")
+
+                    if current_status == "SUCCESS":
+                        is_cleaned = True
+                        print("✅ Environment successfully stopped and cleaned.")
+                        break
+                    elif current_status == "FAILURE":
+                        print(
+                            f"❌ Worker reported teardown failure: {status_data.get('error')}"
+                        )
+                        break
+                except (json.JSONDecodeError, ValueError):
+                    # Fallback for plain text status if the server isn't returning JSON
+                    if "SUCCESS" in status_text:
+                        is_cleaned = True
+                        break
+            else:
+                print(f"⚠️  Polling check {i + 1} failed to get a valid response.")
+
+        if not is_cleaned:
+            print("🏁 Teardown polling finished (check Docker manually if needed).")
     except Exception as e:
         print(f"💥 Test crashed: {e}")
     finally:

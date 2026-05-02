@@ -300,6 +300,21 @@ def execute_lifecycle(feature_slug: str, action: str) -> str:
         feature_slug: The unique identifier for the feature worktree.
         action: One of 'install', 'initialize', 'generate', 'migrate', 'seed', 'verify', 'build'.
     """
+    client = DBOSClient(system_database_url=os.environ["DBOS_SYSTEM_DATABASE_URL"])
+    handle = client.enqueue(
+        {
+            "queue_name": "orchestrator_queue",
+            "workflow_name": "run_lifecycle_workflow",
+        },
+        feature_slug,
+        action,
+    )
+
+    return json.dumps({"status": "QUEUED", "job_id": handle.workflow_id})
+
+
+@DBOS.workflow()
+def run_lifecycle_workflow(feature_slug: str, action: str) -> str:
     paths = _get_paths(feature_slug)
     composer = DockerComposeRunner(feature_slug, paths["worktree"])
 
@@ -396,7 +411,29 @@ def get_environment_status(feature_slug: str) -> str:
 
 @mcp.tool()
 def stop_environment(feature_slug: str) -> str:
-    """Tears down the docker-compose environment for a feature."""
+    """
+    Enqueues a background job to tear down the feature environment.
+    """
+    client = DBOSClient(system_database_url=os.environ["DBOS_SYSTEM_DATABASE_URL"])
+
+    options: EnqueueOptions = {
+        "queue_name": "orchestrator_queue",
+        "workflow_name": "run_stop_workflow",
+    }
+
+    handle = client.enqueue(options, feature_slug)
+
+    return json.dumps(
+        {
+            "status": "QUEUED",
+            "job_id": handle.workflow_id,
+            "msg": f"Teardown for {feature_slug} sent to worker queue.",
+        }
+    )
+
+
+@DBOS.workflow()
+def run_stop_workflow(feature_slug: str):
     target_path = _get_paths(feature_slug)["worktree"]
     services_file = target_path / "services.json"
 
