@@ -12,10 +12,9 @@ services:
     ports:
       - "12345:12345"
     networks:
-      - feature-net
+      - observability-bridge
     depends_on:
       - loki
-
       - prometheus
 
   # --- The Log Database ---
@@ -26,7 +25,7 @@ services:
       - "3100:3100"
     command: -config.file=/etc/loki/local-config.yaml
     networks:
-      - feature-net
+      - observability-bridge
 
   # --- The Metrics Database ---
   prometheus:
@@ -37,28 +36,27 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
-
     networks:
-      - feature-net
+      - observability-bridge
 
   # --- The Visualization Layer ---
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
     ports:
-      - "3001:3000" # Mapping to 3001 to avoid conflicts with common dev ports
+      - "3001:3000"
     environment:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning
     networks:
-      - feature-net
+      - observability-bridge
 
 networks:
-  feature-net:
+  observability-bridge:
     external: true
-    name: ${BRANCH:-feature}_net
+    name: observability-bridge
 
 volumes:
   alloy-data:

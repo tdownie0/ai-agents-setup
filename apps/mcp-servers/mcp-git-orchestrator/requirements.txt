@@ -3,3 +3,4 @@ psutil
 redis>=5.0.0
 dbos
 psycopg2-binary
+httpx

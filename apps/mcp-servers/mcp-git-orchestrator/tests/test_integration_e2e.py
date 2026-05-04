@@ -18,12 +18,15 @@ if not WORKSPACE_ROOT:
     print("❌ Error: PROJECT_PARENT_PATH not set in .env")
     sys.exit(1)
 
+DBOS_DATABASE = os.environ.get("DATABASE_URL")
+if not DBOS_DATABASE:
+    print("❌ Error: DATABASE_URL not set in .env")
+    sys.exit(1)
 
 REDIS_HOST = os.environ.get("REDIS_HOST", "model_md-cache-1")
 CONTAINER_NAME = "git-orchestrator-e2e-test"
 IMAGE_NAME = "git-orchestrator:latest"
 FEATURE_SLUG = "e2e-canary"
-DBOS_DATABASE = "postgresql://postgres:postgres@supabase_db_model_md:5432/postgres"
 
 # The command to spin up the "Brain" (The Orchestrator)
 DOCKER_CMD = [
@@ -36,7 +39,9 @@ DOCKER_CMD = [
     "--network",
     "model_md_dev-network",
     "--network",
-    "supabase_network_model_md",
+    "supabase_network_supabase_model_md",
+    "--network",
+    "observability-bridge",
     "-v",
     f"{WORKSPACE_ROOT}:/app",
     "-e",
@@ -229,7 +234,61 @@ async def run_e2e_test():
         assert FEATURE_SLUG in check_docker.stdout, "Feature containers not found!"
         print(f"✅ Docker containers for {FEATURE_SLUG} are running.")
 
-        # --- PHASE 5: Teardown ---
+        # --- PHASE 5: Verify Telemetry via Loki ---
+        print("📊 Verifying Telemetry (Loki) via MCP...")
+        log_output = ""
+        for attempt in range(10):
+            log_res = await call_mcp(
+                "tools/call",
+                {
+                    "name": "get_environment_logs",
+                    "arguments": {
+                        "feature_slug": FEATURE_SLUG,
+                        "service": "backend",
+                        "tail": 10,
+                    },
+                },
+                450 + attempt,
+            )
+
+            if log_res and "result" in log_res:
+                log_output = log_res["result"]["content"][0]["text"]
+                if "No logs found" not in log_output:
+                    print(f"✅ Loki Log Output Snippet:\n{log_output[:200]}...")
+                    break
+
+            print(
+                f"⏳ Attempt {attempt + 1}/10: Logs not indexed yet, retrying in 4s..."
+            )
+            await asyncio.sleep(4)
+        else:
+            print(
+                f"❌ Loki telemetry check failed after 5 attempts. Final output: {log_output}"
+            )
+            raise AssertionError("Telemetry pipeline timeout: Logs never reached Loki.")
+
+        # --- PHASE 6: Check get_environment_status ---
+        print("🌍 Verifying Global Environment Status via Loki...")
+        status_res = await call_mcp(
+            "tools/call",
+            {
+                "name": "get_environment_status",
+                "arguments": {"feature_slug": FEATURE_SLUG},
+            },
+            500,
+        )
+
+        if status_res and "result" in status_res:
+            status_text = status_res["result"]["content"][0]["text"]
+            print(f"✅ Global Status Output:\n{status_text}")
+
+            assert "Recent Environment Activity" in status_text
+            assert "No logs found" not in status_text
+        else:
+            print(f"❌ Status tool check failed: {status_res}")
+            raise AssertionError("get_environment_status failed to return telemetry.")
+
+        # --- PHASE 7: Teardown ---
         print(f"🧹 Tearing down environment: {FEATURE_SLUG}")
 
         stop_resp = await call_mcp(

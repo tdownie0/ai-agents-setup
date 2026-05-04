@@ -6,7 +6,7 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from dbos import DBOSClient, EnqueueOptions
 
-from engine import DockerComposeRunner, GitRunner
+from engine import DockerComposeRunner, GitRunner, LokiClient
 
 # --- Configuration ---
 UID = os.getenv("USER_ID", "1000")
@@ -192,12 +192,15 @@ def get_environment_logs(
     feature_slug: str, service: str | None = None, tail: int = 50
 ) -> str:
     """
-    Retrieves the last 'n' lines of logs for a feature's containers.
-    If 'service' is provided (e.g., 'backend', 'db'), only those logs are returned.
+    Retrieves logs from Loki for a specific feature.
+    If 'service' is provided, it narrows the search to that specific container.
     """
-    target_path = _get_paths(feature_slug)["worktree"]
-    composer = DockerComposeRunner(feature_slug, target_path)
-    return composer.logs(tail=tail, service=service).stdout
+    loki = LokiClient()
+
+    query_target = f"{feature_slug}.*{service}" if service else feature_slug
+    recent_logs = loki.get_service_logs(service_name=query_target, tail=tail)
+
+    return f"### Recent Logs for {query_target} (Loki)\n{recent_logs}"
 
 
 @mcp.tool()
@@ -239,10 +242,14 @@ def git_ops(feature_slug: str, command: str, git_args: list[str] | None = None) 
 
 @mcp.tool()
 def get_environment_status(feature_slug: str) -> str:
-    """Returns the status of all containers for a given feature."""
-    target_path = _get_paths(feature_slug)["worktree"]
-    composer = DockerComposeRunner(feature_slug, target_path)
-    return composer.ps().stdout
+    """
+    Returns recent telemetry (Loki) for all containers associated with a feature.
+    """
+
+    loki = LokiClient()
+    recent_activity = loki.get_service_logs(service_name=feature_slug, tail=20)
+
+    return f"### Recent Environment Activity for {feature_slug}\n{recent_activity}"
 
 
 @mcp.tool()

@@ -43,6 +43,16 @@ tasks:
     cmds:
       - ./bin/install-cli.sh
 
+  obs:up:
+    desc: "Starts observability stack used with mcp to fetch logs"
+    cmds:
+      - docker compose -p observability -f docker-compose.obs.yml up -d
+
+  obs:down:
+    desc: "Stops observability stack used with mcp to fetch logs"
+    cmds:
+      - docker compose -p observability -f docker-compose.obs.yml down
+
   find-ports:
     desc: "Finds an available block of three ports (Frontend, Backend, Database)"
     cmds:

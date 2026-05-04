@@ -1,5 +1,6 @@
 import os
 import subprocess
+import httpx
 from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Dict, Optional
@@ -81,3 +82,35 @@ class GitRunner:
 
     def run_git(self, command: str, args: List[str]):
         return self.executor.run(["git", command, *args])
+
+
+class LokiClient:
+    def __init__(self, base_url: str = "http://loki:3100"):
+        self.base_url = base_url
+
+    def get_service_logs(self, service_name: str, tail: int = 50) -> str:
+        """Queries Loki for logs filtered by service_name."""
+        query = f'{{service_name=~".*{service_name}.*"}}'
+
+        try:
+            response = httpx.get(
+                f"{self.base_url}/loki/api/v1/query_range",
+                params={"query": query, "limit": tail, "direction": "backward"},
+                timeout=10.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            lines = []
+            for result in data.get("data", {}).get("result", []):
+                for val in result.get("values", []):
+                    lines.append(val[1])
+
+            return (
+                "\n".join(reversed(lines))
+                if lines
+                else f"No logs found for {service_name}."
+            )
+
+        except Exception as e:
+            return f"Loki Query Error: {str(e)}"

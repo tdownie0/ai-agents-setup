@@ -73,6 +73,7 @@ services:
     networks:
       - dev-network
       - supabase_network
+      - observability-bridge
 
   orchestrator-worker:
     build:
@@ -139,3 +140,5 @@ networks:
   supabase_network:
     external: true
     name: supabase_network_supabase_${PROJECT_NAME}
+  observability-bridge:
+    external: true
