@@ -87,7 +87,7 @@ services:
       - REDIS_HOST=cache
       - REDIS_PORT=6379
       - PROJECT_PARENT_PATH=${PROJECT_PARENT_PATH}
-      - DBOS_SYSTEM_DATABASE_URL=postgresql://postgres:postgres@supabase_db_model_md:5432/postgres
+      - DBOS_SYSTEM_DATABASE_URL=${DATABASE_URL}
     volumes:
       - ..:/app
     networks:
@@ -138,4 +138,4 @@ networks:
     driver: bridge
   supabase_network:
     external: true
-    name: supabase_network_${PROJECT_NAME}
+    name: supabase_network_supabase_${PROJECT_NAME}
