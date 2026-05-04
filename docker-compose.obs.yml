@@ -1,0 +1,64 @@
+services:
+  # --- The Collector ---
+  alloy:
+    image: grafana/alloy:latest
+    container_name: alloy
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Alloy needs a place to store its own state (positions of logs read, etc.)
+      - alloy-data:/var/lib/alloy/data
+    command: [ "run", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy" ]
+    ports:
+      - "12345:12345"
+    networks:
+      - feature-net
+    depends_on:
+      - loki
+
+      - prometheus
+
+  # --- The Log Database ---
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - feature-net
+
+  # --- The Metrics Database ---
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+
+    networks:
+      - feature-net
+
+  # --- The Visualization Layer ---
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3001:3000" # Mapping to 3001 to avoid conflicts with common dev ports
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - feature-net
+
+networks:
+  feature-net:
+    external: true
+    name: ${BRANCH:-feature}_net
+
+volumes:
+  alloy-data:
