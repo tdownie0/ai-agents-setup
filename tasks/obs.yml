@@ -1,0 +1,13 @@
+version: "3"
+
+tasks:
+  up:
+    desc: "Starts observability stack used with mcp to fetch logs"
+    cmds:
+      - docker compose -p observability -f docker-compose.obs.yml up -d
+
+  down:
+    desc: "Stops observability stack used with mcp to fetch logs"
+    cmds:
+      - docker compose -p observability -f docker-compose.obs.yml down
+

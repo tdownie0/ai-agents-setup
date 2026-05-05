@@ -1,156 +1,44 @@
 version: "3"
 
-dotenv: [".env"]
+includes:
+  db: ./tasks/db.yml
+  obs: ./tasks/obs.yml
+  mcp: ./tasks/mcp.yml
+  feature: ./tasks/feature.yml
 
 tasks:
-  build:ast:
-    desc: Build AST service locally
-    dir: apps/mcp-servers/mcp-ast-service
+  up:
+    desc: "Start the entire local dev environment"
     cmds:
-      - docker build -t ast-explorer:latest .
+      - task: db:up
+      - task: obs:up
+      - task: app:up
 
-  build:db:
-    desc: Build DB service from root
-    dir: .
+  down:
+    desc: "Stop everything"
     cmds:
-      - docker build -t supabase-manager:latest -f apps/mcp-servers/mcp-database-service/Dockerfile .
+      - task: app:down
+      - task: obs:down
+      - task: db:down
 
-  build:git-orchestrator:
-    desc: Build git-orchestrator from root
-    dir: .
-    cmds:
-      - docker build --target mcp-server -t git-orchestrator:latest -f apps/mcp-servers/mcp-git-orchestrator/Dockerfile .
-
-  build:mcp-servers:
-    desc: Build all MCP server images
-    cmds:
-      - task: build:ast
-      - task: build:db
-      - task: build:git-orchestrator
-
-  setup:mcp:
-    desc: "Generate local MCP configuration files"
-    cmds:
-      - ./bin/mcp-gateway-setup/generate-mcp-gateway-files.sh
-    env:
-      DOCKER_MCP_ROOT: "{{.LOCAL_DOCKER_DESKTOP_CATALOG}}"
-      TASKFILE_DATABASE_URL: "{{.TASKFILE_DATABASE_URL}}"
-      PROJECT_PARENT_PATH: "{{.PROJECT_PARENT_PATH}}"
-      PROJECT_PATH: "{{.PROJECT_PATH}}"
-
-  install:supabase-cli:
-    desc: "Installs supabase cli for its compose file, as pnpm does not seem to work"
-    cmds:
-      - ./bin/install-cli.sh
-
-  obs:up:
-    desc: "Starts observability stack used with mcp to fetch logs"
-    cmds:
-      - docker compose -p observability -f docker-compose.obs.yml up -d
-
-  obs:down:
-    desc: "Stops observability stack used with mcp to fetch logs"
-    cmds:
-      - docker compose -p observability -f docker-compose.obs.yml down
-
-  find-ports:
-    desc: "Finds an available block of three ports (Frontend, Backend, Database)"
-    cmds:
-      - |
-        PORT=5174
-        while true; do
-          # Define the trio
-          FE_PORT=$PORT
-          BE_PORT=$((PORT + 1000))
-          DB_PORT=$((PORT + 2000))
-
-          # Check all three against local processes and Docker containers
-          if ! lsof -i :$FE_PORT > /dev/null && ! docker ps --format '{{.Ports}}' | grep -q ":$FE_PORT->" && \
-             ! lsof -i :$BE_PORT > /dev/null && ! docker ps --format '{{.Ports}}' | grep -q ":$BE_PORT->" && \
-             ! lsof -i :$DB_PORT > /dev/null && ! docker ps --format '{{.Ports}}' | grep -q ":$DB_PORT->"; then
-            echo $FE_PORT
-            break
-          fi
-          PORT=$((PORT+1))
-        done
-    silent: true
-
-  feature-up:
-    desc: "Start a feature environment and save metadata"
+  app:up:
+    desc: "Start the full development stack"
+    deps: [db:up, obs:up]
     vars:
-      BRANCH: '{{.BRANCH | default "dev"}}'
-      HOST_WORKTREE_PATH:
-        sh: pwd
+      P_FLAG: '{{if .P}}--profile {{.P}}{{end}}'
     cmds:
-      - |
-        FRONT_PORT=$(task find-ports)
-        BACK_PORT=$((FRONT_PORT + 1000))
-        DB_PORT=$((FRONT_PORT + 2000))
+      - docker compose {{.P_FLAG}} up {{.CLI_ARGS}}
 
-        echo "{\"branch\": \"{{.BRANCH}}\", \"frontend\": $FRONT_PORT, \"backend\": $BACK_PORT, \"db\": $DB_PORT}" > services.json
-
-        BRANCH={{.BRANCH}} \
-        FRONTEND_PORT=$FRONT_PORT \
-        BACKEND_PORT=$BACK_PORT \
-        DB_PORT=$DB_PORT \
-        DATABASE_URL="postgres://postgres:password@db:5432/postgres" \
-        HOST_WORKTREE_PATH={{.HOST_WORKTREE_PATH}} \
-        docker-compose -p {{.BRANCH}} \
-          -f docker-compose.feature.yml \
-          up -d --no-build
-
-  feature-down:
-    desc: "Tear down a feature environment"
-    cmds:
-      - docker-compose -p {{.BRANCH}} down -v
+  app:down:
     vars:
-      BRANCH: '{{.BRANCH | default "dev"}}'
-
-  feature-initialize:
-    desc: "Resets, migrates, and seeds the database for fresh spin up"
-    vars:
-      BRANCH: '{{.BRANCH | default "dev"}}'
+      P_FLAG: '{{if .P}}--profile {{.P}}{{end}}'
     cmds:
-      - task: feature-wait
-        vars: { BRANCH: "{{.BRANCH}}" }
-      - docker-compose -p {{.BRANCH}} exec backend pnpm db:reset
-      - docker-compose -p {{.BRANCH}} exec backend pnpm db:seed
+      - docker compose {{.P_FLAG}} down {{.CLI_ARGS}}
 
-  feature-seed:
-    desc: "Run seed for the specific feature branch"
-    vars:
-      BRANCH: '{{.BRANCH | default "dev"}}'
+  build:docker-assets:
+    desc: "Build external volumes and networks used"
     cmds:
-      - |
-        # Use the same logic to determine the DB_URL or pass it explicitly
-        # This forces the seed script to use the internal DB hostname
-        export DATABASE_URL="postgres://postgres:password@db:5432/postgres" \
-        docker-compose -p {{.BRANCH}} exec backend pnpm db:seed
+      - docker volume create pnpm_store
+      - docker network create observability-bridge
 
-  feature-status:
-    desc: "Check the health and status of a feature environment"
-    vars:
-      BRANCH: '{{.BRANCH | default "dev"}}'
-    cmds:
-      - docker-compose -p {{.BRANCH}} -f docker-compose.feature.yml ps
-    silent: true
 
-  feature-wait:
-    desc: "Wait for the database to be ready"
-    vars:
-      BRANCH: '{{.BRANCH | default "dev"}}'
-    cmds:
-      - |
-        echo "⏳ Waiting for database in {{.BRANCH}} to be ready..."
-        docker-compose -p {{.BRANCH}} -f docker-compose.feature.yml exec -T db sh -c 'until pg_isready -U postgres; do sleep 1; done'
-        echo "✅ Database is online."
-    silent: true
-
-  feature-verify:
-    desc: "Run full test suite in the isolated feature environment"
-    vars:
-      BRANCH: '{{.BRANCH | default "dev"}}'
-    cmds:
-      - docker-compose -p {{.BRANCH}} exec -T backend pnpm test
-      - docker-compose -p {{.BRANCH}} exec -T frontend pnpm lint
-      - echo "✅ Feature verification passed."

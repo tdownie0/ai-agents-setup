@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="2.77.0"
+VERSION="2.98.1"
 ARCH="linux_amd64"
 TARGET_DIR="./bin/supabase"
 

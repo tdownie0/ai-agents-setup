@@ -1,0 +1,29 @@
+version: "3"
+
+vars:
+  DB_DIR: "{{.ROOT_DIR}}/packages/database"
+  SUPABASE_BIN: "{{.ROOT_DIR}}/bin/supabase/supabase"
+
+tasks:
+  install-supabase-cli:
+    desc: "Installs supabase cli"
+    cmds:
+      - "{{.ROOT_DIR}}/bin/install-cli.sh"
+
+  up:
+    desc: "Start database"
+    dir: "{{.DB_DIR}}"
+    cmds:
+      - "{{.SUPABASE_BIN}} start --ignore-health-check"
+
+  down:
+    desc: "Stop database"
+    dir: "{{.DB_DIR}}"
+    cmds:
+      - "{{.SUPABASE_BIN}} stop"
+
+  status:
+    desc: "Check database status"
+    dir: "{{.DB_DIR}}"
+    cmds:
+      - "{{.SUPABASE_BIN}} status"

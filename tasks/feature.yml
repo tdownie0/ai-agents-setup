@@ -1,0 +1,95 @@
+version: "3"
+
+vars:
+  BRANCH: '{{.BRANCH | default "dev"}}'
+
+tasks:
+  find-ports:
+    internal: true
+    silent: true
+    desc: "Finds an available block of three ports (Frontend, Backend, Database)"
+    cmds:
+      - |
+        PORT=5174
+        while true; do
+          # Define the trio
+          FE_PORT=$PORT
+          BE_PORT=$((PORT + 1000))
+          DB_PORT=$((PORT + 2000))
+
+          # Check all three against local processes and Docker containers
+          if ! lsof -i :$FE_PORT > /dev/null && ! docker ps --format '{{.Ports}}' | grep -q ":$FE_PORT->" && \
+             ! lsof -i :$BE_PORT > /dev/null && ! docker ps --format '{{.Ports}}' | grep -q ":$BE_PORT->" && \
+             ! lsof -i :$DB_PORT > /dev/null && ! docker ps --format '{{.Ports}}' | grep -q ":$DB_PORT->"; then
+            echo $FE_PORT
+            break
+          fi
+          PORT=$((PORT+1))
+        done
+
+  wait:
+    internal: true
+    silent: true
+    desc: "Wait for the database to be ready"
+    cmds:
+      - |
+        echo "⏳ Waiting for database in {{.BRANCH}} to be ready..."
+        docker-compose -p {{.BRANCH}} -f docker-compose.feature.yml exec -T db sh -c 'until pg_isready -U postgres; do sleep 1; done'
+        echo "✅ Database is online."
+
+  up:
+    desc: "Start a feature environment and save metadata"
+    vars:
+      HOST_WORKTREE_PATH:
+        sh: pwd
+    cmds:
+      - |
+        FRONT_PORT=$(task find-ports)
+        BACK_PORT=$((FRONT_PORT + 1000))
+        DB_PORT=$((FRONT_PORT + 2000))
+
+        echo "{\"branch\": \"{{.BRANCH}}\", \"frontend\": $FRONT_PORT, \"backend\": $BACK_PORT, \"db\": $DB_PORT}" > services.json
+
+        BRANCH={{.BRANCH}} \
+        FRONTEND_PORT=$FRONT_PORT \
+        BACKEND_PORT=$BACK_PORT \
+        DB_PORT=$DB_PORT \
+        DATABASE_URL="postgres://postgres:password@db:5432/postgres" \
+        HOST_WORKTREE_PATH={{.HOST_WORKTREE_PATH}} \
+        docker-compose -p {{.BRANCH}} \
+          -f docker-compose.feature.yml \
+          up -d --no-build
+
+  down:
+    desc: "Tear down a feature environment"
+    cmds:
+      - docker-compose -p {{.BRANCH}} down -v
+
+  initialize:
+    desc: "Resets, migrates, and seeds the database for fresh spin up"
+    cmds:
+      - task: wait
+        vars: { BRANCH: "{{.BRANCH}}" }
+      - docker-compose -p {{.BRANCH}} exec backend pnpm db:reset
+      - docker-compose -p {{.BRANCH}} exec backend pnpm db:seed
+
+  seed:
+    desc: "Run seed for the specific feature branch"
+    cmds:
+      - |
+        # Use the same logic to determine the DB_URL or pass it explicitly
+        # This forces the seed script to use the internal DB hostname
+        export DATABASE_URL="postgres://postgres:password@db:5432/postgres" \
+        docker-compose -p {{.BRANCH}} exec backend pnpm db:seed
+
+  status:
+    desc: "Check the health and status of a feature environment"
+    cmds:
+      - docker-compose -p {{.BRANCH}} -f docker-compose.feature.yml ps
+
+  verify:
+    desc: "Run full test suite in the isolated feature environment"
+    cmds:
+      - docker-compose -p {{.BRANCH}} exec -T backend pnpm test
+      - docker-compose -p {{.BRANCH}} exec -T frontend pnpm lint
+      - echo "✅ Feature verification passed."
