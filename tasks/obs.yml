@@ -4,10 +4,10 @@ tasks:
   up:
     desc: "Starts observability stack used with mcp to fetch logs"
     cmds:
-      - docker compose -p observability -f docker-compose.obs.yml up -d
+      - docker compose --env-file .env -p observability -f infra/docker-compose.obs.yml up -d
 
   down:
     desc: "Stops observability stack used with mcp to fetch logs"
     cmds:
-      - docker compose -p observability -f docker-compose.obs.yml down
+      - docker compose --env-file .env -p observability -f infra/docker-compose.obs.yml down
 

@@ -1,5 +1,7 @@
 version: "3"
 
+dotenv: ['.env']
+
 includes:
   db: ./tasks/db.yml
   obs: ./tasks/obs.yml
@@ -27,13 +29,13 @@ tasks:
     vars:
       P_FLAG: '{{if .P}}--profile {{.P}}{{end}}'
     cmds:
-      - docker compose {{.P_FLAG}} up {{.CLI_ARGS}}
+      - docker compose --env-file .env -p {{.PROJECT_NAME}} -f infra/docker-compose.yml {{.P_FLAG}} up {{.CLI_ARGS}}
 
   app:down:
     vars:
       P_FLAG: '{{if .P}}--profile {{.P}}{{end}}'
     cmds:
-      - docker compose {{.P_FLAG}} down {{.CLI_ARGS}}
+      - docker compose --env-file .env -p {{.PROJECT_NAME}} {{.P_FLAG}} down {{.CLI_ARGS}}
 
   build:docker-assets:
     desc: "Build external volumes and networks used"

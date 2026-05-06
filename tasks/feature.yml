@@ -56,14 +56,15 @@ tasks:
         DB_PORT=$DB_PORT \
         DATABASE_URL="postgres://postgres:password@db:5432/postgres" \
         HOST_WORKTREE_PATH={{.HOST_WORKTREE_PATH}} \
-        docker-compose -p {{.BRANCH}} \
-          -f docker-compose.feature.yml \
+        docker-compose --env-file .env \
+          -p {{.BRANCH}} \
+          -f infra/docker-compose.feature.yml \
           up -d --no-build
 
   down:
     desc: "Tear down a feature environment"
     cmds:
-      - docker-compose -p {{.BRANCH}} down -v
+      - docker-compose --env-file .env -p {{.BRANCH}} down -v
 
   initialize:
     desc: "Resets, migrates, and seeds the database for fresh spin up"

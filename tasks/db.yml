@@ -2,13 +2,13 @@ version: "3"
 
 vars:
   DB_DIR: "{{.ROOT_DIR}}/packages/database"
-  SUPABASE_BIN: "{{.ROOT_DIR}}/bin/supabase/supabase"
+  SUPABASE_BIN: "{{.ROOT_DIR}}/infra/bin/supabase/supabase"
 
 tasks:
   install-supabase-cli:
     desc: "Installs supabase cli"
     cmds:
-      - "{{.ROOT_DIR}}/bin/install-cli.sh"
+      - "{{.ROOT_DIR}}/infra/bin/install-cli.sh"
 
   up:
     desc: "Start database"
@@ -27,3 +27,21 @@ tasks:
     dir: "{{.DB_DIR}}"
     cmds:
       - "{{.SUPABASE_BIN}} status"
+
+  migrate:
+    desc: "Migrate database schemas"
+    dir: "{{.ROOT_DIR}}/infra"
+    cmds:
+      - "docker compose --env-file {{.ROOT_DIR}}/.env -p {{.PROJECT_NAME}} exec backend pnpm db:migrate"
+
+  seed:
+    desc: "Seed database"
+    dir: "{{.ROOT_DIR}}/infra"
+    cmds:
+      - "docker compose --env-file {{.ROOT_DIR}}/.env -p {{.PROJECT_NAME}} exec backend pnpm db:seed"
+
+  reset:
+    desc: "Seed database"
+    dir: "{{.ROOT_DIR}}/infra"
+    cmds:
+      - "docker compose --env-file {{.ROOT_DIR}}/.env -p {{.PROJECT_NAME}} exec backend pnpm db:reset"

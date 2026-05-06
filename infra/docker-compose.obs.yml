@@ -4,7 +4,7 @@ services:
     image: grafana/alloy:latest
     container_name: alloy
     volumes:
-      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - ./configs/config.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # Alloy needs a place to store its own state (positions of logs read, etc.)
       - alloy-data:/var/lib/alloy/data
@@ -49,7 +49,7 @@ services:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./configs/grafana/provisioning:/etc/grafana/provisioning
     networks:
       - observability-bridge
 

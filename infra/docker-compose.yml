@@ -1,7 +1,8 @@
 services:
   backend:
     build:
-      context: .
+      context: ..
+      dockerfile: ./infra/builds/Dockerfile
       target: development
     image: dev-backend:latest
     working_dir: /app
@@ -14,7 +15,7 @@ services:
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - PNPM_CONFIG_STORE_DIR=/home/node/.pnpm-store
     volumes:
-      - .:/app
+      - ..:/app
       - /app/node_modules
       - /app/apps/frontend/node_modules
       - /app/apps/backend/node_modules
@@ -31,7 +32,8 @@ services:
 
   frontend:
     build:
-      context: .
+      context: ..
+      dockerfile: ./infra/builds/Dockerfile
       target: development
     image: dev-frontend:latest
     working_dir: /app
@@ -44,7 +46,7 @@ services:
       - WATCHPACK_POLLING=true
       - PNPM_CONFIG_STORE_DIR=/home/node/.pnpm-store
     volumes:
-      - .:/app
+      - ..:/app
       - /app/node_modules
       - /app/apps/frontend/node_modules
       - /app/apps/backend/node_modules
@@ -77,8 +79,8 @@ services:
 
   orchestrator-worker:
     build:
-      context: . 
-      dockerfile: apps/mcp-servers/mcp-git-orchestrator/Dockerfile
+      context: .. 
+      dockerfile: ./apps/mcp-servers/mcp-git-orchestrator/Dockerfile
       target: worker
     profiles: ["agent"]
     use_api_socket: true
@@ -90,7 +92,7 @@ services:
       - PROJECT_PARENT_PATH=${PROJECT_PARENT_PATH}
       - DBOS_SYSTEM_DATABASE_URL=${DATABASE_URL}
     volumes:
-      - ..:/app
+      - ../..:/app
     networks:
       - dev-network
       - supabase_network
@@ -99,8 +101,8 @@ services:
 
   opencode:
     build:
-      context: .
-      dockerfile: Dockerfile.opencode
+      context: ..
+      dockerfile: ./infra/builds/Dockerfile.opencode
     profiles: ["agent"]
     container_name: opencode_agent
     stdin_open: true
@@ -112,8 +114,8 @@ services:
       - GOOGLE_API_KEY=${GEMINI_API_KEY}
       - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/sse
     volumes:
-      - ..:/app
-      - .:/app/${PROJECT_NAME}:ro
+      - ../..:/app
+      - ..:/app/${PROJECT_NAME}:ro
       - ~/.config/opencode:/home/devuser/.config/opencode
       - ~/.local/share/opencode:/home/devuser/.local/share/opencode
     networks:
@@ -133,6 +135,11 @@ volumes:
   redis_data:
   pnpm_store:
     external: true
+  node_modules:
+  frontend_node_modules:
+  backend_node_modules:
+  db_node_modules:
+  mcp_node_modules:
 
 networks:
   dev-network:

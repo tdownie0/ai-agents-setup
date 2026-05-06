@@ -1,6 +1,6 @@
 .pnpm-store/
 node_modules/
-bin/supabase
+infra/bin/supabase
 .data/
 .env
 .opencode/*
@@ -10,8 +10,8 @@ out/
 .DS_Store
 **/__pycache__/
 *.pyc
-bin/mcp-gateway-setup/catalog.json
-bin/mcp-gateway-setup/local-mcp.yaml
+infra/bin/mcp-gateway-setup/catalog.json
+infra/bin/mcp-gateway-setup/local-mcp.yaml
 services.json
 
 

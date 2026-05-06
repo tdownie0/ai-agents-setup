@@ -50,21 +50,32 @@ class DockerComposeRunner:
     ):
         self.executor = Executor(cwd=worktree_path, env=env)
 
-        self.base_cmd = ["docker", "compose", "-p", project_name]
+        self.env_file = worktree_path / ".env"
+
+        self.base_cmd = [
+            "docker",
+            "compose",
+            "--env-file",
+            str(self.env_file),
+            "-p",
+            project_name,
+        ]
 
     def exec_pnpm(self, service: str, pnpm_args: List[str]):
         return self.executor.run(
             [*self.base_cmd, "exec", "-T", service, "pnpm", *pnpm_args]
         )
 
-    def up(self, file: str = "docker-compose.feature.yml"):
+    def up(self, file: str = "infra/docker-compose.feature.yml"):
         return self.executor.run([*self.base_cmd, "-f", file, "up", "-d"])
 
     def ps(self):
         return self.executor.run([*self.base_cmd, "ps"])
 
-    def down(self, volumes: bool = True):
-        cmd = [*self.base_cmd, "down"]
+    def down(
+        self, file: str = "infra/docker-compose.feature.yml", volumes: bool = True
+    ):
+        cmd = [*self.base_cmd, "-f", file, "down"]
         if volumes:
             cmd.append("-v")
         return self.executor.run(cmd)
