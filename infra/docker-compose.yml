@@ -93,6 +93,9 @@ services:
       - DBOS_SYSTEM_DATABASE_URL=${DATABASE_URL}
     volumes:
       - ../..:/app
+      - ../apps/mcp-servers/mcp-git-orchestrator/:/opt/orchestrator
+      - /opt/orchestrator/__pycache__
+      - /opt/orchestrator/.venv
     networks:
       - dev-network
       - supabase_network

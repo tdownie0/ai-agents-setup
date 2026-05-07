@@ -50,13 +50,9 @@ class DockerComposeRunner:
     ):
         self.executor = Executor(cwd=worktree_path, env=env)
 
-        self.env_file = worktree_path / ".env"
-
         self.base_cmd = [
             "docker",
             "compose",
-            "--env-file",
-            str(self.env_file),
             "-p",
             project_name,
         ]

@@ -6,7 +6,7 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from dbos import DBOSClient, EnqueueOptions
 
-from engine import DockerComposeRunner, GitRunner, LokiClient
+from engine import GitRunner, LokiClient
 
 # --- Configuration ---
 UID = os.getenv("USER_ID", "1000")

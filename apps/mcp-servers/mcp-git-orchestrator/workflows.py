@@ -187,19 +187,36 @@ def run_lifecycle_workflow(feature_slug: str, action: str) -> str:
 
 @DBOS.workflow()
 def run_stop_workflow(feature_slug: str):
-    target_path = _get_paths(feature_slug)["worktree"]
+    paths = _get_paths(feature_slug)
+    target_path = paths["worktree"]
+    host_path = paths["host"]
     services_file = target_path / "services.json"
+
+    env_vars = os.environ.copy()
 
     if services_file.exists():
         try:
             data = json.loads(services_file.read_text())
+            env_vars.update(
+                {
+                    "FRONTEND_PORT": str(data["frontend"]),
+                    "BACKEND_PORT": str(data["backend"]),
+                    "DB_PORT": str(data["db"]),
+                }
+            )
             release_ports([data["frontend"], data["backend"], data["db"]])
         except Exception as e:
-            print(f"Warning: Redis cleanup failed: {e}", file=sys.stderr)
+            print(f"Warning: Port recovery failed: {e}", file=sys.stderr)
+
+    env_vars.update({"BRANCH": feature_slug, "HOST_WORKTREE_PATH": str(host_path)})
 
     try:
-        composer = DockerComposeRunner(feature_slug, target_path)
-        composer.down()
+        composer = DockerComposeRunner(feature_slug, target_path, env_vars)
+        result = composer.down(file="infra/docker-compose.feature.yml")
+
+        if result.returncode != 0:
+            raise RuntimeError(f"Docker Compose failed: {result.stderr}")
+
         return f"✅ Environment for {feature_slug} stopped and cleaned."
     except Exception as e:
-        return f"❌ Stop Error: {str(e)}"
+        raise RuntimeError(f"Workflow Failure for {feature_slug}: {str(e)}")

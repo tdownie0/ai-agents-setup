@@ -3,7 +3,7 @@ set -euo pipefail
 
 VERSION="2.98.1"
 ARCH="linux_amd64"
-TARGET_DIR="./bin/supabase"
+TARGET_DIR="./infra/bin/supabase"
 
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT

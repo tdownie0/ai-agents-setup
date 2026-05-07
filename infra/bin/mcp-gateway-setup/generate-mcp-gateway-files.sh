@@ -2,10 +2,11 @@
 set -euo pipefail
 
 MCP_DIR="${DOCKER_MCP_ROOT:-$HOME/.docker/mcp}"
+BIN_DIR="infra/bin/mcp-gateway-setup"
 
-envsubst < bin/mcp-gateway-setup/local-mcp.yaml.template > bin/mcp-gateway-setup/local-mcp.yaml
+envsubst < $BIN_DIR/local-mcp.yaml.template > $BIN_DIR/local-mcp.yaml
 
-cat <<EOF > "bin/mcp-gateway-setup/catalog.json"
+cat <<EOF > "$BIN_DIR/catalog.json"
 {
   "catalogs": {
     "docker-mcp": {
@@ -24,7 +25,7 @@ EOF
 cat <<EOF
 
 ========================================================================
-Files generated in bin/mcp-gateway-setup/
+Files generated in infra/bin/mcp-gateway-setup/
 ========================================================================
 
 Please use these files as an example for populating the local docker/mcp

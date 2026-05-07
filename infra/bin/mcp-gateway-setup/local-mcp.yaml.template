@@ -71,6 +71,7 @@ registry:
       - "/app/"
     volumes:
       - ${PROJECT_PARENT_PATH}:/app
+      - ${PROJECT_PATH}apps/mcp-servers/mcp-git-orchestrator/:/opt/orchestrator
     env:
       - name: REDIS_HOST
         value: "cache"
@@ -86,9 +87,13 @@ registry:
         value: "1000"
       - name: GROUP_ID
         value: "1000"
+      - name: DBOS_SYSTEM_DATABASE_URL
+        value: ${TASKFILE_DATABASE_URL}
     tools:
       - name: initialize_worktree
         description: "Creates a new git worktree, allocates ports, and starts the feature Docker environment."
+      - name: get_job_status
+        description: "Checks the status of a background task using a job_id. Required for checking if initialize_worktree is finished."
       - name: execute_lifecycle
         description: "Executes a container-based lifecycle action: 'initialize' (db reset/seed), 'generate' (drizzle/codegen), 'migrate', 'seed', 'verify' (tests/lint), or 'build'."
       - name: get_environment_logs
