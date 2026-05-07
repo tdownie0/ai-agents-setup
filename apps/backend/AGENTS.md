@@ -22,3 +22,17 @@
 
 - **AST-First**: Use `ast-explorer` to identify affected route handlers before modifying code.
 - **RPC Integrity**: Ensure the Hono `AppType` is strictly typed against the database schema types.
+
+## 🎯 Beads Task Tracking (MANDATORY)
+
+Every backend route change MUST have a corresponding beads task:
+
+1. **Create**: `bd create "Add GET /users/:id endpoint" -p 1` before writing handler code.
+2. **Claim**: `bd update <TASK_ID> --claim` before editing any route file.
+3. **Link Dependencies**: Link to feature epic or dependent DB tasks:
+   ```bash
+   bd dep add <BACKEND_TASK> <DB_TASK>  # Backend blocked by DB schema change
+   ```
+4. **Close**: `bd close <TASK_ID> "Route: added GET /users/:id with auth middleware"` after tests pass.
+
+> If this task is delegated to you as part of a multi-agent swarm, the Swarm Manager will have created the epic. Your job is to claim, implement, and close the relevant task.
