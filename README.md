@@ -29,14 +29,14 @@ The first Taskfile command will build these MCP servers as docker images so we c
 containers.
 
 ```bash
-task build:mcp-servers
+task mcp:build-servers
 ```
 
 Next we will generate a local MCP configuration files to be added to whichever path the machine's
 Docker Desktop installation happens to live:
 
 ```bash
-task setup:mcp
+task mcp:setup
 ```
 
 Running this should generate output the instructs the user where these files should live. For this
@@ -49,28 +49,28 @@ access to the GUI for the database. This is installed separate due to not workin
 with pnpm:
 
 ```bash
-task install:supabase-cli
+task db:install-supabase-cli
 ```
 
 Once this is done, these commands can be used to interact with the service (which provides the
 auth for the application):
 
 ```bash
-pnpm supabase:start
+task db:up
 
-pnpm supabase:stop
+task db:down
 ```
 
 Additionally, we will need this volume created for the application:
 
 ```bash
-docker volume create pnpm_store
+task build:docker-assets
 ```
 
 After this, the stack can be built using this Docker command:
 
 ```bash
-docker compose --profile agent up --build
+task up P=agent -- --build
 ```
 
 Once this is completed, for anyone that would like to log into the demonstration site and create a
@@ -89,18 +89,18 @@ Since an environment variable has been updated, we will have to run these comman
 for the backend to update the value:
 
 ```bash
-docker compose stop backend
+task app:down -- backend
 
-docker compose up backend
+task app:up
 ```
 
 The Users model can be seeded with data so that users can appear in the table. To do so, we run
 the following commands:
 
 ```bash
-docker compose exec backend pnpm db:migrate
+task db:migrate
 
-docker compose exec backend pnpm db:seed
+task db:seed
 ```
 
 If this does not cause the current logged in user to have notifications, or if the database needs
@@ -108,24 +108,25 @@ to be reset, this following command can be ran, which will reset the database an
 The database can be seeded again as well.
 
 ```bash
-docker compose exec backend pnpm db:reset
+task db:reset
 
-docker compose exec backend pnpm db:seed
+task db:seed
 ```
 
 The agent profile includes the mcp-gateway and the opencode container being spun up in addition
 to the application. Once this is all up, opencode can be interacted with like so:
 
 ```bash
-docker compose exec opencode opencode
+docker exec -it opencode_agent opencode
 ```
 
 This repository is intended to be used with multiple agents inside Opencode, in the past using
-a setup that allowed for /task, and is now experimenting with /ulw. Examples are provided in the
-samples/ directory. The file, session-ses_auth_sample, includes a run that builds the registration
-page, along with the prompt used to get the agents to do so. In particular, if this prompt is used
-along with the MCPs, the ast-explorer and git-orchestrator should assist in building a feature,
-creating it in a separate worktree, as well as analyzing the structure of the code files included.
+a setup that allowed for /task, and is now experimenting with /ulw-loop. Examples are provided in
+the samples/ directory. The file, session-ses_auth_sample, includes a run that builds the
+registration page, along with the prompt used to get the agents to do so. In particular, if
+this prompt is used along with the MCPs, the ast-explorer and git-orchestrator should assist in
+building a feature, creating it in a separate worktree, as well as analyzing the structure of the
+code files included.
 
 Both the of MCPs used in this example are tied to working with code, but both can be customized
 in any manner by the end user. This allows for any tool to be refined further, improving their
