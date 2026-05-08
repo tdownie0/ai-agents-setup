@@ -1,0 +1,4 @@
+
+# Beads stealth mode (added by bd init --stealth)
+.beads/
+.claude/settings.local.json

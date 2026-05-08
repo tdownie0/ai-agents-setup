@@ -61,24 +61,28 @@ To combine multiple feature worktrees (e.g., merging a backend worktree into a f
 
 ---
 
-## 🎯 Task Tracking (Beads Protocol)
+## 🎯 Beads Enforcement Policy (MANDATORY)
 
-**Beads** (bd CLI) is the source of truth for agent coordination. The environment is pre-initialized for you during provisioning.
+**Beads** (bd CLI) **MUST be used for ALL feature development.** No exceptions. The internal todo list is only for scratch notes. Every task in the implementation DAG must be a beads issue.
 
-### Operational Loop
+### Operational Loop (MANDATORY)
 
-1. **Claim**: `bd update <TASK_ID> --claim` before starting a file edit.
-2. **Work**: Implement changes and run local verifications.
-3. **Close**: `bd close <TASK_ID> "Summary of changes"` only after code is committed and verified.
+Every agent working on a feature MUST follow this loop for every single task:
 
-### Coordination
+1. **Initialize**: `bd init --stealth --server` (auto-done during worktree provisioning).
+2. **Create**: `bd create "Task title" -p <priority>` before writing any code.
+3. **Claim**: `bd update <TASK_ID> --claim` before starting a file edit.
+4. **Work**: Implement changes and run local verifications.
+5. **Close**: `bd close <TASK_ID> "Summary of changes"` only after code is committed and verified.
 
-- **Dependencies**: Use `bd dep add` to block tasks (e.g., "Frontend UI" is blocked by "API Endpoint").
+### Coordination & Dependencies
+
+- **Dependencies**: Use `bd dep add <CHILD> <PARENT>` to block tasks (e.g., "Frontend UI" is blocked by "API Endpoint").
 - **Visibility**: Use `bd ready` to find the next available task in the pipeline.
+- **Gate Sync**: Use `bd gate` to synchronize parallel sub-agents at checkpoints.
+- **Swarm Validation**: Use `bd swarm validate <EPIC_ID>` before starting multi-agent work.
 
-For multi-step features or complex workflows, use **Beads** (bd CLI) for structured task tracking.
-
-### Usage
+### Usage Reference
 
 ```bash
 # Initialize in worktree (stealth mode - no git operations)
@@ -97,14 +101,145 @@ bd ready
 # Update task status
 bd update bd-a1b2 --claim
 bd close bd-a1b2 "Completed"
+
+# Create an epic for multi-agent coordination
+bd create "Epic: User Profile Dashboard" --mol-type=swarm -p 0
+
+# Validate swarm structure before parallel execution
+bd swarm validate bd-epic-123
+
+# Create a swarm molecule (manager pattern)
+bd swarm create bd-epic-123 --coordinator=manager/
 ```
 
-### When to Use Beads
+### Compliance Check
 
-- Complex multi-step implementations with dependencies
-- Long-horizon tasks requiring persistent context
-- Coordinating multiple agents on same feature
-- For simple todo tracking, use the internal todo list instead.
+Before declaring any task complete, verify:
+
+- [ ] Every file changed has a corresponding beads task
+- [ ] Task was **claimed** before editing (`bd update <id> --claim`)
+- [ ] Task is **closed** after commit (`bd close <id> "Summary"`)
+- [ ] Dependencies are linked with `bd dep add`
+- [ ] `bd ready` shows no orphaned tasks
+
+---
+
+## 🧠 Multi-Agent Swarm Orchestration
+
+For complex features involving multiple specialities (e.g., frontend + backend + database), use the **Swarm Manager** pattern. This allows a coordinating agent to decompose work, delegate to specialist sub-agents, and synchronize via beads checkpoints.
+
+### Architecture
+
+```
+                    ┌──────────────────────────┐
+                    │    Swarm Manager Agent    │
+                    │  (creates epic, plans     │
+                    │   tasks, assigns work,    │
+                    │   validates integration)  │
+                    └──────────┬───────────────┘
+                               │
+                ┌──────────────┼──────────────────┐
+                │              │                   │
+        ┌───────▼───────┐ ┌───▼────────┐  ┌──────▼─────────┐
+        │ Specialist A   │ │ Specialist B│  │ Specialist C    │
+        │ (e.g. Designer)│ │ (e.g. CSS) │  │ (e.g. JS/TS)  │
+        │ Creates task,  │ │ Creates task│  │ Creates task,   │
+        │ implements,    │ │ depends on  │  │ depends on      │
+        │ checkpoints    │ │ Designer    │  │ HTML structure  │
+        └────────────────┘ └────────────┘  └─────────────────┘
+```
+
+### Swarm Manager Protocol
+
+1. **Create Epic**: Manager creates an epic in beads for the full feature:
+   ```bash
+   bd create "Epic: User Profile Dashboard" --mol-type=swarm -p 0
+   ```
+
+2. **Decompose into Sub-Tasks**: Manager creates concrete tasks with explicit dependencies:
+   ```bash
+   bd create "Design profile layout" -p 1 --parent bd-epic-123
+   bd create "Implement CSS styling" -p 2 --parent bd-epic-123
+   bd create "Write HTML structure" -p 2 --parent bd-epic-123
+   bd create "Add JS/TS interactivity" -p 2 --parent bd-epic-123
+   ```
+
+3. **Link Dependencies**: Establish the DAG:
+   ```bash
+   bd dep add bd-css-task bd-design-task   # CSS blocked by Design
+   bd dep add bd-html-task bd-design-task  # HTML blocked by Design
+   bd dep add bd-jsts-task bd-html-task    # JS/TS blocked by HTML
+   ```
+
+4. **Validate Swarm**: Confirm the dependency graph is sound:
+   ```bash
+   bd swarm validate bd-epic-123
+   ```
+
+5. **Create Swarm Molecule**: Enable coordinator discovery:
+   ```bash
+   bd swarm create bd-epic-123 --coordinator=manager/
+   ```
+
+6. **Sub-Agent Claims & Works**: Each specialist runs `bd ready`, finds unblocked tasks, claims them:
+   ```bash
+   bd ready                       # Find unblocked work
+   bd update bd-design-task --claim  # Claim the task
+   # ... implement ...
+   bd close bd-design-task "Design mockup complete"
+   ```
+
+### Checkpointing via Gates
+
+Use **bd gate** to synchronize sub-agents at agreed checkpoints without blocking the entire pipeline:
+
+```bash
+# Manager creates a gate for API contract agreement
+bd gate create "profile-api-contract" --description "Designer and JS/TS agent agree on data shapes"
+
+# Designer opens the gate when design spec is ready
+bd gate open "profile-api-contract" "Design spec published: shapes for UserProfile, Preferences"
+
+# JS/TS agent waits for the gate
+bd gate wait "profile-api-contract"
+
+# JS/TS agent proceeds knowing the contract is settled
+```
+
+### Parallel Execution Waves
+
+Tasks are organized into execution **waves** based on dependency depth:
+
+| Wave | Tasks | Description |
+|------|-------|-------------|
+| 1 | Design | Designer creates mockups, specs, API contracts |
+| 2 | CSS, HTML | CSS implements styles, HTML implements structure (parallel, depend on Design) |
+| 3 | JS/TS | Interactivity layer (depends on HTML structure) |
+| 4 | Integration | Manager merges all work, verifies integration |
+
+### Sub-Agent Contract
+
+When a sub-agent completes its portion, it MUST:
+
+1. **Close** its beads task with a summary of what was done
+2. **Document** any API decisions, file paths created, or interfaces defined in a gate note
+3. **Open gates** for downstream dependents
+4. **Verification**: Confirm `lsp_diagnostics` clean on changed files
+
+### Manager Integration
+
+The Swarm Manager is responsible for:
+
+1. Tracking all task completion via `bd epic status bd-epic-123`
+2. Running integration verification across all sub-agent outputs
+3. Closing the epic when all children are complete: `bd epic close-eligible bd-epic-123`
+4. Resolving dependency conflicts between sub-agent outputs
+
+### When NOT to Use Swarm
+
+- Single-file changes (use direct beads task)
+- Trivial configuration updates (use direct beads task)
+- Tasks where one agent handles all layers (simple features)
 
 ---
 
