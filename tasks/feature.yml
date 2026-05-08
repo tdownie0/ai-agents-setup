@@ -5,7 +5,6 @@ vars:
 
 tasks:
   find-ports:
-    internal: true
     silent: true
     desc: "Finds an available block of three ports (Frontend, Backend, Database)"
     cmds:
@@ -28,7 +27,6 @@ tasks:
         done
 
   wait:
-    internal: true
     silent: true
     desc: "Wait for the database to be ready"
     cmds:
@@ -44,7 +42,7 @@ tasks:
         sh: pwd
     cmds:
       - |
-        FRONT_PORT=$(task find-ports)
+        FRONT_PORT=$(task feature:find-ports)
         BACK_PORT=$((FRONT_PORT + 1000))
         DB_PORT=$((FRONT_PORT + 2000))
 

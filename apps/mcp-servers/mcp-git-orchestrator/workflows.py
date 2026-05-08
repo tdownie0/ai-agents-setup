@@ -169,7 +169,7 @@ def run_lifecycle_workflow(feature_slug: str, action: str) -> str:
             ("frontend", ["lint:fix"]),
             ("frontend", ["fmt"]),
         ],
-        "build": [("backend", ["build"]), ("frontend", ["build"])],
+        "build": [("backend", ["back:build"]), ("frontend", ["front:build"])],
     }
 
     if action not in action_map:

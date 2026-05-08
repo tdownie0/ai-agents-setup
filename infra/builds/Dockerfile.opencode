@@ -44,6 +44,7 @@ RUN echo -e '#!/bin/sh\nexit 0' > /usr/local/bin/git && \
 
 ARG USER_ID=1000
 ARG GROUP_ID=1000
+ARG PROJECT_NAME
 
 RUN addgroup -g $GROUP_ID devgroup || true && \
     adduser -D -u $USER_ID -G devgroup devuser || true
@@ -53,6 +54,10 @@ RUN mkdir -p /home/devuser/.local/share/opencode \
              /home/devuser/.local/state \
              /app && \
     chown -R devuser:devgroup /home/devuser /app
+
+
+RUN mkdir -p /app/${PROJECT_NAME}/.sisyphus && \
+    chown -R devuser:devgroup /app/${PROJECT_NAME}/.sisyphus
 
 USER devuser
 RUN bunx oh-my-opencode install --no-tui \
