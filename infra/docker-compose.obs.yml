@@ -8,7 +8,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # Alloy needs a place to store its own state (positions of logs read, etc.)
       - alloy-data:/var/lib/alloy/data
-    command: [ "run", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy" ]
+    command: ["run", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
     ports:
       - "12345:12345"
     networks:

@@ -10,4 +10,3 @@ tasks:
     desc: "Stops observability stack used with mcp to fetch logs"
     cmds:
       - docker compose --env-file .env -p observability -f infra/docker-compose.obs.yml down
-

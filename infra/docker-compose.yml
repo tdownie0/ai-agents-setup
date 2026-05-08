@@ -79,7 +79,7 @@ services:
 
   orchestrator-worker:
     build:
-      context: .. 
+      context: ..
       dockerfile: ./apps/mcp-servers/mcp-git-orchestrator/Dockerfile
       target: worker
     profiles: ["agent"]
