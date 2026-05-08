@@ -20,3 +20,6 @@ services.json
 *.db
 .beads-credential-key
 .beads
+
+# Beads stealth git exclude (created by bd init --stealth)
+info/exclude
