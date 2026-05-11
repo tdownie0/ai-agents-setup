@@ -92,11 +92,16 @@ async def run_scenario(
         print("⏩ Skipping cache clear (Warm Start)...")
 
     print(f"🚀 Launching Named Container: {CONTAINER_NAME}")
+
+    MAX_BUFFER_SIZE = 10 * 1024 * 1024
+
+    # 2. Use the limit parameter in create_subprocess_exec
     proc = await asyncio.create_subprocess_exec(
         *DOCKER_CMD,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=sys.stderr,
+        limit=MAX_BUFFER_SIZE,
     )
 
     async def call(method, params=None, msg_id=1):

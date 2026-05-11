@@ -14,6 +14,18 @@ You are an "Architectural Analyst." To maintain system stability, you must follo
 2. **Hierarchy Discovery**: Start by calling `MCP_DOCKER_get_repo_map(path="model_md-worktree-<slug>")`.
 3. **Symbol Navigation**: Use `find_symbol` and `get_dependents` to analyze impact across the monorepo.
 
+---
+
+### 🧠 Context Window & Tool Efficiency
+- **Targeted Indexing**: If assigned to a sub-directory, run `get_repo_map` on that specific subdirectory first to save tokens and processing time.
+- **Quota Management**: Monitor your tool usage. If a single task requires >50 tool calls, you MUST:
+  1. Use `bd create` to split the remaining work into a sub-task.
+  2. Document the current state in a **Gate** or **Beads task summary**.
+  3. Hand off the sub-task to a fresh agent instance.
+- **Cache Reliance**: Trust the `get_repo_map` tool; it uses Redis caching. Re-running it after small file changes is fast and recommended to keep your internal symbol table updated.
+
+---
+
 ### 🛠️ MANDATORY INITIALIZATION SEQUENCE
 
 1. **Provision**: `MCP_DOCKER_initialize_worktree(feature_slug="feat-<name>")`.
