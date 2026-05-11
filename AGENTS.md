@@ -243,6 +243,37 @@ The Swarm Manager is responsible for:
 
 ---
 
+## 🧬 Swarm Feature Creation Pipeline
+
+This pipeline automates feature creation from request to delivery. It combines the **Swarm Manager** pattern (see [Multi-Agent Swarm Orchestration](#-multi-agent-swarm-orchestration)) with the **Beads** task system (see [Beads Enforcement Policy](#-beads-enforcement-policy-mandatory)) to decompose, delegate, and deliver features in parallel.
+
+```
+Feature Request → Research → Decomposition → Swarm Launch → 
+Parallel Execution → Integration → Verification → Delivery
+```
+
+### Role Reference
+
+| Role | File | Responsibility | Type |
+|------|------|----------------|------|
+| Swarm Feature Creator | `.agents/swarm-feature-creator.md` | Decomposes features, creates DAG, delegates, verifies | Orchestrator |
+| Researcher | `.agents/researcher.md` | Codebase exploration with bounded tool calls | Specialist |
+| Database Specialist | `packages/database/AGENTS.md` | Schema design and migrations | Specialist |
+| Backend Specialist | `apps/backend/AGENTS.md` | API routes and business logic | Specialist |
+| Frontend Specialist | `apps/frontend/AGENTS.md` | UI components and state management | Specialist |
+
+### Sample
+
+See `samples/swarm-feature-creation-full-stack.md` for a complete walkthrough of a full-stack feature built with this pipeline.
+
+### When to Use Swarm Feature Creation
+
+- **Multi-layer features**: Changes touching DB + Backend + Frontend
+- **Cross-domain work**: Features requiring 2 or more specialist domains
+- **Parallel opportunity**: Any feature where tasks can run concurrently
+
+The orchestrator handles decomposition and dependency mapping, specialists execute in parallel, and the manager verifies integration before closing out.
+
 ## 📝 DEFINITION OF DONE (DoD)
 
 A mission is complete only when:

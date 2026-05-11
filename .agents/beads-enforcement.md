@@ -269,3 +269,76 @@ A swarm feature is complete only when:
 | Open gate | `bd gate open "name" "Details"` |
 | Wait on gate | `bd gate wait "name"` |
 | Close task | `bd close <ID> "Summary"` |
+
+---
+
+## Part 5: Tool Call Limit Recovery Protocol (T-RECOVERY)
+
+### 5.1 Context
+
+Sub-agents in this environment have a finite tool call budget. When the budget is exhausted mid-work, the agent is terminated and its context is lost. This protocol ensures partial progress is checkpointed via beads gates so a fresh agent can pick up exactly where the previous one stopped. No work is lost, no context is wasted.
+
+### 5.2 Budget Assignment Rules
+
+| Task Complexity | Max Tool Calls | Checkpoint Every N Calls |
+|----------------|---------------|------------------------|
+| Simple (single file edit) | 15 | No checkpoint needed |
+| Medium (2-4 files, single layer) | 25 | 15 |
+| Complex (5+ files, multi-layer) | 40 | 20 |
+| Research/Exploration | 15 | 10 |
+
+### 5.3 Subdivision Protocol
+
+Follow these steps when a sub-agent approaches its tool call limit:
+
+1. **Agent detects approaching limit** (at 80% of budget consumed).
+2. **Agent stops all new work immediately.** Do not start new edits or searches.
+3. **Agent opens a beads gate** with current state:
+   ```
+   bd gate open "checkpoint-<TASK_ID>" "Progress: <DETAILS>. Remaining: <WHAT'S LEFT>. Next steps: <SUGGESTION>."
+   ```
+4. **Orchestrator detects the gate** (or agent timeout) and assesses remaining work.
+5. **Orchestrator creates a child task** for the remaining scope:
+   ```
+   bd create "Remaining: <TASK_DESC>" -p <PRIORITY> --parent <ORIGINAL_EPIC>
+   ```
+6. **Orchestrator links the dependency** so the child is blocked by the original:
+   ```
+   bd dep add <CHILD> <ORIGINAL>
+   ```
+7. **Orchestrator spawns a new sub-agent** with:
+   - The partial results from the gate note as starting context
+   - Reduced scope (only the remaining work)
+   - A fresh tool call budget
+8. **New agent waits on the gate**, reads checkpoint context, claims the child task, and continues.
+
+### 5.4 Context Preservation Template
+
+When opening a checkpoint gate, use this template:
+
+```
+## Gate Note: checkpoint-<TASK_ID>
+### Completed:
+- What was done (files modified, decisions made)
+
+### Partial Results:
+- Code snippets, findings, patterns discovered
+
+### Blockers Encountered:
+- What stopped progress
+
+### Remaining Work:
+- What still needs to be done
+
+### Context for Next Agent:
+- Patterns to follow, files to read, design decisions
+```
+
+### 5.5 Anti-Patterns
+
+The following behaviors are **forbidden** during tool call recovery:
+
+- ❌ **Silently losing partial progress.** Always open a gate note before the budget runs out.
+- ❌ **Restarting the full task from scratch.** The new agent should only handle remaining work.
+- ❌ **Not preserving discovered context.** File paths found, patterns observed, and design decisions must be in the gate note.
+- ❌ **Giving the new agent an unlimited budget.** Assign a fresh budget using the table in 5.2 for the reduced scope.
