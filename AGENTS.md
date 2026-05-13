@@ -38,6 +38,8 @@ You are an "Architectural Analyst." To maintain system stability, you must follo
 
 ## 🏗️ Isolated Environment Lifecycle
 
+> **See also**: Full lifecycle details in [`.agents/worktree-lifecycle.md`](.agents/beads-enforcement.md#part-3-integration--definition-of-done).
+
 ### 1. Action Library (via `MCP_DOCKER_execute_lifecycle`)
 
 - `initialize`: Performs a full DB reset, migration, and seed.
@@ -74,6 +76,8 @@ To combine multiple feature worktrees (e.g., merging a backend worktree into a f
 ---
 
 ## 🎯 Beads Enforcement Policy (MANDATORY)
+
+> **See also**: Complete protocol with enforcement rules, compliance checklist, and error recovery in [`.agents/beads-enforcement.md`](.agents/beads-enforcement.md).
 
 **Beads** (bd CLI) **MUST be used for ALL feature development.** No exceptions. The internal todo list is only for scratch notes. Every task in the implementation DAG must be a beads issue.
 
@@ -137,6 +141,8 @@ Before declaring any task complete, verify:
 ---
 
 ## 🧠 Multi-Agent Swarm Orchestration
+
+> **See also**: Full swarm protocol with gates, checkpoint lifecycle, and error recovery in [`.agents/beads-enforcement.md`](.agents/beads-enforcement.md#part-2-multi-agent-swarm-orchestration).
 
 For complex features involving multiple specialities (e.g., frontend + backend + database), use the **Swarm Manager** pattern. This allows a coordinating agent to decompose work, delegate to specialist sub-agents, and synchronize via beads checkpoints.
 
@@ -257,6 +263,8 @@ The Swarm Manager is responsible for:
 
 ## 🧬 Swarm Feature Creation Pipeline
 
+> **See also**: Full pipeline with delegation templates, tool call subdivision, and error recovery matrix in [`.agents/swarm-feature-creator.md`](.agents/swarm-feature-creator.md).
+
 This pipeline automates feature creation from request to delivery. It combines the **Swarm Manager** pattern (see [Multi-Agent Swarm Orchestration](#-multi-agent-swarm-orchestration)) with the **Beads** task system (see [Beads Enforcement Policy](#-beads-enforcement-policy-mandatory)) to decompose, delegate, and deliver features in parallel.
 
 ```
@@ -287,6 +295,8 @@ See `samples/swarm-feature-creation-full-stack.md` for a complete walkthrough of
 The orchestrator handles decomposition and dependency mapping, specialists execute in parallel, and the manager verifies integration before closing out.
 
 ## 📝 DEFINITION OF DONE (DoD)
+
+> **See also**: Role-specific definitions for Database, Backend, and Frontend specialists in their respective `AGENTS.md` files under `packages/database/`, `apps/backend/`, and `apps/frontend/`.
 
 A mission is complete only when:
 

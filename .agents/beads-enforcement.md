@@ -127,6 +127,35 @@ bd gate wait "api-data-shapes"
 # Gate opens → agent proceeds with known contract
 ```
 
+#### Gate Naming Conventions
+
+Use a consistent namespace pattern to make gate purposes obvious across all agents:
+
+```
+<type>-<feature>[-<sub-context>]
+```
+
+| Type | Pattern | Example | Opened By | Consumed By |
+|------|---------|---------|-----------|-------------|
+| Research | `research-<feature>` | `research-user-preferences` | Researcher | All agents |
+| Contract | `contract-<context>-<name>` | `contract-api-preferences` | Upstream agent | Downstream agent |
+| Schema | `schema-<feature>` | `schema-user-preferences` | DB Specialist | Backend Specialist |
+| Checkpoint | `checkpoint-<TASK_ID>` | `checkpoint-bd-pref-db` | Any agent (T-RECOVERY) | Manager / successor |
+| Impact | `impact-<scope>` | `impact-users-schema` | Researcher | Manager |
+| Synthesis | `synthesis-<topic>` | `synthesis-db-patterns` | Researcher | Manager |
+| API Contract | `api-contract-<feature>` | `api-contract-preferences` | Backend Specialist | Frontend Specialist |
+| UI Contract | `ui-contract-<feature>` | `ui-contract-dashboard` | Designer | CSS / HTML / JS agents |
+| Subdivide | `subdivide-<TASK_ID>` | `subdivide-bd-pref-api` | Manager (tool-limit recovery) | Successor agent |
+
+**Rules:**
+1. Gate names MUST be unique within an epic's scope.
+2. Use kebab-case only — no spaces, underscores, or CamelCase.
+3. The `contract-` prefix is reserved for cross-layer interface agreements.
+4. The `checkpoint-` prefix is reserved for T-RECOVERY checkpoints (see §5).
+5. Each gate SHOULD document the type (Research, Impact, Contract, etc.) in its `--description`.
+
+> **Timeout handling**: If a downstream agent calls `bd gate wait "<name>"` and the upstream agent fails or never opens the gate, the Swarm Manager should detect this via `bd epic status` and either reassign the upstream task or manually open the gate with updated contract details. See [Error Recovery](#28-error-recovery) for resolution steps.
+
 ### 2.5 API Contract Management
 
 When multiple agents work on connected layers, they MUST agree on shared interfaces:
