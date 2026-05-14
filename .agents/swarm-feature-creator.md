@@ -62,6 +62,8 @@ Researcher 1: "Examine packages/database/src/schema/"
 Researcher 2: "Examine apps/backend/src/routes/"
 ```
 
+> **⚠️ T-RECOVERY Protocol**: When any agent (researcher or implementation sub-agent) approaches its tool call budget, follow the full **Tool Call Limit Recovery Protocol** in `.agents/beads-enforcement.md §5`. This ensures partial progress is checkpointed via gates and a fresh agent can resume exactly where the previous one stopped. Key steps: (1) open a checkpoint gate with current state, (2) create a child beads task, (3) spawn a new agent with reduced scope, (4) link the dependency so the child is blocked by the original.
+
 ### 1.4 Collect Gate Notes
 
 After each researcher completes, collect via `background_output(task_id=...)` and write findings into a gate:
@@ -205,7 +207,7 @@ Every sub-agent delegation must include every field below:
 
 ### 4.3 Tool Call Subdivision Protocol
 
-If a sub-agent hits its budget (35+ calls) before finishing:
+If a sub-agent hits its budget (35+ calls) before finishing — see **Tool Call Limit Recovery Protocol** in `.agents/beads-enforcement.md §5` for the full procedure. The summary below follows that protocol:
 
 **Step 1:** Create a child beads task for remaining work.
 
