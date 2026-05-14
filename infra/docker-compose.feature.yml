@@ -6,18 +6,18 @@ services:
     ports:
       - "${DB_PORT:-5433}:5432"
     volumes:
-      - ./.data/db_${BRANCH:-feature}:/var/lib/postgresql/data
+      - db_data:/var/lib/postgresql/data
     networks:
       - feature-net
 
   backend:
     build:
       context: ..
+      dockerfile: ./infra/builds/Dockerfile
       target: development
     image: dev-backend:latest
     container_name: ${BRANCH}-backend
-    command: >
-      sh -c "pnpm --filter @model_md/database build && pnpm run dev:server"
+    command: pnpm run dev:server
     environment:
       - CI=true
       - PORT=3000
@@ -44,6 +44,7 @@ services:
   frontend:
     build:
       context: ..
+      dockerfile: ./infra/builds/Dockerfile
       target: development
     image: dev-frontend:latest
     container_name: ${BRANCH}-frontend
@@ -78,3 +79,5 @@ networks:
 volumes:
   pnpm_store:
     external: true
+  db_data:
+    name: "db_data_${BRANCH:-feature}"

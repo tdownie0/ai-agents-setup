@@ -63,6 +63,7 @@ services:
   mcp-gateway:
     image: docker/mcp-gateway:latest
     profiles: ["agent"]
+    restart: always
     use_api_socket: true
     environment:
       - SUPABASE_URL=${SUPABASE_URL}
@@ -76,6 +77,12 @@ services:
       - dev-network
       - supabase_network
       - observability-bridge
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:8811/tools | grep -q 'get_repo_map' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
 
   orchestrator-worker:
     build:
@@ -91,6 +98,7 @@ services:
       - REDIS_PORT=6379
       - PROJECT_PARENT_PATH=${PROJECT_PARENT_PATH}
       - DBOS_SYSTEM_DATABASE_URL=${DATABASE_URL}
+      - TEST_USER_ID=${TEST_USER_ID}
     volumes:
       - ../..:/app
       - ../apps/mcp-servers/mcp-git-orchestrator/:/opt/orchestrator
@@ -126,8 +134,6 @@ services:
       - ~/.local/share/opencode:/home/devuser/.local/share/opencode
     networks:
       - dev-network
-    depends_on:
-      - mcp-gateway
 
   cache:
     image: redis:alpine

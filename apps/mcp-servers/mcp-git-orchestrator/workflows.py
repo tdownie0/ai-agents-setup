@@ -15,6 +15,7 @@ GID = os.getenv("GROUP_ID", "1000")
 APP_ROOT = Path("/app")
 BASE_PROJECT = APP_ROOT / "model_md"
 HOST_ROOT = Path(os.getenv("PROJECT_PARENT_PATH", "/home/user/project"))
+TEST_USER_ID = os.getenv("TEST_USER_ID")
 
 orchestrator_queue = Queue("orchestrator_queue", worker_concurrency=1)
 
@@ -109,6 +110,7 @@ def _docker_up_step(
             "DB_PORT": str(db),
             "HOST_WORKTREE_PATH": str(host_path),
             "DATABASE_URL": "postgres://postgres:password@db:5432/postgres",
+            "TEST_USER_ID": str(TEST_USER_ID),
         }
     )
 

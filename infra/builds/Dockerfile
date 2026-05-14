@@ -30,12 +30,16 @@ CMD ["node", "index.js"]
 FROM base AS development
 WORKDIR /app
 
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.json tsconfig.base.json ./
 COPY apps/backend/package.json ./apps/backend/
 COPY apps/frontend/package.json ./apps/frontend/
 COPY packages/database/package.json ./packages/database/
 
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm install --recursive
+    pnpm install --frozen-lockfile
+
+COPY packages/database ./packages/database
+
+RUN pnpm --filter @model_md/database build
 
 CMD ["pnpm", "dev"]

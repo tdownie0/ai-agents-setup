@@ -19,7 +19,7 @@ RUN curl -fsSL https://github.com/dolthub/dolt/releases/download/v1.85.0/dolt-li
     mv /tmp/dolt-linux-amd64/bin/dolt /usr/local/bin/dolt
 
 # --- Stage 3: Final Image ---
-FROM ghcr.io/anomalyco/opencode:latest
+FROM ghcr.io/anomalyco/opencode:1.14.48
 
 USER root
 
