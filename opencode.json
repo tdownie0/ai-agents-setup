@@ -6,7 +6,10 @@
     "AGENTS.md",
     "packages/database/AGENTS.md",
     "apps/frontend/AGENTS.md",
-    "apps/backend/AGENTS.md"
+    "apps/backend/AGENTS.md",
+    ".agents/beads-enforcement.md",
+    ".agents/api-tasks.md",
+    ".agents/db-tasks.md"
   ],
   "small_model": "opencode/big-pickle",
   "permission": {

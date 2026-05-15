@@ -35,7 +35,7 @@ Swarm mode is mandatory when 2 or more layers are involved.
 Delegate fact-finding to the researcher agent defined in `.agents/researcher.md`:
 
 ```
-call_omo_agent(subagent_type="explore", run_in_background=true, prompt="...")
+task(subagent_type="explore", load_skills=[], description="Explore codebase for existing patterns", prompt="...", run_in_background=true)
 ```
 
 ### 1.2 Researcher Briefing Template
@@ -226,13 +226,13 @@ bd gate open "subdivide-<TASK>" \
 **Step 3:** Spawn a new sub-agent.
 
 ```
-call_omo_agent(subagent_type="<same-category>", prompt="
+task(subagent_type="<same-category>", load_skills=[], prompt="
   1. bd gate wait \"subdivide-<TASK>\"
   2. Read gate note for partial context.
   3. bd ready -> bd update <NEW-TASK> --claim
   4. Continue from where previous agent left off.
-  ...rest of 6-field template..."
-)
+  ...rest of 6-field template...",
+  run_in_background=true)
 ```
 
 ### 4.4 Track Progress
