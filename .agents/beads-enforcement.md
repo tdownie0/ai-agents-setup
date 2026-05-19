@@ -14,13 +14,13 @@ This document defines the mandatory beads usage rules and the multi-agent swarm 
 
 ### 1.2 Enforcement Rules
 
-| Rule | Description | Consequence of Violation |
-|------|-------------|--------------------------|
-| **Create before code** | `bd create "Title" -p N` before writing any implementation code | Task is considered incomplete |
-| **Claim before edit** | `bd update <ID> --claim` before starting a file edit | Revert changes, create task, restart |
-| **Close after commit** | `bd close <ID> "Summary"` only after code is committed and verified | Definition of Done not met |
-| **Link dependencies** | `bd dep add <CHILD> <PARENT>` for all inter-task relationships | Swarm validation will fail |
-| **Close all tasks** | Every task in the epic must be closed before epic is complete | `bd epic close-eligible` will reject |
+| Rule                   | Description                                                         | Consequence of Violation             |
+| ---------------------- | ------------------------------------------------------------------- | ------------------------------------ |
+| **Create before code** | `bd create "Title" -p N` before writing any implementation code     | Task is considered incomplete        |
+| **Claim before edit**  | `bd update <ID> --claim` before starting a file edit                | Revert changes, create task, restart |
+| **Close after commit** | `bd close <ID> "Summary"` only after code is committed and verified | Definition of Done not met           |
+| **Link dependencies**  | `bd dep add <CHILD> <PARENT>` for all inter-task relationships      | Swarm validation will fail           |
+| **Close all tasks**    | Every task in the epic must be closed before epic is complete       | `bd epic close-eligible` will reject |
 
 ### 1.3 Beads Initialization
 
@@ -58,6 +58,7 @@ Before marking ANY feature task as complete, the agent MUST verify:
 ### 2.1 When to Use Swarm Mode
 
 Use the Swarm Manager pattern when:
+
 - A feature requires 2+ specialist skill domains (e.g., DB + Backend + Frontend)
 - Parallel execution of independent work units is possible
 - Sub-agents need to checkpoint intermediate results for other agents to consume
@@ -135,19 +136,20 @@ Use a consistent namespace pattern to make gate purposes obvious across all agen
 <type>-<feature>[-<sub-context>]
 ```
 
-| Type | Pattern | Example | Opened By | Consumed By |
-|------|---------|---------|-----------|-------------|
-| Research | `research-<feature>` | `research-user-preferences` | Researcher | All agents |
-| Contract | `contract-<context>-<name>` | `contract-api-preferences` | Upstream agent | Downstream agent |
-| Schema | `schema-<feature>` | `schema-user-preferences` | DB Specialist | Backend Specialist |
-| Checkpoint | `checkpoint-<TASK_ID>` | `checkpoint-bd-pref-db` | Any agent (T-RECOVERY) | Manager / successor |
-| Impact | `impact-<scope>` | `impact-users-schema` | Researcher | Manager |
-| Synthesis | `synthesis-<topic>` | `synthesis-db-patterns` | Researcher | Manager |
-| API Contract | `api-contract-<feature>` | `api-contract-preferences` | Backend Specialist | Frontend Specialist |
-| UI Contract | `ui-contract-<feature>` | `ui-contract-dashboard` | Designer | CSS / HTML / JS agents |
-| Subdivide | `subdivide-<TASK_ID>` | `subdivide-bd-pref-api` | Manager (tool-limit recovery) | Successor agent |
+| Type         | Pattern                     | Example                     | Opened By                     | Consumed By            |
+| ------------ | --------------------------- | --------------------------- | ----------------------------- | ---------------------- |
+| Research     | `research-<feature>`        | `research-user-preferences` | Researcher                    | All agents             |
+| Contract     | `contract-<context>-<name>` | `contract-api-preferences`  | Upstream agent                | Downstream agent       |
+| Schema       | `schema-<feature>`          | `schema-user-preferences`   | DB Specialist                 | Backend Specialist     |
+| Checkpoint   | `checkpoint-<TASK_ID>`      | `checkpoint-bd-pref-db`     | Any agent (T-RECOVERY)        | Manager / successor    |
+| Impact       | `impact-<scope>`            | `impact-users-schema`       | Researcher                    | Manager                |
+| Synthesis    | `synthesis-<topic>`         | `synthesis-db-patterns`     | Researcher                    | Manager                |
+| API Contract | `api-contract-<feature>`    | `api-contract-preferences`  | Backend Specialist            | Frontend Specialist    |
+| UI Contract  | `ui-contract-<feature>`     | `ui-contract-dashboard`     | Designer                      | CSS / HTML / JS agents |
+| Subdivide    | `subdivide-<TASK_ID>`       | `subdivide-bd-pref-api`     | Manager (tool-limit recovery) | Successor agent        |
 
 **Rules:**
+
 1. Gate names MUST be unique within an epic's scope.
 2. Use kebab-case only — no spaces, underscores, or CamelCase.
 3. The `contract-` prefix is reserved for cross-layer interface agreements.
@@ -242,12 +244,12 @@ Before `bd swarm validate` passes, the epic MUST have:
 
 ### 2.8 Error Recovery
 
-| Situation | Resolution |
-|-----------|------------|
-| Sub-agent fails to complete | Manager reassigns task (`bd update <ID> --assignee new-agent`) |
-| Contract changes mid-flight | Manager updates gate note, reopens, downstream agents re-read |
-| Dependency cycle detected | Manager restructures tasks, reruns `bd swarm validate` |
-| Integration verification fails | Manager creates bug-fix tasks, assigns to relevant sub-agent |
+| Situation                      | Resolution                                                     |
+| ------------------------------ | -------------------------------------------------------------- |
+| Sub-agent fails to complete    | Manager reassigns task (`bd update <ID> --assignee new-agent`) |
+| Contract changes mid-flight    | Manager updates gate note, reopens, downstream agents re-read  |
+| Dependency cycle detected      | Manager restructures tasks, reruns `bd swarm validate`         |
+| Integration verification fails | Manager creates bug-fix tasks, assigns to relevant sub-agent   |
 
 ---
 
@@ -278,26 +280,26 @@ A swarm feature is complete only when:
 
 ### Manager Commands
 
-| Step | Command |
-|------|---------|
-| Create epic | `bd create "Epic" --mol-type=swarm -p 0` |
-| Create sub-task | `bd create "Task" -p N --parent bd-epic` |
-| Link dependency | `bd dep add bd-child bd-parent` |
-| Create gate | `bd gate create "name" --description "..."` |
-| Validate swarm | `bd swarm validate bd-epic` |
-| Enable swarm | `bd swarm create bd-epic --coordinator=manager/` |
-| Check status | `bd epic status bd-epic` |
-| Close epic | `bd epic close-eligible bd-epic` |
+| Step            | Command                                          |
+| --------------- | ------------------------------------------------ |
+| Create epic     | `bd create "Epic" --mol-type=swarm -p 0`         |
+| Create sub-task | `bd create "Task" -p N --parent bd-epic`         |
+| Link dependency | `bd dep add bd-child bd-parent`                  |
+| Create gate     | `bd gate create "name" --description "..."`      |
+| Validate swarm  | `bd swarm validate bd-epic`                      |
+| Enable swarm    | `bd swarm create bd-epic --coordinator=manager/` |
+| Check status    | `bd epic status bd-epic`                         |
+| Close epic      | `bd epic close-eligible bd-epic`                 |
 
 ### Sub-Agent Commands
 
-| Step | Command |
-|------|---------|
-| Find work | `bd ready` |
-| Claim task | `bd update <ID> --claim` |
-| Open gate | `bd gate open "name" "Details"` |
-| Wait on gate | `bd gate wait "name"` |
-| Close task | `bd close <ID> "Summary"` |
+| Step         | Command                         |
+| ------------ | ------------------------------- |
+| Find work    | `bd ready`                      |
+| Claim task   | `bd update <ID> --claim`        |
+| Open gate    | `bd gate open "name" "Details"` |
+| Wait on gate | `bd gate wait "name"`           |
+| Close task   | `bd close <ID> "Summary"`       |
 
 ---
 
@@ -309,12 +311,12 @@ Sub-agents in this environment have a finite tool call budget. When the budget i
 
 ### 5.2 Budget Assignment Rules
 
-| Task Complexity | Max Tool Calls | Checkpoint Every N Calls |
-|----------------|---------------|------------------------|
-| Simple (single file edit) | 15 | No checkpoint needed |
-| Medium (2-4 files, single layer) | 25 | 15 |
-| Complex (5+ files, multi-layer) | 40 | 20 |
-| Research/Exploration | 15 | 10 |
+| Task Complexity                  | Max Tool Calls | Checkpoint Every N Calls |
+| -------------------------------- | -------------- | ------------------------ |
+| Simple (single file edit)        | 15             | No checkpoint needed     |
+| Medium (2-4 files, single layer) | 25             | 15                       |
+| Complex (5+ files, multi-layer)  | 40             | 20                       |
+| Research/Exploration             | 15             | 10                       |
 
 ### 5.3 Subdivision Protocol
 

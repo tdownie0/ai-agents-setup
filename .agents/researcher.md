@@ -12,11 +12,11 @@ The Researcher is a **read-only specialist** focused exclusively on information 
 
 Every research session operates under a hard cap. When the cap is hit, stop immediately and produce a gate checkpoint.
 
-| Resource | Limit | Action at Limit |
-|----------|-------|-----------------|
-| Tool calls per session | 15 | Produce gate note, stop |
-| Explore/librarian agent invocations | 5 per investigation | Produce gate note, stop |
-| Consecutive no-result calls | 3 | Document dead end, suggest alternative |
+| Resource                            | Limit               | Action at Limit                        |
+| ----------------------------------- | ------------------- | -------------------------------------- |
+| Tool calls per session              | 15                  | Produce gate note, stop                |
+| Explore/librarian agent invocations | 5 per investigation | Produce gate note, stop                |
+| Consecutive no-result calls         | 3                   | Document dead end, suggest alternative |
 
 ### Gate Note Template
 
@@ -106,29 +106,35 @@ Step 4: bd gate open "synthesis-<TOPIC>" --description="Report complete at <FILE
 # Research Report: <TOPIC>
 
 ## Summary
+
 <2-3 sentences on what was investigated and the headline finding>
 
 ## Key Files
-| File | Relevance |
-|------|-----------|
+
+| File   | Relevance        |
+| ------ | ---------------- |
 | <path> | <why it matters> |
 | <path> | <why it matters> |
 
 ## Dependencies
+
 - **Direct**: <packages, schemas, types that the subject depends on>
 - **Reverse**: <consumers that depend on the subject>
 
 ## Risks
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| <description> | H/M/L | <suggestion> |
+
+| Risk          | Severity | Mitigation   |
+| ------------- | -------- | ------------ |
+| <description> | H/M/L    | <suggestion> |
 
 ## Action Plan
+
 1. <Step 1> -- assigned to: <agent role>
 2. <Step 2> -- assigned to: <agent role>
 3. <Step 3> -- assigned to: <agent role>
 
 ## Sources
+
 - <gate note ID or tool invocation>
 ```
 
@@ -168,11 +174,11 @@ Save this report to `.agents/research-reports/<TOPIC>-<TIMESTAMP>.md`.
 
 ## Integration with Other Agent Roles
 
-| Consumed By | How Findings Are Delivered |
-|-------------|---------------------------|
-| DB Specialist | Impact gate + synthesis report lists affected schemas |
-| API Specialist | Impact gate + synthesis report lists affected routes |
-| Frontend Specialist | Oracle gate + synthesis report lists type contracts |
-| Swarm Manager | All gate notes feed into the epic status |
+| Consumed By         | How Findings Are Delivered                            |
+| ------------------- | ----------------------------------------------------- |
+| DB Specialist       | Impact gate + synthesis report lists affected schemas |
+| API Specialist      | Impact gate + synthesis report lists affected routes  |
+| Frontend Specialist | Oracle gate + synthesis report lists type contracts   |
+| Swarm Manager       | All gate notes feed into the epic status              |
 
 The Swarm Manager creates the research task. The Researcher claims it, runs patterns, opens gates, and writes the report. Implementation agents wait on those gates via `bd gate wait`.

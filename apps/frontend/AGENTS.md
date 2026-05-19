@@ -23,11 +23,11 @@ Every frontend component change MUST have a corresponding beads task:
 
 When building complex UIs, frontend work can be split into parallel specialist roles. See [Multi-Agent Swarm Orchestration](../../AGENTS.md#-multi-agent-swarm-orchestration) in the root AGENTS.md for the full protocol.
 
-| Role | Responsibility | Depends On |
-|------|---------------|------------|
-| **Designer** | Wireframes, mockups, design tokens, API contract | Nothing |
-| **CSS Stylist** | Tailwind classes, animations, responsive breakpoints | Designer |
-| **HTML Architect** | Component tree, layout structure, data attributes | Designer |
-| **JS/TS Engineer** | State management, event handlers, API calls, tests | HTML Architect |
+| Role               | Responsibility                                       | Depends On     |
+| ------------------ | ---------------------------------------------------- | -------------- |
+| **Designer**       | Wireframes, mockups, design tokens, API contract     | Nothing        |
+| **CSS Stylist**    | Tailwind classes, animations, responsive breakpoints | Designer       |
+| **HTML Architect** | Component tree, layout structure, data attributes    | Designer       |
+| **JS/TS Engineer** | State management, event handlers, API calls, tests   | HTML Architect |
 
 Each role creates a beads task, claims it, checkpoints via gates, and closes when done.

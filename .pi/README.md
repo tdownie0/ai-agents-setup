@@ -11,6 +11,7 @@ This directory contains project-local configuration for the Pi AI coding tool.
 ## Pi Auto-Discovers
 
 Pi automatically loads from the project root and parent directories:
+
 - `AGENTS.md` or `CLAUDE.md` - Agent instructions (concatenated)
 - `.pi/settings.json` - Project settings (overrides global)
 - `.pi/mcp.json` - Project MCP config
@@ -19,6 +20,7 @@ Pi automatically loads from the project root and parent directories:
 ## Global Config (Host)
 
 User-global configuration lives at `~/.pi/agent/`:
+
 - `~/.pi/agent/settings.json` - Global settings
 - `~/.pi/agent/mcp.json` - Global MCP servers
 - `~/.pi/agent/auth.json` - API keys

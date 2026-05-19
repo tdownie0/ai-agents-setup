@@ -10,19 +10,19 @@ A meta-orchestrator that receives a feature request and drives it through the sw
 
 Extract scope, technologies, layers affected, and dependencies.
 
-| Layer | Agent Type | Context |
-|-------|------------|---------|
-| Database | `deep` agent | `.agents/db-tasks.md`, Drizzle schema, migrations |
-| Backend | `unspecified-high` agent | `.agents/api-tasks.md`, Hono RPC |
-| Frontend | `visual-engineering` agent | React, Tailwind, `hc<AppType>` |
+| Layer    | Agent Type                 | Context                                           |
+| -------- | -------------------------- | ------------------------------------------------- |
+| Database | `deep` agent               | `.agents/db-tasks.md`, Drizzle schema, migrations |
+| Backend  | `unspecified-high` agent   | `.agents/api-tasks.md`, Hono RPC                  |
+| Frontend | `visual-engineering` agent | React, Tailwind, `hc<AppType>`                    |
 
 ### 0.2 Classify Complexity
 
-| Category | Trigger | Strategy |
-|----------|---------|----------|
-| Trivial | Single file, no schema or route changes | One direct task, no swarm |
-| Single-layer | One domain (DB only, backend only, frontend only) | One beads task, one sub-agent |
-| **Multi-layer** | **2+ layers involved** | **Swarm mode** |
+| Category        | Trigger                                           | Strategy                      |
+| --------------- | ------------------------------------------------- | ----------------------------- |
+| Trivial         | Single file, no schema or route changes           | One direct task, no swarm     |
+| Single-layer    | One domain (DB only, backend only, frontend only) | One beads task, one sub-agent |
+| **Multi-layer** | **2+ layers involved**                            | **Swarm mode**                |
 
 Swarm mode is mandatory when 2 or more layers are involved.
 
@@ -173,6 +173,7 @@ Every sub-agent delegation must include every field below:
 ### 4.2 Delegation by Layer
 
 **Database (P0)** — `subagent_type: "deep"`, context: `.agents/db-tasks.md`
+
 ```
 1. GOAL: Create <table> schema, run pnpm db:generate, pnpm db:migrate, pnpm test:db passes.
 2. FILES: packages/database/src/schema/<table>.ts (new), packages/database/src/index.ts (export).
@@ -184,6 +185,7 @@ Every sub-agent delegation must include every field below:
 ```
 
 **Backend (P1)** — `subagent_type: "unspecified-high"`, context: `.agents/api-tasks.md`
+
 ```
 1. GOAL: Add CRUD routes via Hono RPC. Export AppType.
 2. FILES: apps/backend/src/routes/<resource>.ts (new), apps/backend/src/index.ts (mount).
@@ -195,6 +197,7 @@ Every sub-agent delegation must include every field below:
 ```
 
 **Frontend (P1)** — `subagent_type: "visual-engineering"`, context: `apps/frontend/src/`
+
 ```
 1. GOAL: Build component with React + Tailwind. Connect via hc<AppType>.
 2. FILES: apps/frontend/src/components/<feature>/ (new dir), apps/frontend/src/App.tsx (route).
@@ -289,16 +292,16 @@ MCP_DOCKER_stop_environment(feature_slug="feat-<fe-branch>")
 
 ## Error Recovery Matrix
 
-| Failure | Symptoms | Recovery |
-|---------|----------|----------|
-| **Sub-agent hits tool limit** | Stops without completing | Subdivide via gate + child task per 4.3. New agent picks up where old one left off. |
-| **Sub-agent returns bad output** | Gate note shows wrong types or broken patterns | Reassign with feedback: "Previous failed because <reason>. Correct approach: <guidance>." |
-| **Swarm validation fails** | `bd swarm validate` errors | Read error, fix DAG with `bd dep add` or reparenting, rerun. |
-| **Verify fails** | `execute_lifecycle verify` non-zero | Create `bd create "Fix: <issue>" -p 0 --parent bd-epic-<hash>`, deploy sub-agent, rerun. |
-| **Contract mismatch** | FE expects `{user}`, BE returns `{data.user}` | Update gate note with corrected contract. Spawn new sub-agent with `bd update <downstream-task> --claim`. |
-| **Merge conflict** | `git_ops merge` fails | Create conflict-resolution task from merge output. Sub-agent resolves manually. |
-| **Epic close rejected** | `bd epic close-eligible` lists unfinished tasks | Close each: `bd close <TASK> "..."`. Complete any abandoned tasks first. |
-| **Gate never opens** | Downstream stuck on `bd gate wait` | Check upstream agent status. If failed, reassign with `bd update <upstream-task> --claim`. |
+| Failure                          | Symptoms                                        | Recovery                                                                                                  |
+| -------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| **Sub-agent hits tool limit**    | Stops without completing                        | Subdivide via gate + child task per 4.3. New agent picks up where old one left off.                       |
+| **Sub-agent returns bad output** | Gate note shows wrong types or broken patterns  | Reassign with feedback: "Previous failed because <reason>. Correct approach: <guidance>."                 |
+| **Swarm validation fails**       | `bd swarm validate` errors                      | Read error, fix DAG with `bd dep add` or reparenting, rerun.                                              |
+| **Verify fails**                 | `execute_lifecycle verify` non-zero             | Create `bd create "Fix: <issue>" -p 0 --parent bd-epic-<hash>`, deploy sub-agent, rerun.                  |
+| **Contract mismatch**            | FE expects `{user}`, BE returns `{data.user}`   | Update gate note with corrected contract. Spawn new sub-agent with `bd update <downstream-task> --claim`. |
+| **Merge conflict**               | `git_ops merge` fails                           | Create conflict-resolution task from merge output. Sub-agent resolves manually.                           |
+| **Epic close rejected**          | `bd epic close-eligible` lists unfinished tasks | Close each: `bd close <TASK> "..."`. Complete any abandoned tasks first.                                  |
+| **Gate never opens**             | Downstream stuck on `bd gate wait`              | Check upstream agent status. If failed, reassign with `bd update <upstream-task> --claim`.                |
 
 ---
 

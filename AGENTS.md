@@ -17,6 +17,7 @@ You are an "Architectural Analyst." To maintain system stability, you must follo
 ---
 
 ### 🧠 Context Window & Tool Efficiency
+
 - **Targeted Indexing**: If assigned to a sub-directory, run `get_repo_map` on that specific subdirectory first to save tokens and processing time.
 - **Quota Management**: Monitor your tool usage. If a single task requires >100 tool calls, you MUST:
   1. Use `bd create` to split the remaining work into a sub-task.
@@ -170,11 +171,13 @@ For complex features involving multiple specialities (e.g., frontend + backend +
 ### Swarm Manager Protocol
 
 1. **Create Epic**: Manager creates an epic in beads for the full feature:
+
    ```bash
    bd create "Epic: User Profile Dashboard" --mol-type=swarm -p 0
    ```
 
 2. **Decompose into Sub-Tasks**: Manager creates concrete tasks with explicit dependencies:
+
    ```bash
    bd create "Design profile layout" -p 1 --parent bd-epic-123
    bd create "Implement CSS styling" -p 2 --parent bd-epic-123
@@ -183,6 +186,7 @@ For complex features involving multiple specialities (e.g., frontend + backend +
    ```
 
 3. **Link Dependencies**: Establish the DAG:
+
    ```bash
    bd dep add bd-css-task bd-design-task   # CSS blocked by Design
    bd dep add bd-html-task bd-design-task  # HTML blocked by Design
@@ -190,11 +194,13 @@ For complex features involving multiple specialities (e.g., frontend + backend +
    ```
 
 4. **Validate Swarm**: Confirm the dependency graph is sound:
+
    ```bash
    bd swarm validate bd-epic-123
    ```
 
 5. **Create Swarm Molecule**: Enable coordinator discovery:
+
    ```bash
    bd swarm create bd-epic-123 --coordinator=manager/
    ```
@@ -228,12 +234,12 @@ bd gate wait "profile-api-contract"
 
 Tasks are organized into execution **waves** based on dependency depth:
 
-| Wave | Tasks | Description |
-|------|-------|-------------|
-| 1 | Design | Designer creates mockups, specs, API contracts |
-| 2 | CSS, HTML | CSS implements styles, HTML implements structure (parallel, depend on Design) |
-| 3 | JS/TS | Interactivity layer (depends on HTML structure) |
-| 4 | Integration | Manager merges all work, verifies integration |
+| Wave | Tasks       | Description                                                                   |
+| ---- | ----------- | ----------------------------------------------------------------------------- |
+| 1    | Design      | Designer creates mockups, specs, API contracts                                |
+| 2    | CSS, HTML   | CSS implements styles, HTML implements structure (parallel, depend on Design) |
+| 3    | JS/TS       | Interactivity layer (depends on HTML structure)                               |
+| 4    | Integration | Manager merges all work, verifies integration                                 |
 
 ### Sub-Agent Contract
 
@@ -268,19 +274,19 @@ The Swarm Manager is responsible for:
 This pipeline automates feature creation from request to delivery. It combines the **Swarm Manager** pattern (see [Multi-Agent Swarm Orchestration](#-multi-agent-swarm-orchestration)) with the **Beads** task system (see [Beads Enforcement Policy](#-beads-enforcement-policy-mandatory)) to decompose, delegate, and deliver features in parallel.
 
 ```
-Feature Request → Research → Decomposition → Swarm Launch → 
+Feature Request → Research → Decomposition → Swarm Launch →
 Parallel Execution → Integration → Verification → Delivery
 ```
 
 ### Role Reference
 
-| Role | File | Responsibility | Type |
-|------|------|----------------|------|
+| Role                  | File                               | Responsibility                                        | Type         |
+| --------------------- | ---------------------------------- | ----------------------------------------------------- | ------------ |
 | Swarm Feature Creator | `.agents/swarm-feature-creator.md` | Decomposes features, creates DAG, delegates, verifies | Orchestrator |
-| Researcher | `.agents/researcher.md` | Codebase exploration with bounded tool calls | Specialist |
-| Database Specialist | `packages/database/AGENTS.md` | Schema design and migrations | Specialist |
-| Backend Specialist | `apps/backend/AGENTS.md` | API routes and business logic | Specialist |
-| Frontend Specialist | `apps/frontend/AGENTS.md` | UI components and state management | Specialist |
+| Researcher            | `.agents/researcher.md`            | Codebase exploration with bounded tool calls          | Specialist   |
+| Database Specialist   | `packages/database/AGENTS.md`      | Schema design and migrations                          | Specialist   |
+| Backend Specialist    | `apps/backend/AGENTS.md`           | API routes and business logic                         | Specialist   |
+| Frontend Specialist   | `apps/frontend/AGENTS.md`          | UI components and state management                    | Specialist   |
 
 ### Sample
 
