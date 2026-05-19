@@ -3,7 +3,9 @@ node_modules/
 infra/bin/supabase
 .data/
 .env
-.opencode/*
+.pi/npm/
+.pi/git/
+/pi-agent-data/
 dist/
 out/
 *.tsbuildinfo
@@ -24,3 +26,6 @@ services.json
 
 # Beads stealth git exclude (created by bd init --stealth)
 info/exclude
+
+# Beads / Dolt files (added by bd init)
+.beads/proxieddb/

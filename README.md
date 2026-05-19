@@ -11,11 +11,11 @@ for workflow automation with AI. To demonstrate this end, the custom MCP servers
 Docker Desktop's MCP toolkit to bring these additional tools in. Once they are incorporated through
 this medium, these MCPs can be incorporated in multiple applications, as long as they work with
 mcp-gateway (Docker's MCP orchestrator), or directly with the MCP toolkit. Such examples could be
-CLI tools like opencode, or even GUI frontends like Claude Desktop.
+CLI tools like Pi AI coding tool, or even GUI frontends like Claude Desktop.
 
 With those details out of the way, we can move on to the installation phase. Really, once Docker
 is configured correctly, this application should work out of the box, allowing users to spin up the
-Opencode container, and begin having it develop features in isolated environments.
+Pi AI coding agent container, and begin having it develop features in isolated environments.
 
 ### Installation
 
@@ -113,15 +113,15 @@ task db:reset
 task db:seed
 ```
 
-The agent profile includes the mcp-gateway and the opencode container being spun up in addition
-to the application. Once this is all up, opencode can be interacted with like so:
+The agent profile includes the mcp-gateway and the Pi AI coding agent container being spun up in addition
+to the application. Once this is all up, Pi can be interacted with like so:
 
 ```bash
-docker exec -it opencode_agent opencode
+docker exec -it pi_agent pi
 ```
 
-This repository is intended to be used with multiple agents inside Opencode, in the past using
-a setup that allowed for /task, and is now experimenting with /ulw-loop. Examples are provided in
+This repository is intended to be used with Pi AI Coding tool at its core, using
+a setup that allows for /subagent orchestration. Examples are provided in
 the samples/ directory. The file, session-ses_auth_sample, includes a run that builds the
 registration page, along with the prompt used to get the agents to do so. In particular, if
 this prompt is used along with the MCPs, the ast-explorer and git-orchestrator should assist in
@@ -154,7 +154,7 @@ Here comes the AI description:
 
 A high-performance, containerized development environment designed for **Agent-Host Parity**.
 This project enables AI agents to operate within a Docker ecosystem while maintaining the ability to spawn parallel Git worktrees and access deep code intelligence via MCP.
-Using this approach, MCP tools can be added through the Docker MCP toolkit, its catalogue, or direclty to opencode.
+Using this approach, MCP tools can be added through the Docker MCP toolkit, its catalogue, or directly to Pi.
 
 ## 🏗 Architectural Overview
 
@@ -215,9 +215,9 @@ Unlike traditional setups where MCP servers run on the host, this project treats
 
 - `/model_md`: The primary repository/anchor for the AI agent.
 - `/ast-mcp-service`: Source and Dockerfile for the AST-based MCP server.
-- `.opencode/commands`: Contains the `worktree_orchestration.md` protocol—the agent's "SOP" for managing parallel work.
+- `.pi/`: Contains the Pi AI coding tool project configuration (settings, MCP, system prompts).
 - `../.`: This setup assumes that the user will have access to the parent directory of the current application's directory.
-  We do this in order to facilitate worktree functionality (mounted in docker-compose.yml for opencode in this case).
+  We do this in order to facilitate worktree functionality (mounted in docker-compose.yml for Pi in this case).
 
 ---
 

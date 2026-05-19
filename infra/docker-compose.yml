@@ -110,28 +110,26 @@ services:
     depends_on:
       - cache
 
-  opencode:
+  pi:
     build:
       context: ..
-      dockerfile: ./infra/builds/Dockerfile.opencode
+      dockerfile: ./infra/builds/Dockerfile.pi
       args:
         - PROJECT_NAME=${PROJECT_NAME}
     profiles: ["agent"]
-    container_name: opencode_agent
+    container_name: pi_agent
     stdin_open: true
     tty: true
     working_dir: /app/model_md
     environment:
-      - OPENCODE_CONFIG=/app/model_md/opencode.json
-      - REDIS_URL=redis://cache:6379
-      - GOOGLE_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - PI_CODING_AGENT_DIR=/home/devuser/.pi/agent
       - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/sse
     volumes:
       - ../..:/app
       - ..:/app/${PROJECT_NAME}:ro
       - sisyphus_store:/app/${PROJECT_NAME}/.sisyphus:rw
-      - ~/.config/opencode:/home/devuser/.config/opencode
-      - ~/.local/share/opencode:/home/devuser/.local/share/opencode
+      - ~/.pi:/home/devuser/.pi
     networks:
       - dev-network
 

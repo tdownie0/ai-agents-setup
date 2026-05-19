@@ -21,9 +21,9 @@ The base image now includes beads and dolt. Binaries are available in PATH after
 
 ### Building the Image
 
-Rebuild with the updated Dockerfile.opencode:
-```bash
-docker build -f Dockerfile.opencode -t dev-opencode:latest .
+Rebuild with the updated Dockerfile.pi:
+
+docker build -f Dockerfile.pi -t dev-pi:latest .
 ```
 
 ## Usage

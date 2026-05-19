@@ -1,0 +1,13 @@
+{
+  "settings": {
+    "toolPrefix": "mcp",
+    "directTools": true
+  },
+  "mcpServers": {
+    "mcp-gateway": {
+      "url": "http://mcp-gateway:8811/sse",
+      "lifecycle": "keep-alive",
+      "directTools": true
+    }
+  }
+}

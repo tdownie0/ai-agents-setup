@@ -19,17 +19,19 @@ RUN curl -fsSL https://github.com/dolthub/dolt/releases/download/v1.85.0/dolt-li
     mv /tmp/dolt-linux-amd64/bin/dolt /usr/local/bin/dolt
 
 # --- Stage 3: Final Image ---
-FROM ghcr.io/anomalyco/opencode:1.14.48
+FROM node:22-alpine
 
 USER root
 
-# Install dependencies for runtime
+# Install runtime dependencies
 RUN apk add --no-cache \
     curl \
     bash \
     unzip \
     icu-libs \
-    gcompat
+    gcompat \
+    git \
+    openssh
 
 COPY --from=bun-source /usr/local/bin/bun /usr/local/bin/bun
 RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx
@@ -42,6 +44,18 @@ COPY --from=beads-builder /usr/local/bin/dolt /usr/local/bin/dolt
 RUN echo -e '#!/bin/sh\nexit 0' > /usr/local/bin/git && \
     chmod +x /usr/local/bin/git
 
+# Install Pi AI coding tool globally via npm
+RUN npm install -g @earendil-works/pi-coding-agent
+
+# Create Pi's global config directory structure (~/.pi/agent/)
+RUN mkdir -p /home/devuser/.pi/agent/extensions \
+    /home/devuser/.pi/agent/skills \
+    /home/devuser/.pi/agent/prompts \
+    /home/devuser/.pi/agent/themes
+
+# Create the Pi project config directory template
+RUN mkdir -p /app/.pi
+
 ARG USER_ID=1000
 ARG GROUP_ID=1000
 ARG PROJECT_NAME
@@ -49,24 +63,18 @@ ARG PROJECT_NAME
 RUN addgroup -g $GROUP_ID devgroup || true && \
     adduser -D -u $USER_ID -G devgroup devuser || true
 
-RUN mkdir -p /home/devuser/.local/share/opencode \
-             /home/devuser/.config/opencode \
-             /home/devuser/.local/state \
-             /app && \
+RUN mkdir -p /home/devuser/.local/share/pi \
+    /home/devuser/.config && \
     chown -R devuser:devgroup /home/devuser /app
-
 
 RUN mkdir -p /app/${PROJECT_NAME}/.sisyphus && \
     chown -R devuser:devgroup /app/${PROJECT_NAME}/.sisyphus
 
+# Pre-populate Pi's global MCP config to connect to the gateway
+RUN mkdir -p /home/devuser/.pi/agent && \
+    echo '{"mcpServers":{"mcp-gateway":{"url":"http://mcp-gateway:8811/sse","directTools":true,"lifecycle":"keep-alive"}}}' > /home/devuser/.pi/agent/mcp.json && \
+    chown devuser:devgroup /home/devuser/.pi/agent/mcp.json
+
 USER devuser
-RUN bunx oh-my-opencode install --no-tui \
-    --gemini=yes \
-    --claude=no \
-    --copilot=no \
-    --openai=no \
-    --opencode-go=no \
-    --opencode-zen=yes \
-    --zai-coding-plan=yes
 
 WORKDIR /app
