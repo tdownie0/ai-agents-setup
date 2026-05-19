@@ -1,0 +1,23 @@
+opencode:
+  build:
+    context: ..
+    dockerfile: ./infra/builds/Dockerfile.opencode
+    args:
+      - PROJECT_NAME=${PROJECT_NAME}
+  profiles: ["agent"]
+  container_name: opencode_agent
+  stdin_open: true
+  tty: true
+  working_dir: /app/model_md
+  environment:
+    - OPENCODE_CONFIG=/app/model_md/opencode.json
+    - GOOGLE_API_KEY=${GEMINI_API_KEY}
+    - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/sse
+  volumes:
+    - ../..:/app
+    - ..:/app/${PROJECT_NAME}:ro
+    - sisyphus_store:/app/${PROJECT_NAME}/.sisyphus:rw
+    - ~/.config/opencode:/home/devuser/.config/opencode
+    - ~/.local/share/opencode:/home/devuser/.local/share/opencode
+  networks:
+    - dev-network
