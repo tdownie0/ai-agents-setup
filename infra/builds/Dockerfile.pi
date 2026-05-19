@@ -1,7 +1,4 @@
-# --- Stage 1: Grab Bun binary ---
-FROM oven/bun:alpine AS bun-source
-
-# --- Stage 2: Build Beads from source ---
+# --- Stage 1: Build Beads from source ---
 # We use golang:alpine to ensure we have a full build environment
 FROM golang:alpine AS beads-builder
 
@@ -18,7 +15,7 @@ RUN curl -fsSL https://github.com/dolthub/dolt/releases/download/v1.85.0/dolt-li
     tar -xzf /tmp/dolt.tar.gz -C /tmp && \
     mv /tmp/dolt-linux-amd64/bin/dolt /usr/local/bin/dolt
 
-# --- Stage 3: Final Image ---
+# --- Stage 2: Final Image ---
 FROM node:22-alpine
 
 USER root
@@ -42,34 +39,21 @@ RUN echo -e '#!/bin/sh\nexit 0' > /usr/local/bin/git && \
 # Install Pi AI coding tool globally via npm
 RUN npm install -g @earendil-works/pi-coding-agent
 
-# Create Pi's global config directory structure (~/.pi/agent/)
-RUN mkdir -p /home/devuser/.pi/agent/extensions \
-    /home/devuser/.pi/agent/skills \
-    /home/devuser/.pi/agent/prompts \
-    /home/devuser/.pi/agent/themes
+RUN mkdir -p /app \
+             /home/node/.pi/agent/extensions \
+             /home/node/.pi/agent/skills \
+             /home/node/.pi/agent/prompts \
+             /home/node/.pi/agent/themes \
+             /home/node/.local/share/pi \
+             /home/node/.config
 
-# Create the Pi project config directory template
-RUN mkdir -p /app/.pi
+# Pre-populate Pi's global MCP config to point directly to the gateway network container
+RUN echo '{"mcpServers":{"mcp-gateway":{"url":"http://mcp-gateway:8811/sse","directTools":true,"lifecycle":"keep-alive"}}}' > /home/node/.pi/agent/mcp.json
 
-ARG USER_ID=1000
-ARG GROUP_ID=1000
-ARG PROJECT_NAME
+RUN chown -R 1000:1000 /app && \
+    chown -R 1000:1000 /home/node/.pi && \
+    chown -R 1000:1000 /home/node/.local && \
+    chown -R 1000:1000 /home/node/.config
 
-RUN addgroup -g $GROUP_ID devgroup || true && \
-    adduser -D -u $USER_ID -G devgroup devuser || true
-
-RUN mkdir -p /home/devuser/.local/share/pi \
-    /home/devuser/.config && \
-    chown -R devuser:devgroup /home/devuser /app
-
-RUN mkdir -p /app/${PROJECT_NAME}/.sisyphus && \
-    chown -R devuser:devgroup /app/${PROJECT_NAME}/.sisyphus
-
-# Pre-populate Pi's global MCP config to connect to the gateway
-RUN mkdir -p /home/devuser/.pi/agent && \
-    echo '{"mcpServers":{"mcp-gateway":{"url":"http://mcp-gateway:8811/sse","directTools":true,"lifecycle":"keep-alive"}}}' > /home/devuser/.pi/agent/mcp.json && \
-    chown devuser:devgroup /home/devuser/.pi/agent/mcp.json
-
-USER devuser
-
+USER node
 WORKDIR /app

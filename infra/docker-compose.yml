@@ -123,13 +123,13 @@ services:
     working_dir: /app/model_md
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - PI_CODING_AGENT_DIR=/home/devuser/.pi/agent
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - PI_CODING_AGENT_DIR=/home/node/.pi/agent
       - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/sse
     volumes:
       - ../..:/app
       - ..:/app/${PROJECT_NAME}:ro
-      - sisyphus_store:/app/${PROJECT_NAME}/.sisyphus:rw
-      - ~/.pi:/home/devuser/.pi
+      - ~/.pi:/home/node/.pi
     networks:
       - dev-network
 
