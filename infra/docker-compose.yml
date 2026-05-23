@@ -69,6 +69,8 @@ services:
       - SUPABASE_URL=${SUPABASE_URL}
     volumes:
       - ${LOCAL_MCP_REGISTRY}:/root/.docker/mcp
+    ports:
+      - "127.0.0.1:8811:8811"
     command:
       - --transport=sse
       - --port=8811
@@ -77,12 +79,6 @@ services:
       - dev-network
       - supabase_network
       - observability-bridge
-    healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:8811/tools | grep -q 'get_repo_map' || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 120s
 
   orchestrator-worker:
     build:
