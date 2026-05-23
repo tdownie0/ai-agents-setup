@@ -16,6 +16,9 @@ APP_ROOT = Path("/app")
 BASE_PROJECT = APP_ROOT / "model_md"
 HOST_ROOT = Path(os.getenv("PROJECT_PARENT_PATH", "/home/user/project"))
 TEST_USER_ID = os.getenv("TEST_USER_ID")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+VITE_SUPABASE_URL = os.getenv("VITE_SUPABASE_URL")
 
 orchestrator_queue = Queue("orchestrator_queue", worker_concurrency=1)
 
@@ -110,6 +113,9 @@ def _docker_up_step(
             "DB_PORT": str(db),
             "HOST_WORKTREE_PATH": str(host_path),
             "DATABASE_URL": "postgres://postgres:password@db:5432/postgres",
+            "SUPABASE_URL": str(SUPABASE_URL),
+            "SUPABASE_ANON_KEY": str(SUPABASE_ANON_KEY),
+            "VITE_SUPABASE_URL": str(VITE_SUPABASE_URL),
             "TEST_USER_ID": str(TEST_USER_ID),
         }
     )
@@ -157,6 +163,7 @@ def run_lifecycle_workflow(feature_slug: str, action: str) -> str:
     action_map = {
         "install": [("backend", ["install"]), ("frontend", ["install"])],
         "initialize": [
+            ("backend", ["--filter", "@model_md/database", "build"]),
             ("backend", ["db:reset"]),
             ("backend", ["db:migrate"]),
             ("backend", ["db:seed"]),

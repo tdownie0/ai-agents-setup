@@ -2,7 +2,7 @@
 
 ## 🚨 CRITICAL: ARCHITECTURAL & OPERATIONAL GUARDRAILS
 
-**STRICT PROHIBITION**: Direct file access to `/app/model_md` is blocked for all development.
+**STRICT PROHIBITION**: Direct file access to `/app/model_md` is read only for all development.
 All operations MUST be executed within an isolated Git worktree. Never work on features in the
 `/app/model_md` directory.
 
