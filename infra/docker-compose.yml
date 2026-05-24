@@ -106,26 +106,26 @@ services:
     depends_on:
       - cache
 
-  pi:
+  antigravity:
     build:
       context: ..
-      dockerfile: ./infra/builds/Dockerfile.pi
+      dockerfile: ./infra/builds/Dockerfile.agy
       args:
         - PROJECT_NAME=${PROJECT_NAME}
     profiles: ["agent"]
-    container_name: pi_agent
+    container_name: antigravity_agent
     stdin_open: true
     tty: true
-    working_dir: /app/model_md
+    working_dir: /app
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - PI_CODING_AGENT_DIR=/home/node/.pi/agent
       - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/sse
     volumes:
       - ../..:/app
       - ..:/app/${PROJECT_NAME}:ro
-      - ~/.pi:/home/node/.pi
+      - ~/.config/antigravity:/home/devuser/.config/antigravity
+      - ~/.gemini:/home/devuser/.gemini
     networks:
       - dev-network
 
