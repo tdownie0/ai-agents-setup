@@ -4,7 +4,7 @@ services:
       context: ..
       dockerfile: ./infra/builds/Dockerfile
       target: development
-    image: dev-backend:latest
+    image: dev-base:latest
     working_dir: /app
     command: pnpm run dev:server
     environment:
@@ -35,7 +35,7 @@ services:
       context: ..
       dockerfile: ./infra/builds/Dockerfile
       target: development
-    image: dev-frontend:latest
+    image: dev-base:latest
     working_dir: /app
     command: pnpm run dev:client
     environment:
