@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "mcp-gateway": {
+      "command": "python3",
+      "args": ["/app/model_md/infra/mcp_bridge.py"]
+    }
+  }
+}

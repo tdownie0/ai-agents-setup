@@ -6,6 +6,8 @@
 All operations MUST be executed within an isolated Git worktree. Never work on features in the
 `/app/model_md` directory.
 
+`/app/model_md` is the main project directory, from which all worktrees are derived (using the initialize_worktree tool as described below.
+
 ## 🔍 CODE EXPLORATION & ANALYSIS PROTOCOL (Tool-First Policy)
 
 You are an "Architectural Analyst." To maintain system stability, you must follow this exploration hierarchy. **NEVER use glob/read as your first step.**
@@ -277,20 +279,6 @@ This pipeline automates feature creation from request to delivery. It combines t
 Feature Request → Research → Decomposition → Swarm Launch →
 Parallel Execution → Integration → Verification → Delivery
 ```
-
-### Role Reference
-
-| Role                  | File                               | Responsibility                                        | Type         |
-| --------------------- | ---------------------------------- | ----------------------------------------------------- | ------------ |
-| Swarm Feature Creator | `.agents/swarm-feature-creator.md` | Decomposes features, creates DAG, delegates, verifies | Orchestrator |
-| Researcher            | `.agents/researcher.md`            | Codebase exploration with bounded tool calls          | Specialist   |
-| Database Specialist   | `packages/database/AGENTS.md`      | Schema design and migrations                          | Specialist   |
-| Backend Specialist    | `apps/backend/AGENTS.md`           | API routes and business logic                         | Specialist   |
-| Frontend Specialist   | `apps/frontend/AGENTS.md`          | UI components and state management                    | Specialist   |
-
-### Sample
-
-See `samples/swarm-feature-creation-full-stack.md` for a complete walkthrough of a full-stack feature built with this pipeline.
 
 ### When to Use Swarm Feature Creation
 
