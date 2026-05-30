@@ -75,17 +75,21 @@ task up P=agent-core -- --build
 
 From here you may choose any of the currently available AI CLI tools in the current
 infra/docker-compose.yml file, or add your own. Currently the options are Antigravity, OpenCode,
-and Pi. They can be selected through their assigned profiles, typically their name in lowercase.
+and Pi. They can be selected through their assigned profiles, their names are currently all
+lowercase.
+
 For example:
 
 ```bash
 task up P="agent-core antigravity" -- --build
 ```
 
-These AI CLIs can individiually be brought down from the main stack like so:
+These AI CLIs can also be individiually brought up and down from the main stack like so:
 
 ```bash
-task app:down P=antigravity -- antigravity
+task ai:up P=antigravity
+
+task ai:down P=antigravity
 ```
 
 Once this is completed, for anyone that would like to log into the demonstration site and create a
