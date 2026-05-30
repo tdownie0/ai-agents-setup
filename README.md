@@ -134,7 +134,7 @@ task db:seed
 
 The agent-core profile includes the mcp-gateway, the orchestrator-worker, and a cache. The AI CLI
 can be selected by the user. In this case we will use Pi as an example, assuming you spun up that
-CLI container. Once this is all up, Pi can be interacted with like so (also similarly for the 
+CLI container. Once this is all up, Pi can be interacted with like so (also similarly for the
 other options):
 
 ```bash
