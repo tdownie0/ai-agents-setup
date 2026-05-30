@@ -27,13 +27,13 @@ tasks:
     desc: "Start the full development stack"
     deps: [db:up, obs:up]
     vars:
-      P_FLAG: "{{if .P}}--profile {{.P}}{{end}}"
+      P_FLAG: '{{if .P}}--profile {{splitList " " .P | join " --profile "}}{{end}}'
     cmds:
       - docker compose --env-file .env -p {{.PROJECT_NAME}} -f infra/docker-compose.yml {{.P_FLAG}} up {{.CLI_ARGS}}
 
   app:down:
     vars:
-      P_FLAG: "{{if .P}}--profile {{.P}}{{end}}"
+      P_FLAG: '{{if .P}}--profile {{splitList " " .P | join " --profile "}}{{end}}'
     cmds:
       - docker compose --env-file .env -p {{.PROJECT_NAME}} {{.P_FLAG}} down {{.CLI_ARGS}}
 

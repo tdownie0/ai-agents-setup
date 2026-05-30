@@ -70,7 +70,22 @@ task build:docker-assets
 After this, the stack can be built using this Docker command:
 
 ```bash
-task up P=agent -- --build
+task up P=agent-core -- --build
+```
+
+From here you may choose any of the currently available AI CLI tools in the current
+infra/docker-compose.yml file, or add your own. Currently the options are Antigravity, OpenCode,
+and Pi. They can be selected through their assigned profiles, typically their name in lowercase.
+For example:
+
+```bash
+task up P="agent-core antigravity" -- --build
+```
+
+These AI CLIs can individiually be brought down from the main stack like so:
+
+```bash
+task app:down P=antigravity -- antigravity
 ```
 
 Once this is completed, for anyone that would like to log into the demonstration site and create a
@@ -113,20 +128,22 @@ task db:reset
 task db:seed
 ```
 
-The agent profile includes the mcp-gateway and the Pi AI coding agent container being spun up in addition
-to the application. Once this is all up, Pi can be interacted with like so:
+The agent-core profile includes the mcp-gateway, the orchestrator-worker, and a cache. The AI CLI
+can be selected by the user. In this case we will use Pi as an example, assuming you spun up that
+CLI container. Once this is all up, Pi can be interacted with like so (also similarly for the 
+other options):
 
 ```bash
 docker exec -it pi_agent pi
 ```
 
-This repository is intended to be used with Pi AI Coding tool at its core, using
-a setup that allows for /subagent orchestration. Examples are provided in
-the samples/ directory. The file, session-ses_auth_sample, includes a run that builds the
-registration page, along with the prompt used to get the agents to do so. In particular, if
-this prompt is used along with the MCPs, the ast-explorer and git-orchestrator should assist in
-building a feature, creating it in a separate worktree, as well as analyzing the structure of the
-code files included.
+With the Pi AI Coding tool, this setup is currently implemented to use the /subagent orchestration
+skill. Examples are provided in the samples/ directory. OpenCode is currently configured to use
+the /ulw-loop from oh-my-openagent for its orchestration. The file, session-ses_auth_sample,
+includes a run that builds the registration page, along with the prompt used to get the agents to
+do so. In particular, if similar prompts are used along with the MCPs, the ast-explorer and
+git-orchestrator should assist in building a feature, creating it in a separate worktree, as well
+as analyzing the structure of the code files included.
 
 Both the of MCPs used in this example are tied to working with code, but both can be customized
 in any manner by the end user. This allows for any tool to be refined further, improving their

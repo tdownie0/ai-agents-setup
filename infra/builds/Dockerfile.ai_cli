@@ -1,0 +1,107 @@
+# Utilities
+FROM golang:alpine AS infra-builder
+RUN apk add --no-cache curl tar
+
+# Build tracking utility (beads)
+RUN curl -fsSL https://github.com/gastownhall/beads/archive/refs/heads/main.tar.gz -o /tmp/beads.tar.gz && \
+    tar -xzf /tmp/beads.tar.gz -C /tmp && \
+    cd /tmp/beads-main && \
+    CGO_ENABLED=0 go build -o /usr/local/bin/bd ./cmd/bd
+
+# Download Dolt (Database backend)
+RUN curl -fsSL https://github.com/dolthub/dolt/releases/download/v1.85.0/dolt-linux-amd64.tar.gz -o /tmp/dolt.tar.gz && \
+    tar -xzf /tmp/dolt.tar.gz -C /tmp && \
+    mv /tmp/dolt-linux-amd64/bin/dolt /usr/local/bin/dolt
+
+
+# Antigravity
+FROM debian:12-slim AS agent-antigravity
+USER root
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl bash unzip ca-certificates python3 && \
+
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=infra-builder /usr/local/bin/bd /usr/local/bin/bd
+COPY --from=infra-builder /usr/local/bin/dolt /usr/local/bin/dolt
+
+RUN curl -fsSL https://antigravity.google/cli/install.sh | bash && \
+    mv /root/.local/bin/agy /usr/local/bin/agy
+
+# Strict Zero-Trust Git block
+RUN echo -e '#!/bin/sh\necho "Error: Direct Host Git access is restricted. Use the MCP server gateway."\nexit 1' > /usr/local/bin/git && \
+    chmod +x /usr/local/bin/git
+
+RUN useradd -m -s /bin/bash -u 1000 devuser
+RUN mkdir -p /app \
+             /home/devuser/.gemini/antigravity-cli/skills \
+             /home/devuser/.config/antigravity \
+             /home/devuser/.cache/antigravity && \
+    chown -R devuser:devuser /app /home/devuser
+
+USER devuser
+WORKDIR /app
+ENV PATH="/usr/local/bin:${PATH}"
+CMD ["bash"]
+
+
+# Pi
+FROM node:22-alpine AS agent-pi
+USER root
+
+RUN apk add --no-cache curl bash unzip icu-libs gcompat
+
+COPY --from=infra-builder /usr/local/bin/bd /usr/local/bin/bd
+COPY --from=infra-builder /usr/local/bin/dolt /usr/local/bin/dolt
+
+RUN echo -e '#!/bin/sh\nexit 0' > /usr/local/bin/git && chmod +x /usr/local/bin/git
+RUN npm install -g @earendil-works/pi-coding-agent
+
+RUN mkdir -p /app \
+             /home/node/.pi/agent/extensions \
+             /home/node/.pi/agent/skills \
+             /home/node/.pi/agent/prompts \
+             /home/node/.pi/agent/themes \
+             /home/node/.local/share/pi \
+             /home/node/.config
+
+RUN echo '{"mcpServers":{"mcp-gateway":{"url":"http://mcp-gateway:8811/sse","directTools":true,"lifecycle":"keep-alive"}}}' > /home/node/.pi/agent/mcp.json
+RUN chown -R 1000:1000 /app /home/node/.pi /home/node/.local /home/node/.config
+
+USER node
+WORKDIR /app
+
+
+# Opencode
+FROM oven/bun:alpine AS opencode-bun-source
+FROM ghcr.io/anomalyco/opencode:1.14.48 AS agent-opencode
+
+
+USER root
+RUN apk add --no-cache curl bash unzip icu-libs gcompat
+
+COPY --from=opencode-bun-source /usr/local/bin/bun /usr/local/bin/bun
+RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx
+
+COPY --from=infra-builder /usr/local/bin/bd /usr/local/bin/bd
+COPY --from=infra-builder /usr/local/bin/dolt /usr/local/bin/dolt
+
+RUN echo -e '#!/bin/sh\nexit 0' > /usr/local/bin/git && chmod +x /usr/local/bin/git
+
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+ARG PROJECT_NAME
+
+RUN addgroup -g $GROUP_ID devgroup || true && adduser -D -u $USER_ID -G devgroup devuser || true
+RUN mkdir -p /home/devuser/.local/share/opencode \
+             /home/devuser/.config/opencode \
+             /home/devuser/.local/state \
+             /app \
+             /app/${PROJECT_NAME:-my-ai-project}/.sisyphus && \
+    chown -R devuser:devgroup /home/devuser /app
+
+USER devuser
+RUN bunx oh-my-opencode install --no-tui --gemini=yes --claude=no --copilot=no --openai=no --opencode-go=no --opencode-zen=yes --zai-coding-plan=yes
+
+WORKDIR /app
