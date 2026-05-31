@@ -1,14 +1,18 @@
 # Utilities
-FROM golang:alpine AS infra-builder
-RUN apk add --no-cache curl tar
+FROM golang:bookworm AS infra-builder
 
-# Build tracking utility (beads)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl tar ca-certificates build-essential libicu-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN curl -fsSL https://github.com/gastownhall/beads/archive/refs/heads/main.tar.gz -o /tmp/beads.tar.gz && \
     tar -xzf /tmp/beads.tar.gz -C /tmp && \
     cd /tmp/beads-main && \
-    CGO_ENABLED=0 go build -o /usr/local/bin/bd ./cmd/bd
+    CGO_ENABLED=1 go build \
+        -tags gms_pure_go \
+        -ldflags '-linkmode external -extldflags "-static"' \
+        -o /usr/local/bin/bd ./cmd/bd
 
-# Download Dolt (Database backend)
 RUN curl -fsSL https://github.com/dolthub/dolt/releases/download/v1.85.0/dolt-linux-amd64.tar.gz -o /tmp/dolt.tar.gz && \
     tar -xzf /tmp/dolt.tar.gz -C /tmp && \
     mv /tmp/dolt-linux-amd64/bin/dolt /usr/local/bin/dolt
@@ -20,7 +24,6 @@ USER root
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl bash unzip ca-certificates python3 && \
-
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=infra-builder /usr/local/bin/bd /usr/local/bin/bd
@@ -98,7 +101,7 @@ RUN mkdir -p /home/devuser/.local/share/opencode \
              /home/devuser/.config/opencode \
              /home/devuser/.local/state \
              /app \
-             /app/${PROJECT_NAME:-my-ai-project}/.sisyphus && \
+             /app/${PROJECT_NAME:-my-ai-project}/.omo && \
     chown -R devuser:devgroup /home/devuser /app
 
 USER devuser

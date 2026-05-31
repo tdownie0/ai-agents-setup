@@ -75,29 +75,6 @@ def _get_or_assign_ports(
 
 
 @DBOS.step()
-def _bootstrap_agent_env(worktree_path: Path):
-    """Executes the stealth 'beads' initialization for the AI agent."""
-    if (worktree_path / ".tmp_bin").exists():
-        sys.stderr.write("Agent environment already bootstrapped. Skipping.\n")
-        return
-
-    fake_git_dir = worktree_path / ".tmp_bin"
-    try:
-        fake_git_dir.mkdir(parents=True, exist_ok=True)
-        (fake_git_dir / "git").write_text("#!/bin/sh\nexit 1")
-        (fake_git_dir / "git").chmod(0o755)
-
-        custom_env = os.environ.copy()
-        custom_env["PATH"] = f"{fake_git_dir}:{custom_env['PATH']}"
-
-        executor = Executor(worktree_path, env=custom_env)
-        executor.run(["bd", "init", "--stealth", "--server"], check=False)
-    finally:
-        if fake_git_dir.exists():
-            shutil.rmtree(fake_git_dir)
-
-
-@DBOS.step()
 def _docker_up_step(
     feature_slug: str, worktree_path: Path, fe: int, be: int, db: int, host_path: Path
 ):
@@ -149,8 +126,6 @@ def run_initialize_workflow(feature_slug: str) -> str:
     DBOS.run_step(
         None, _docker_up_step, feature_slug, worktree_path, fe, be, db, paths["host"]
     )
-
-    DBOS.run_step(None, _bootstrap_agent_env, worktree_path)
 
     return f"✅ Environment initialized or recovered at {worktree_path}"
 

@@ -6,6 +6,8 @@ infra/bin/supabase
 .pi/npm/
 .pi/git/
 /pi-agent-data/
+.omo
+.opencode
 dist/
 out/
 *.tsbuildinfo
@@ -15,7 +17,6 @@ out/
 infra/bin/mcp-gateway-setup/catalog.json
 infra/bin/mcp-gateway-setup/local-mcp.yaml
 services.json
-.sisyphus
 
 
 # Beads / Dolt files (added by bd init)

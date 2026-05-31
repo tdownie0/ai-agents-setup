@@ -176,7 +176,7 @@ services:
     volumes:
       - ../..:/app
       - ..:/app/${PROJECT_NAME}:ro
-      - sisyphus_store:/app/${PROJECT_NAME}/.sisyphus:rw
+      - omo_state:/app/${PROJECT_NAME}/.omo
       - ~/.config/opencode:/home/devuser/.config/opencode
       - ~/.local/share/opencode:/home/devuser/.local/share/opencode
     networks:
@@ -202,7 +202,7 @@ volumes:
   backend_node_modules:
   db_node_modules:
   mcp_node_modules:
-  sisyphus_store:
+  omo_state:
 
 networks:
   dev-network:

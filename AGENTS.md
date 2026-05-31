@@ -34,7 +34,7 @@ You are an "Architectural Analyst." To maintain system stability, you must follo
 1. **Provision**: `MCP_DOCKER_initialize_worktree(feature_slug="feat-<name>")`.
    - _Note: This tool automatically initializes **Beads** (bd) in stealth mode._
 2. **Bootstrap**: `MCP_DOCKER_execute_lifecycle(feature_slug="feat-<name>", action="initialize")`.
-3. **Plan (Beads)**: Before writing code, use `bd create` to define the implementation steps.
+3. **Plan (Beads)**: Before writing code, use `bd init --stealth --server` if beads is not already created for the worktree directory, and `bd create` to define the implementation steps.
 4. **Context Loading**: `MCP_DOCKER_get_repo_map(path="model_md-worktree-<slug>")`.
 
 ---

@@ -6,22 +6,7 @@ RUN curl -L https://github.com/git/git/archive/refs/tags/v2.48.1.tar.gz | tar -x
     cd git-2.48.1 && \
     make prefix=/usr/local all install
 
-# --- Stage 2: Build Beads & Fetch Dolt ---
-FROM golang:alpine AS tools-builder
-RUN apk add --no-cache curl tar
-
-# Build Beads (bd)
-RUN curl -fsSL https://github.com/gastownhall/beads/archive/refs/heads/main.tar.gz -o /tmp/beads.tar.gz && \
-    tar -xzf /tmp/beads.tar.gz -C /tmp && \
-    cd /tmp/beads-main && \
-    CGO_ENABLED=0 go build -o /usr/local/bin/bd ./cmd/bd
-
-# Fetch specific Dolt version
-RUN curl -fsSL https://github.com/dolthub/dolt/releases/download/v1.85.0/dolt-linux-amd64.tar.gz -o /tmp/dolt.tar.gz && \
-    tar -xzf /tmp/dolt.tar.gz -C /tmp && \
-    mv /tmp/dolt-linux-amd64/bin/dolt /usr/local/bin/dolt
-
-# --- Stage 3: Base Image (The "Clean" Foundation) ---
+# --- Stage 2: Base Image (The "Clean" Foundation) ---
 FROM python:3.12-slim AS base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -37,16 +22,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=git-builder /usr/local/bin/git /usr/local/bin/git
 COPY --from=git-builder /usr/local/share/git-core /usr/local/share/git-core
 
-# 2. Copy bd and dolt from tools-builder
-COPY --from=tools-builder /usr/local/bin/bd /usr/local/bin/bd
-COPY --from=tools-builder /usr/local/bin/dolt /usr/local/bin/dolt
-
-# 3. Install System Runtime Deps
+# 2. Install System Runtime Deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates procps gnupg lsof && \
     rm -rf /var/lib/apt/lists/*
 
-# 4. Setup User
+# 3. Setup User
 ARG USER_ID=1000
 RUN groupadd -g 1000 devgroup && \
     useradd -u $USER_ID -g devgroup -m devuser
@@ -54,7 +35,7 @@ RUN groupadd -g 1000 devgroup && \
 WORKDIR /opt/orchestrator
 RUN mkdir -p /app && chown -R devuser:devgroup /opt/orchestrator /app
 
-# 5. Python Environment
+# 4. Python Environment
 COPY apps/mcp-servers/mcp-git-orchestrator/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY --chown=devuser:devgroup apps/mcp-servers/mcp-git-orchestrator/ .
