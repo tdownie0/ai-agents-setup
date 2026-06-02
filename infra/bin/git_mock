@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# Beads init fall through
+if [ "$1" = "init" ] || [ "$1" = "config" ] || [ "$1" = "rev-parse" ] || [ "$1" = "status" ]; then
+    if [ "$1" = "config" ]; then
+        echo "maintainer"
+    fi
+
+    exit 0
+fi
+
+echo "[SECURITY POLICY]: Direct Git mutations are restricted. Route all file tracking and operations through your declared MCP tool suite or the 'bd' CLI." >&2
+exit 1

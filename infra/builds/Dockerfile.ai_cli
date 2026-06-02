@@ -32,9 +32,12 @@ COPY --from=infra-builder /usr/local/bin/dolt /usr/local/bin/dolt
 RUN curl -fsSL https://antigravity.google/cli/install.sh | bash && \
     mv /root/.local/bin/agy /usr/local/bin/agy
 
-# Strict Zero-Trust Git block
-RUN echo -e '#!/bin/sh\necho "Error: Direct Host Git access is restricted. Use the MCP server gateway."\nexit 1' > /usr/local/bin/git && \
-    chmod +x /usr/local/bin/git
+# Replace git
+COPY infra/bin/git_mock /usr/local/bin/git
+RUN chmod +x /usr/local/bin/git
+
+RUN mkdir -p /home/devuser/.config/bd && \
+    echo -e "no-git-ops: true\njson: true\nrole: maintainer" > /home/devuser/.config/bd/config.yaml
 
 RUN useradd -m -s /bin/bash -u 1000 devuser
 RUN mkdir -p /app \
@@ -58,8 +61,14 @@ RUN apk add --no-cache curl bash unzip icu-libs gcompat
 COPY --from=infra-builder /usr/local/bin/bd /usr/local/bin/bd
 COPY --from=infra-builder /usr/local/bin/dolt /usr/local/bin/dolt
 
-RUN echo -e '#!/bin/sh\nexit 0' > /usr/local/bin/git && chmod +x /usr/local/bin/git
+# Replace git
+COPY infra/bin/git_mock /usr/local/bin/git
+RUN chmod +x /usr/local/bin/git
+
 RUN npm install -g @earendil-works/pi-coding-agent
+
+RUN mkdir -p /home/node/.config/bd && \
+    echo -e "no-git-ops: true\njson: true\nrole: maintainer" > /home/node/.config/bd/config.yaml
 
 RUN mkdir -p /app \
              /home/node/.pi/agent/extensions \
@@ -80,7 +89,6 @@ WORKDIR /app
 FROM oven/bun:alpine AS opencode-bun-source
 FROM ghcr.io/anomalyco/opencode:1.14.48 AS agent-opencode
 
-
 USER root
 RUN apk add --no-cache curl bash unzip icu-libs gcompat
 
@@ -90,13 +98,19 @@ RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx
 COPY --from=infra-builder /usr/local/bin/bd /usr/local/bin/bd
 COPY --from=infra-builder /usr/local/bin/dolt /usr/local/bin/dolt
 
-RUN echo -e '#!/bin/sh\nexit 0' > /usr/local/bin/git && chmod +x /usr/local/bin/git
+# Replace git
+COPY infra/bin/git_mock /usr/local/bin/git
+RUN chmod +x /usr/local/bin/git
 
 ARG USER_ID=1000
 ARG GROUP_ID=1000
 ARG PROJECT_NAME
 
 RUN addgroup -g $GROUP_ID devgroup || true && adduser -D -u $USER_ID -G devgroup devuser || true
+
+RUN mkdir -p /home/devuser/.config/bd && \
+    echo -e "no-git-ops: true\njson: true\nrole: maintainer" > /home/devuser/.config/bd/config.yaml
+
 RUN mkdir -p /home/devuser/.local/share/opencode \
              /home/devuser/.config/opencode \
              /home/devuser/.local/state \
