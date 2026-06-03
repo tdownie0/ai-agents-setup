@@ -1,13 +1,12 @@
 import os
 import json
 import sys
-import shutil
 from pathlib import Path
 from dbos import DBOS, Queue
 
 # Import our custom modules
 from provider import release_ports, find_available_port_block
-from engine import DockerComposeRunner, GitRunner, Executor
+from engine import DockerComposeRunner, GitRunner
 
 # --- Configuration ---
 UID = os.getenv("USER_ID", "1000")
@@ -133,7 +132,19 @@ def run_initialize_workflow(feature_slug: str) -> str:
 @DBOS.workflow()
 def run_lifecycle_workflow(feature_slug: str, action: str) -> str:
     paths = _get_paths(feature_slug)
-    composer = DockerComposeRunner(feature_slug, paths["worktree"])
+    env_vars = os.environ.copy()
+    env_vars.update(
+        {
+            "BRANCH": feature_slug,
+            "HOST_WORKTREE_PATH": str(paths["host"]),
+            "DATABASE_URL": "postgres://postgres:password@db:5432/postgres",
+            "SUPABASE_URL": str(SUPABASE_URL),
+            "SUPABASE_ANON_KEY": str(SUPABASE_ANON_KEY),
+            "VITE_SUPABASE_URL": str(VITE_SUPABASE_URL),
+            "TEST_USER_ID": str(TEST_USER_ID),
+        }
+    )
+    composer = DockerComposeRunner(feature_slug, paths["worktree"], env_vars)
 
     action_map = {
         "install": [("backend", ["install"]), ("frontend", ["install"])],
@@ -164,6 +175,11 @@ def run_lifecycle_workflow(feature_slug: str, action: str) -> str:
         for service, args in action_map[action]:
             res = composer.exec_pnpm(service, args)
             results.append(f"Success ({service} pnpm {' '.join(args)}):\n{res.stdout}")
+
+        if action == "install":
+            composer.exec_pnpm("backend", ["--filter", "@model_md/database", "build"])
+            res = composer.restart(["backend", "frontend"])
+
         return "\n---\n".join(results)
     except Exception as e:
         return f"❌ Action '{action}' failed: {str(e)}"
@@ -196,7 +212,7 @@ def run_stop_workflow(feature_slug: str):
 
     try:
         composer = DockerComposeRunner(feature_slug, target_path, env_vars)
-        result = composer.down(file="infra/docker-compose.feature.yml")
+        result = composer.down()
 
         if result.returncode != 0:
             raise RuntimeError(f"Docker Compose failed: {result.stderr}")

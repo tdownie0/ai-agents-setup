@@ -93,6 +93,10 @@ services:
       - PROJECT_PARENT_PATH=${PROJECT_PARENT_PATH}
       - DBOS_SYSTEM_DATABASE_URL=${DATABASE_URL}
       - TEST_USER_ID=${TEST_USER_ID}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL:-${SUPABASE_URL}}
+      - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY:-${SUPABASE_ANON_KEY}}
     volumes:
       - ../..:/app
       - ../apps/mcp-servers/mcp-git-orchestrator/:/opt/orchestrator

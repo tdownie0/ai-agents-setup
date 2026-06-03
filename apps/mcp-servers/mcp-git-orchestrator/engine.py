@@ -47,14 +47,16 @@ class DockerComposeRunner:
         project_name: str,
         worktree_path: Path,
         env: Optional[Dict[str, str]] = None,
+        compose_file: str = "infra/docker-compose.feature.yml",
     ):
         self.executor = Executor(cwd=worktree_path, env=env)
-
         self.base_cmd = [
             "docker",
             "compose",
             "-p",
             project_name,
+            "-f",
+            compose_file,
         ]
 
     def exec_pnpm(self, service: str, pnpm_args: List[str]):
@@ -62,16 +64,14 @@ class DockerComposeRunner:
             [*self.base_cmd, "exec", "-T", service, "pnpm", *pnpm_args]
         )
 
-    def up(self, file: str = "infra/docker-compose.feature.yml"):
-        return self.executor.run([*self.base_cmd, "-f", file, "up", "-d"])
+    def up(self):
+        return self.executor.run([*self.base_cmd, "up", "-d"])
 
     def ps(self):
         return self.executor.run([*self.base_cmd, "ps"])
 
-    def down(
-        self, file: str = "infra/docker-compose.feature.yml", volumes: bool = True
-    ):
-        cmd = [*self.base_cmd, "-f", file, "down"]
+    def down(self, volumes: bool = True):
+        cmd = [*self.base_cmd, "down"]
         if volumes:
             cmd.append("-v")
         return self.executor.run(cmd)
@@ -81,6 +81,9 @@ class DockerComposeRunner:
         if service:
             cmd.append(service)
         return self.executor.run(cmd)
+
+    def restart(self, services: List[str]):
+        return self.executor.run([*self.base_cmd, "restart", *services])
 
 
 class GitRunner:
