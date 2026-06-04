@@ -43,8 +43,8 @@ tasks:
   build:docker-assets:
     desc: "Build external volumes and networks used"
     cmds:
-      - docker volume create pnpm_store
-      - docker network create observability-bridge
+      - docker volume inspect pnpm_store >/dev/null 2>&1 || docker volume create pnpm_store
+      - docker network inspect observability-bridge >/dev/null 2>&1 || docker network create observability-bridge
 
   ai:up:
     desc: "Start AI CLI containers"

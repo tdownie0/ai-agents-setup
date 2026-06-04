@@ -147,7 +147,10 @@ def run_lifecycle_workflow(feature_slug: str, action: str) -> str:
     composer = DockerComposeRunner(feature_slug, paths["worktree"], env_vars)
 
     action_map = {
-        "install": [("backend", ["install"]), ("frontend", ["install"])],
+        "install": [
+            ("backend", ["install", "--no-frozen-lockfile"]),
+            ("frontend", ["install", "--no-frozen-lockfile"]),
+        ],
         "initialize": [
             ("backend", ["--filter", "@model_md/database", "build"]),
             ("backend", ["db:reset"]),

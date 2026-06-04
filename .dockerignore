@@ -26,3 +26,7 @@ bin
 .pnpm-store
 pnpm-lock.yaml.lock
 infra/.data/
+**/.venv
+**/__pycache__
+.venv
+__pycache__

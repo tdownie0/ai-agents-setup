@@ -17,7 +17,8 @@ services:
       target: development
     image: dev-base:latest
     container_name: ${BRANCH}-backend
-    command: pnpm run dev:server
+    command: >
+      sh -c "pnpm install --no-frozen-lockfile --store-dir=/pnpm-store && pnpm run dev:server"
     environment:
       - CI=true
       - PORT=3000
@@ -25,21 +26,33 @@ services:
       - TEST_USER_ID=${TEST_USER_ID}
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - PNPM_CONFIG_STORE_DIR=/home/node/.pnpm-store
+      - PNPM_CONFIG_STORE_DIR=/pnpm-store
     volumes:
       - ${HOST_WORKTREE_PATH}:/app
-      - /app/node_modules
+      - node_modules_feature:/app/node_modules
       - /app/apps/frontend/node_modules
       - /app/apps/backend/node_modules
       - /app/packages/database/node_modules
       - /app/apps/mcp-servers/mcp-database-service/node_modules
-      - ../pnpm_store:/home/node/.pnpm-store
+      - pnpm_store:/pnpm-store
     ports:
       - "${BACKEND_PORT:-3000}:3000"
     networks:
       - feature-net
     depends_on:
       - db
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:3000/', (res) => { if (res.statusCode === 200 || res.statusCode === 404) { process.exit(0); } else { process.exit(1); } }).on('error', () => process.exit(1))",
+        ]
+      interval: 20s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
 
   frontend:
     build:
@@ -55,21 +68,22 @@ services:
       - VITE_PORT=5173
       - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
       - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - PNPM_CONFIG_STORE_DIR=/home/node/.pnpm-store
+      - PNPM_CONFIG_STORE_DIR=/pnpm-store
     volumes:
       - ${HOST_WORKTREE_PATH}:/app
-      - /app/node_modules
+      - node_modules_feature:/app/node_modules
       - /app/apps/frontend/node_modules
       - /app/apps/backend/node_modules
       - /app/packages/database/node_modules
       - /app/apps/mcp-servers/mcp-database-service/node_modules
-      - ../pnpm_store:/home/node/.pnpm-store
+      - pnpm_store:/pnpm-store
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
     networks:
       - feature-net
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 networks:
   feature-net:
@@ -81,3 +95,5 @@ volumes:
     external: true
   db_data:
     name: "db_data_${BRANCH:-feature}"
+  node_modules_feature:
+    name: "node_modules_${BRANCH}"
