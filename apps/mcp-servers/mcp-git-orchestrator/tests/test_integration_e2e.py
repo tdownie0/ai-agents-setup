@@ -39,7 +39,7 @@ DOCKER_CMD = [
     "--network",
     "model_md_dev-network",
     "--network",
-    "supabase_network_supabase_model_md",
+    "supabase_network_model_md",
     "--network",
     "observability-bridge",
     "-v",

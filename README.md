@@ -25,11 +25,22 @@ directory, this structure is required. It also requires that the end user has Do
 installed on their machine (though users may be able to get away with another containerization
 strategy as long as they can build the mcp-gateway and register MCP servers).
 
+Currently, task is used for much of this process, and can be installed from here: [`Taskfile`](https://taskfile.dev/).
+
+> ⚠️ **Privilege model**: Keep your user **out of the `docker` group**. The docker group
+> is root-equivalent, and any process running as your user (including an AI coding agent)
+> would be able to escalate to host root via `docker run -v /:/host ...`. Instead, docker
+> commands below are run with **password-gated sudo** — a human-presence check the agent
+> cannot pass. The Taskfile detects `SUDO_UID`/`SUDO_GID` and uses `${HOST_HOME}` (set in
+> `.env`) instead of `~`, so the stack runs with the right identity and the right config
+> paths even under sudo. Tasks that only write host files (`mcp:setup`,
+> `db:install-supabase-cli`) must **not** be run with sudo.
+
 The first Taskfile command will build these MCP servers as docker images so we can use their
 containers.
 
 ```bash
-task mcp:build-servers
+sudo task mcp:build-servers
 ```
 
 Next we will generate a local MCP configuration files to be added to whichever path the machine's
@@ -39,10 +50,10 @@ Docker Desktop installation happens to live:
 task mcp:setup
 ```
 
-Running this should generate output the instructs the user where these files should live. For this
-to work properly, .env variables will have to be populated properly, and then the process should
-be automated for generation. After this, the user will just have to move the files to the proper
-locations, and then enable the MCP servers through docker mcp server.
+Running this generates the local catalog into `$LOCAL_MCP_REGISTRY` — an **absolute**
+path inside the parent workspace (`.docker/mcp`, next to where git worktrees live).
+It must not be `~`-based; under sudo, `~` would resolve to `/root` and scatter
+root-owned catalog files.
 
 Now, the supabase CLI can be installed to interact with the main project directory, and have
 access to the GUI for the database. This is installed separate due to not working as a node_module
@@ -56,21 +67,21 @@ Once this is done, these commands can be used to interact with the service (whic
 auth for the application):
 
 ```bash
-task db:up
+sudo task db:up
 
-task db:down
+sudo task db:down
 ```
 
 Additionally, we will need this volume created for the application:
 
 ```bash
-task build:docker-assets
+sudo task build:docker-assets
 ```
 
 After this, the stack can be built using this Docker command:
 
 ```bash
-task up P=agent-core -- --build
+sudo task up P=agent-core -- --build
 ```
 
 From here you may choose any of the currently available AI CLI tools in the current
@@ -81,16 +92,43 @@ lowercase.
 For example:
 
 ```bash
-task up P="agent-core antigravity" -- --build
+sudo task up P="agent-core antigravity" -- --build
 ```
 
 These AI CLIs can also be individiually brought up and down from the main stack like so:
 
 ```bash
-task ai:up P=antigravity
+sudo task ai:up P=antigravity
 
-task ai:down P=antigravity
+sudo task ai:down P=antigravity
 ```
+
+The AI CLI containers are fully isolated from your host profile: they never mount
+(or write to) your real `~/.config/opencode`, `~/.pi`, `~/.config/antigravity`, etc.
+Instead, each container's configuration is seeded **from the configs this project
+ships** (`opencode.json`, `.pi/`) into a project-local copy in the parent workspace
+(`${PROJECT_PARENT_PATH}/.docker/<tool>/`), which is then bind-mounted into the
+container. The container's baseline is exactly what this repo establishes — the
+`mcp-gateway` connection and agent rules — never your personal host settings.
+Before starting a tool for the first time (or to re-seed after a config change in
+this repo), run the setup — this must **not** be run with sudo:
+
+```bash
+# One tool, several, or all (same usage as profiles)
+task ai:setup P=opencode
+task ai:setup P="pi antigravity"
+task ai:setup
+```
+
+Copy semantics: **config only, never state and never credentials.** Files the tool
+writes at runtime (opencode.db, snapshots, logs, caches) are only ever created inside
+the container's bind-mounted directory — they never touch the host. `auth.json`,
+tokens, and keys are excluded; API keys flow exclusively through `.env` ->
+container environment variables. Re-running `ai:setup` only fills gaps (no-clobber),
+so edits you make inside `${PROJECT_PARENT_PATH}/.docker/<tool>/` are preserved; to
+force a full refresh from the project config, delete that tool's directory and re-run.
+User-level personalization (extra models, custom skills, personal provider keys)
+is a future opt-in overlay; today the containers are 100% project-derived by design.
 
 Once this is completed, for anyone that would like to log into the demonstration site and create a
 user to interact with it, they can visit `http://localhost:54323/project/default`. From here, at
@@ -108,18 +146,18 @@ Since an environment variable has been updated, we will have to run these comman
 for the backend to update the value:
 
 ```bash
-task app:down -- backend
+sudo task app:down -- backend
 
-task app:up
+sudo task app:up
 ```
 
 The Users model can be seeded with data so that users can appear in the table. To do so, we run
 the following commands:
 
 ```bash
-task db:migrate
+sudo task db:migrate
 
-task db:seed
+sudo task db:seed
 ```
 
 If this does not cause the current logged in user to have notifications, or if the database needs
@@ -127,9 +165,9 @@ to be reset, this following command can be ran, which will reset the database an
 The database can be seeded again as well.
 
 ```bash
-task db:reset
+sudo task db:reset
 
-task db:seed
+sudo task db:seed
 ```
 
 The agent-core profile includes the mcp-gateway, the orchestrator-worker, and a cache. The AI CLI
@@ -138,7 +176,17 @@ CLI container. Once this is all up, Pi can be interacted with like so (also simi
 other options):
 
 ```bash
-docker exec -it pi_agent pi
+sudo docker exec -it pi_agent pi
+sudo docker exec -it opencode_agent opencode
+```
+
+The `opencode` container is self-contained: its plugin (`oh-my-openagent`)
+and model registry are baked into the image at build time, because the
+read-only rootfs cannot npm-install missing plugins at runtime. Scripted or
+headless runs (no interactive TUI) work the same way:
+
+```bash
+sudo docker exec opencode_agent opencode run "your prompt here"
 ```
 
 With the Pi AI Coding tool, this setup is currently implemented to use the /subagent orchestration

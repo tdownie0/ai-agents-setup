@@ -1,0 +1,106 @@
+version: "3"
+
+# Copy-on-first-run: seeds an AI CLI's config into $PROJECT_PARENT_PATH/.docker/<tool>/
+# FROM THE CONFIG THE PROJECT SHIPS (opencode.json, .pi/). The containers' baseline
+# is exactly what model_md defines - the MCPs, model, and agent rules it establishes -
+# NOT the host's personal profiles. Host configs (~/.config/opencode, ~/.pi,
+# ~/.config/antigravity) are never read and never mounted.
+#
+# All rules:
+#   - Run WITHOUT sudo (writes the user's workspace)
+#   - No-clobber: existing project-local files are never overwritten, so
+#     in-project edits survive re-runs. Delete a .docker/<tool> dir to
+#     force a full refresh from the project config.
+#   - State is never copied: opencode.db, logs, storage, snapshots, caches are
+#     excluded so the container starts fresh and cannot corrupt any state.
+#   - Credentials are never copied: auth.json, tokens, keys, and *.db* are
+#     skipped. API keys flow exclusively through .env -> container env vars.
+#   - User personalization (extra models, custom skills, personal provider
+#     keys) is a future opt-in overlay; today the containers are 100%
+#     project-derived by design.
+
+tasks:
+  setup:
+    desc: "Seed project-local AI tool configs from the project's configs (no sudo; copy-on-first-run)"
+    summary: |
+      Copies each tool's config from the project itself (opencode.json, .pi/)
+      into the project parent (.docker/<tool>/) so containers are based on the
+      configs model_md ships - never on the host's personal profiles. First run
+      copies everything; re-runs only fill gaps (no-clobber). Delete a tool's
+      .docker/<tool> dir to force a refresh. Run per tool:
+        task ai:setup P=opencode         # single tool
+        task ai:setup P="pi antigravity" # several
+        task ai:setup                     # all tools
+    cmds:
+      - task: setup-opencode
+      - task: setup-pi
+      - task: setup-antigravity
+
+  # Single-line conditional so template output stays on one shell line.
+  # P may be blank (all tools) or a space-separated list of tools.
+  setup-opencode:
+    internal: true
+    vars:
+      IS_SELECTED: '{{if .P}}echo "{{.P}}" | grep -q "opencode"{{else}}true{{end}}'
+    cmds:
+      - |
+        if ! {{.IS_SELECTED}}; then exit 0; fi
+        SRC="{{.PROJECT_PARENT_PATH}}/{{.PROJECT_NAME}}/opencode.json"
+        DST="{{.PROJECT_PARENT_PATH}}/.docker/opencode/config/opencode.json"
+        echo "==> ai:setup opencode"
+        echo "    source: $SRC"
+        echo "    target: $DST"
+        mkdir -p "$(dirname "$DST")"
+        if [ ! -f "$SRC" ]; then
+          echo "    project opencode.json not found - skipping (container falls back to OPENCODE_CONFIG env)"
+          exit 0
+        fi
+        if [ ! -f "$DST" ]; then
+          cp "$SRC" "$DST"
+          echo "    seeded opencode.json from project"
+        else
+          echo "    existing opencode.json preserved (no-clobber); delete it to re-seed from project"
+        fi
+
+  # Seeds the container's global pi dir (~/.pi/agent, PI_CODING_AGENT_DIR)
+  # with the project's .pi/ configs - including the mcp-gateway bridge in
+  # mcp.json - so the gateway connection survives the bind mount.
+  setup-pi:
+    internal: true
+    vars:
+      IS_SELECTED: '{{if .P}}echo "{{.P}}" | grep -q "pi"{{else}}true{{end}}'
+    cmds:
+      - |
+        if ! {{.IS_SELECTED}}; then exit 0; fi
+        SRC="{{.PROJECT_PARENT_PATH}}/{{.PROJECT_NAME}}/.pi"
+        DST="{{.PROJECT_PARENT_PATH}}/.docker/pi/agent"
+        echo "==> ai:setup pi"
+        echo "    source: $SRC"
+        echo "    target: $DST"
+        mkdir -p "$DST"
+        if [ ! -d "$SRC" ]; then
+          echo "    no project .pi config found - skipping"
+          exit 0
+        fi
+        # Config only; never clobber; never state; never credentials
+        rsync -a --ignore-existing --exclude='*.db' --exclude='*.db-wal' \
+          --exclude='*.db-shm' --exclude='auth.json' --exclude='*token*' \
+          --exclude='*key*' --exclude='*credential*' --exclude='.cache/' \
+          "$SRC"/ "$DST"/
+        echo "    done ($(find "$DST" -type f | wc -l) files)"
+
+  # antigravity has no project-shipped config: it runs on image-baked skills
+  # plus env keys from .env. The mount dir is created so the bind mount has a
+  # user-owned source and room for a future opt-in user overlay.
+  setup-antigravity:
+    internal: true
+    vars:
+      IS_SELECTED: '{{if .P}}echo "{{.P}}" | grep -q "antigravity"{{else}}true{{end}}'
+    cmds:
+      - |
+        if ! {{.IS_SELECTED}}; then exit 0; fi
+        DST="{{.PROJECT_PARENT_PATH}}/.docker/antigravity/config"
+        echo "==> ai:setup antigravity"
+        echo "    target: $DST"
+        mkdir -p "$DST"
+        echo "    no project config to copy (image-baked skills; env keys via .env)"

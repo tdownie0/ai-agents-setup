@@ -11,8 +11,9 @@ from engine import DockerComposeRunner, GitRunner
 # --- Configuration ---
 UID = os.getenv("USER_ID", "1000")
 GID = os.getenv("GROUP_ID", "1000")
+PROJECT_NAME = os.environ.get("PROJECT_NAME", "model_md")
 APP_ROOT = Path("/app")
-BASE_PROJECT = APP_ROOT / "model_md"
+BASE_PROJECT = APP_ROOT / PROJECT_NAME
 HOST_ROOT = Path(os.getenv("PROJECT_PARENT_PATH", "/home/user/project"))
 TEST_USER_ID = os.getenv("TEST_USER_ID")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -26,8 +27,8 @@ orchestrator_queue = Queue("orchestrator_queue", worker_concurrency=1)
 def _get_paths(feature_slug: str):
     """Utility to keep path logic consistent across all tools."""
     return {
-        "worktree": APP_ROOT / f"model_md-worktree-{feature_slug}",
-        "host": HOST_ROOT / f"model_md-worktree-{feature_slug}",
+        "worktree": APP_ROOT / f"{PROJECT_NAME}-worktree-{feature_slug}",
+        "host": HOST_ROOT / f"{PROJECT_NAME}-worktree-{feature_slug}",
     }
 
 
@@ -182,6 +183,13 @@ def run_lifecycle_workflow(feature_slug: str, action: str) -> str:
         if action == "install":
             composer.exec_pnpm("backend", ["--filter", "@model_md/database", "build"])
             res = composer.restart(["backend", "frontend"])
+
+        # Restore worktree ownership: pnpm ran as root inside the container.
+        uid_gid = (
+            f"{os.environ.get('USER_ID', os.getuid())}:"
+            f"{os.environ.get('GROUP_ID', os.getgid())}"
+        )
+        composer.exec_chown(uid_gid)
 
         return "\n---\n".join(results)
     except Exception as e:

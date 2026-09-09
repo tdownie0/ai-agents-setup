@@ -23,7 +23,7 @@ registry:
       - name: WORKSPACE_ROOT
         value: "/app"
       - name: DEFAULT_PROJECT
-        value: "model_md"
+        value: "${PROJECT_NAME}"
       - name: DOCKER_MCP_TRANSPORT
         value: "stdio"
     tools:
@@ -50,8 +50,6 @@ registry:
         - supabase
     networks:
       - supabase_network
-    volumes:
-      - ${PROJECT_PATH}:/app
     env:
       - name: DATABASE_URL
         value: ${TASKFILE_DATABASE_URL}
@@ -71,7 +69,7 @@ registry:
       - "/app/"
     volumes:
       - ${PROJECT_PARENT_PATH}:/app
-      - ${PROJECT_PATH}apps/mcp-servers/mcp-git-orchestrator/:/opt/orchestrator
+      - ${PROJECT_PATH}/apps/mcp-servers/mcp-git-orchestrator/:/opt/orchestrator
     env:
       - name: REDIS_HOST
         value: "cache"
@@ -83,10 +81,12 @@ registry:
         value: "/app"
       - name: PROJECT_PARENT_PATH
         value: "${PROJECT_PARENT_PATH}"
+      - name: PROJECT_NAME
+        value: "${PROJECT_NAME}"
       - name: USER_ID
-        value: "1000"
+        value: "${HOST_UID}"
       - name: GROUP_ID
-        value: "1000"
+        value: "${HOST_GID}"
       - name: DBOS_SYSTEM_DATABASE_URL
         value: ${TASKFILE_DATABASE_URL}
     tools:

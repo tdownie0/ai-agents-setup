@@ -17,8 +17,15 @@ services:
       target: development
     image: dev-base:latest
     container_name: ${BRANCH}-backend
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_OVERRIDE
+      - CHOWN
+    security_opt:
+      - no-new-privileges:true
     command: >
-      sh -c "pnpm install --no-frozen-lockfile --store-dir=/pnpm-store && pnpm run dev:server"
+      sh -c "pnpm install --no-frozen-lockfile --store-dir=/pnpm-store && pnpm --filter @model_md/database build && (chown -R ${HOST_UID:-1000}:${HOST_GID:-1000} /app/packages/database/dist /app/packages/database/tsconfig.tsbuildinfo || true) && exec pnpm run dev:server"
     environment:
       - CI=true
       - PORT=3000
@@ -61,6 +68,13 @@ services:
       target: development
     image: dev-base:latest
     container_name: ${BRANCH}-frontend
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_OVERRIDE
+      - CHOWN
+    security_opt:
+      - no-new-privileges:true
     command: pnpm run dev:client
     environment:
       - CI=true
@@ -92,7 +106,7 @@ networks:
 
 volumes:
   pnpm_store:
-    external: true
+    name: pnpm_store
   db_data:
     name: "db_data_${BRANCH:-feature}"
   node_modules_feature:

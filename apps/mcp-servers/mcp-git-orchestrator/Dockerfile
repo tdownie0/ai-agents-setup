@@ -9,6 +9,10 @@ RUN curl -L https://github.com/git/git/archive/refs/tags/v2.48.1.tar.gz | tar -x
 # --- Stage 2: Base Image (The "Clean" Foundation) ---
 FROM python:3.12-slim AS base
 
+# Accept host UID/GID so container files match host ownership
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates procps gnupg lsof && \
     install -m 0755 -d /etc/apt/keyrings && \
@@ -22,20 +26,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=git-builder /usr/local/bin/git /usr/local/bin/git
 COPY --from=git-builder /usr/local/share/git-core /usr/local/share/git-core
 
-# 2. Install System Runtime Deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates procps gnupg lsof && \
-    rm -rf /var/lib/apt/lists/*
-
-# 3. Setup User
-ARG USER_ID=1000
-RUN groupadd -g 1000 devgroup && \
+# 2. Setup User with host-matching UID/GID
+RUN groupadd -g $GROUP_ID devgroup && \
     useradd -u $USER_ID -g devgroup -m devuser
 
 WORKDIR /opt/orchestrator
 RUN mkdir -p /app && chown -R devuser:devgroup /opt/orchestrator /app
 
-# 4. Python Environment
+# 3. Python Environment
 COPY apps/mcp-servers/mcp-git-orchestrator/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY --chown=devuser:devgroup apps/mcp-servers/mcp-git-orchestrator/ .
@@ -44,7 +42,6 @@ USER devuser
 RUN git config --global user.email "orchestrator@model-md.local" && \
     git config --global user.name "Git Orchestrator"
 USER root
-RUN groupadd -g 1001 docker && usermod -aG docker devuser
 
 # --- Stage 4: MCP Server ---
 FROM base AS mcp-server

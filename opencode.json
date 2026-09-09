@@ -34,6 +34,10 @@
     "MCP_DOCKER": {
       "type": "remote",
       "url": "http://mcp-gateway:8811/sse",
+      "oauth": false,
+      "headers": {
+        "Authorization": "Bearer {env:MCP_GATEWAY_AUTH_TOKEN}"
+      },
       "enabled": true
     }
   }

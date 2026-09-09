@@ -39,12 +39,16 @@ RUN chmod +x /usr/local/bin/git
 RUN mkdir -p /home/devuser/.config/bd && \
     echo -e "no-git-ops: true\njson: true\nrole: maintainer" > /home/devuser/.config/bd/config.yaml
 
-RUN useradd -m -s /bin/bash -u 1000 devuser
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+
+RUN groupadd -g $GROUP_ID devgroup || true && \
+    useradd -m -s /bin/bash -u $USER_ID -g devgroup devuser
 RUN mkdir -p /app \
              /home/devuser/.gemini/antigravity-cli/skills \
              /home/devuser/.config/antigravity \
              /home/devuser/.cache/antigravity && \
-    chown -R devuser:devuser /app /home/devuser
+    chown -R devuser:devgroup /app /home/devuser
 
 USER devuser
 WORKDIR /app
@@ -78,8 +82,11 @@ RUN mkdir -p /app \
              /home/node/.local/share/pi \
              /home/node/.config
 
-RUN echo '{"mcpServers":{"mcp-gateway":{"url":"http://mcp-gateway:8811/sse","directTools":true,"lifecycle":"keep-alive"}}}' > /home/node/.pi/agent/mcp.json
-RUN chown -R 1000:1000 /app /home/node/.pi /home/node/.local /home/node/.config
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+
+RUN echo '{"mcpServers":{"mcp-gateway":{"url":"http://mcp-gateway:8811/sse","headers":{"Authorization":"Bearer ${MCP_GATEWAY_AUTH_TOKEN}"},"directTools":true,"lifecycle":"keep-alive"}}}' > /home/node/.pi/agent/mcp.json
+RUN chown -R $USER_ID:$GROUP_ID /app /home/node/.pi /home/node/.local /home/node/.config
 
 USER node
 WORKDIR /app
@@ -111,7 +118,8 @@ RUN addgroup -g $GROUP_ID devgroup || true && adduser -D -u $USER_ID -G devgroup
 RUN mkdir -p /home/devuser/.config/bd && \
     echo -e "no-git-ops: true\njson: true\nrole: maintainer" > /home/devuser/.config/bd/config.yaml
 
-RUN mkdir -p /home/devuser/.local/share/opencode \
+RUN mkdir -p /home/devuser/.cache \
+             /home/devuser/.local/share/opencode \
              /home/devuser/.config/opencode \
              /home/devuser/.local/state \
              /app \
@@ -121,4 +129,39 @@ RUN mkdir -p /home/devuser/.local/share/opencode \
 USER devuser
 RUN bunx oh-my-opencode install --no-tui --gemini=yes --claude=no --copilot=no --openai=no --opencode-go=no --opencode-zen=yes --zai-coding-plan=yes
 
+# The project config declares plugin "oh-my-openagent". The runtime npm-
+# installs a missing plugin into ~/.cache/opencode/packages/ on first start;
+# with the read_only rootfs below and no tmpfs on ~/.npm that fetch dies with
+# EROFS and the session never starts (the TUI then waits forever on a dead
+# session). Trigger the install HERE at build time instead, so the seed copy
+# below bakes the resolved package and the entrypoint restores it into the
+# tmpfs at boot - first start then finds it locally and never fetches.
+RUN mkdir -p /tmp/oc-plugin-bake && \
+    printf '%s\n' '{"$schema":"https://opencode.ai/config.json","plugin":["oh-my-openagent"]}' > /tmp/oc-plugin-bake/opencode.json && \
+    OPENCODE_CONFIG=/tmp/oc-plugin-bake/opencode.json timeout 120 opencode run "ping" --print-logs > /tmp/oc-plugin-bake/bake.log 2>&1 || true; \
+    if [ ! -d /home/devuser/.cache/opencode/packages/oh-my-openagent@latest ]; then \
+      echo "FATAL: oh-my-openagent plugin bake failed - see /tmp/oc-plugin-bake/bake.log"; \
+      tail -50 /tmp/oc-plugin-bake/bake.log; exit 1; \
+    fi
+
+# The compose service mounts a tmpfs over /home/devuser/.cache, which would
+# wipe the plugin install + model registry baked above on every start. Bake a
+# seed copy into the image; the entrypoint restores it into the tmpfs at boot.
+USER root
+RUN mkdir -p /opt/opencode/cache-seed && \
+    cp -a /home/devuser/.cache/. /opt/opencode/cache-seed/ && \
+    chown -R devuser:devgroup /opt/opencode
+
+USER devuser
 WORKDIR /app
+
+# ghcr.io/anomalyco/opencode sets ENTRYPOINT ["opencode"], which would auto-
+# launch the TUI as PID 1 the moment compose starts the (detached) service -
+# any later `docker exec ... opencode` then collides with that live instance
+# over the shared state dir. Instead: idle on bash (like agent-antigravity)
+# and restore the plugin/model cache into the tmpfs. The seed is a copy of
+# ~/.cache/. contents, so it must land back in ~/.cache/ - restoring into
+# ~/.cache/opencode/ would nest it one level too deep (opencode would never
+# find models.json / packages and would re-fetch them at every start). The
+# user starts the TUI on demand: `docker exec -it opencode_agent opencode`.
+ENTRYPOINT ["/bin/bash", "-lc", "if [ -d /opt/opencode/cache-seed ]; then mkdir -p /home/devuser/.cache && cp -a /opt/opencode/cache-seed/. /home/devuser/.cache/ 2>/dev/null || true; fi; exec /bin/bash"]

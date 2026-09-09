@@ -8,11 +8,11 @@ from dbos import DBOSClient, EnqueueOptions
 
 from engine import GitRunner, LokiClient
 
-# --- Configuration ---
 UID = os.getenv("USER_ID", "1000")
 GID = os.getenv("GROUP_ID", "1000")
+PROJECT_NAME = os.environ.get("PROJECT_NAME", "model_md")
 APP_ROOT = Path("/app")
-BASE_PROJECT = APP_ROOT / "model_md"
+BASE_PROJECT = APP_ROOT / PROJECT_NAME
 HOST_ROOT = Path(os.getenv("PROJECT_PARENT_PATH", "/home/user/project"))
 
 mcp = FastMCP("Worktree-Orchestrator")
@@ -22,8 +22,8 @@ mcp = FastMCP("Worktree-Orchestrator")
 def _get_paths(feature_slug: str):
     """Utility to keep path logic consistent across all tools."""
     return {
-        "worktree": APP_ROOT / f"model_md-worktree-{feature_slug}",
-        "host": HOST_ROOT / f"model_md-worktree-{feature_slug}",
+        "worktree": APP_ROOT / f"{PROJECT_NAME}-worktree-{feature_slug}",
+        "host": HOST_ROOT / f"{PROJECT_NAME}-worktree-{feature_slug}",
     }
 
 
@@ -278,5 +278,5 @@ def stop_environment(feature_slug: str) -> str:
 @mcp.tool()
 def list_features() -> str:
     """Lists all active feature worktrees."""
-    worktrees = [p.name for p in APP_ROOT.glob("model_md-worktree-*")]
+    worktrees = [p.name for p in APP_ROOT.glob(f"{PROJECT_NAME}-worktree-*")]
     return "\n".join(worktrees) if worktrees else "No active feature worktrees."

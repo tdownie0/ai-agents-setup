@@ -32,7 +32,7 @@ tasks:
     cmds:
       - |
         echo "⏳ Waiting for database in {{.BRANCH}} to be ready..."
-        docker-compose -p {{.BRANCH}} -f docker-compose.feature.yml exec -T db sh -c 'until pg_isready -U postgres; do sleep 1; done'
+        docker compose -p {{.BRANCH}} -f infra/docker-compose.feature.yml exec -T db sh -c 'until pg_isready -U postgres; do sleep 1; done'
         echo "✅ Database is online."
 
   up:
@@ -54,7 +54,7 @@ tasks:
         DB_PORT=$DB_PORT \
         DATABASE_URL="postgres://postgres:password@db:5432/postgres" \
         HOST_WORKTREE_PATH={{.HOST_WORKTREE_PATH}} \
-        docker-compose --env-file .env \
+        docker compose --env-file .env \
           -p {{.BRANCH}} \
           -f infra/docker-compose.feature.yml \
           up -d --no-build
@@ -62,15 +62,15 @@ tasks:
   down:
     desc: "Tear down a feature environment"
     cmds:
-      - docker-compose --env-file .env -p {{.BRANCH}} down -v
+      - docker compose --env-file .env -p {{.BRANCH}} down -v
 
   initialize:
     desc: "Resets, migrates, and seeds the database for fresh spin up"
     cmds:
       - task: wait
         vars: { BRANCH: "{{.BRANCH}}" }
-      - docker-compose -p {{.BRANCH}} exec backend pnpm db:reset
-      - docker-compose -p {{.BRANCH}} exec backend pnpm db:seed
+      - docker compose -p {{.BRANCH}} exec backend pnpm db:reset
+      - docker compose -p {{.BRANCH}} exec backend pnpm db:seed
 
   seed:
     desc: "Run seed for the specific feature branch"
@@ -79,16 +79,16 @@ tasks:
         # Use the same logic to determine the DB_URL or pass it explicitly
         # This forces the seed script to use the internal DB hostname
         export DATABASE_URL="postgres://postgres:password@db:5432/postgres" \
-        docker-compose -p {{.BRANCH}} exec backend pnpm db:seed
+        docker compose -p {{.BRANCH}} exec backend pnpm db:seed
 
   status:
     desc: "Check the health and status of a feature environment"
     cmds:
-      - docker-compose -p {{.BRANCH}} -f docker-compose.feature.yml ps
+      - docker compose -p {{.BRANCH}} -f infra/docker-compose.feature.yml ps
 
   verify:
     desc: "Run full test suite in the isolated feature environment"
     cmds:
-      - docker-compose -p {{.BRANCH}} exec -T backend pnpm test
-      - docker-compose -p {{.BRANCH}} exec -T frontend pnpm lint
+      - docker compose -p {{.BRANCH}} exec -T backend pnpm test
+      - docker compose -p {{.BRANCH}} exec -T frontend pnpm lint
       - echo "✅ Feature verification passed."

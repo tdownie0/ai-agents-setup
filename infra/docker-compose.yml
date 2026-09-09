@@ -5,9 +5,19 @@ services:
       dockerfile: ./infra/builds/Dockerfile
       target: development
     image: dev-base:latest
+    cap_drop:
+      - ALL
+    cap_add:
+      # Dev image runs as root but cap_drop ALL strips CAP_DAC_OVERRIDE +
+      # CAP_CHOWN: without them root cannot write into the rts-owned host tree
+      # (tsc build) nor chown build artifacts back to HOST_UID:GID.
+      - DAC_OVERRIDE
+      - CHOWN
+    security_opt:
+      - no-new-privileges:true
     working_dir: /app
     command: >
-      sh -c "pnpm install --frozen-lockfile --store-dir=/pnpm-store && pnpm run dev:server"
+      sh -c "pnpm install --frozen-lockfile --store-dir=/pnpm-store && pnpm --filter @model_md/database build && (chown -R ${HOST_UID:-1000}:${HOST_GID:-1000} /app/packages/database/dist /app/packages/database/tsconfig.tsbuildinfo || true) && exec pnpm run dev:server"
     environment:
       - CI=true
       - PORT=3000
@@ -48,6 +58,14 @@ services:
       dockerfile: ./infra/builds/Dockerfile
       target: development
     image: dev-base:latest
+    cap_drop:
+      - ALL
+    cap_add:
+      # See backend: tsc/vite builds write into the rts-owned host tree.
+      - DAC_OVERRIDE
+      - CHOWN
+    security_opt:
+      - no-new-privileges:true
     working_dir: /app
     command: pnpm run dev:client
     environment:
@@ -77,18 +95,35 @@ services:
   mcp-gateway:
     image: docker/mcp-gateway:latest
     profiles: ["agent-core"]
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     restart: always
-    use_api_socket: true
     environment:
       - SUPABASE_URL=${SUPABASE_URL}
+      # Standalone gateway (Docker CE, no Docker Desktop): bypass Desktop
+      # feature-flag checks and talk to the engine directly.
+      - DOCKER_MCP_IN_CONTAINER=1
+      # The generated catalog binds the project tree into the spawned MCP
+      # server containers. docker/mcp-gateway refuses host paths outside its
+      # default allowed roots (/tmp, /var/tmp) unless explicitly allow-listed.
+      - MCP_GATEWAY_DOCKER_BIND_ALLOWED_PATHS=${PROJECT_PARENT_PATH}
+      - MCP_GATEWAY_DOCKER_BIND_ALLOW_WRITABLE_PATHS=${PROJECT_PARENT_PATH}
+      # v0.43.1+: SSE requires Bearer auth by default (CVE GHSA-g879-4j4f-6vj7).
+      # Pin the shared token so clients can authenticate; otherwise the gateway
+      # auto-generates a random one the clients never learn.
+      - MCP_GATEWAY_AUTH_TOKEN=${MCP_GATEWAY_AUTH_TOKEN}
     volumes:
       - ${LOCAL_MCP_REGISTRY}:/root/.docker/mcp
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock:ro
     ports:
       - "127.0.0.1:8811:8811"
     command:
       - --transport=sse
       - --port=8811
-      - --registry=/root/.docker/mcp/registry.yaml
+      - --catalog=/root/.docker/mcp/catalogs/local-mcp.yaml
+      - --servers=ast-explorer,supabase-manager,git-orchestrator
     networks:
       - dev-network
       - supabase_network
@@ -99,13 +134,26 @@ services:
       context: ..
       dockerfile: ./apps/mcp-servers/mcp-git-orchestrator/Dockerfile
       target: worker
+      args:
+        - USER_ID=${HOST_UID:-1000}
+        - GROUP_ID=${HOST_GID:-1000}
     profiles: ["agent-core"]
-    use_api_socket: true
     container_name: orchestrator-worker
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    group_add:
+      - "${DOCKER_GROUP_GID:-999}"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
     restart: always
     environment:
       - REDIS_HOST=cache
       - REDIS_PORT=6379
+      - PROJECT_NAME=${PROJECT_NAME}
       - PROJECT_PARENT_PATH=${PROJECT_PARENT_PATH}
       - DBOS_SYSTEM_DATABASE_URL=${DATABASE_URL}
       - TEST_USER_ID=${TEST_USER_ID}
@@ -113,16 +161,20 @@ services:
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - VITE_SUPABASE_URL=${VITE_SUPABASE_URL:-${SUPABASE_URL}}
       - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY:-${SUPABASE_ANON_KEY}}
+      - DOCKER_HOST=unix:///var/run/docker.sock
     volumes:
       - ../..:/app
       - ../apps/mcp-servers/mcp-git-orchestrator/:/opt/orchestrator
       - /opt/orchestrator/__pycache__
       - /opt/orchestrator/.venv
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock:ro
+      - /home/devuser
     networks:
       - dev-network
       - supabase_network
     depends_on:
-      - cache
+      cache:
+        condition: service_healthy
 
   antigravity:
     build:
@@ -131,8 +183,19 @@ services:
       target: agent-antigravity
       args:
         - PROJECT_NAME=${PROJECT_NAME}
+        - USER_ID=${HOST_UID:-1000}
+        - GROUP_ID=${HOST_GID:-1000}
     profiles: ["antigravity"]
     container_name: antigravity_agent
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/devuser/.cache:mode=1777
     stdin_open: true
     tty: true
     working_dir: /app
@@ -143,8 +206,12 @@ services:
     volumes:
       - ../..:/app
       - ..:/app/${PROJECT_NAME}:ro
-      - ~/.config/antigravity:/home/devuser/.config/antigravity
-      - ~/.gemini:/home/devuser/.gemini
+      # Copy-on-first-run: host config is copied into the project parent by
+      # `task ai:setup P=antigravity`; the container never mounts ~/.config/antigravity.
+      # ~/.gemini is deliberately NOT mounted: it holds only image-baked antigravity
+      # skills, and on some hosts also credentials - keeping it in-image avoids both
+      # shadowing the baked skills and any host credential exposure.
+      - ${PROJECT_PARENT_PATH}/.docker/antigravity/config:/home/devuser/.config/antigravity
     networks:
       - dev-network
     depends_on:
@@ -157,8 +224,19 @@ services:
       target: agent-pi
       args:
         - PROJECT_NAME=${PROJECT_NAME}
+        - USER_ID=${HOST_UID:-1000}
+        - GROUP_ID=${HOST_GID:-1000}
     profiles: ["pi"]
     container_name: pi_agent
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/node/.cache:mode=1777
     stdin_open: true
     tty: true
     working_dir: /app/model_md
@@ -167,11 +245,17 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - PI_CODING_AGENT_DIR=/home/node/.pi/agent
       - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/sse
+      # Resolves ${MCP_GATEWAY_AUTH_TOKEN} in the pi mcp.json headers.
+      - MCP_GATEWAY_AUTH_TOKEN=${MCP_GATEWAY_AUTH_TOKEN}
     volumes:
       - ../..:/app
       - ..:/app/${PROJECT_NAME}:ro
-      - ~/.pi:/home/node/.pi
-      - /app/${PROJECT_NAME}/.pi
+      # Copy-on-first-run: project .pi/ configs are copied into the project
+      # parent by `task ai:setup P=pi`; the container never mounts the host's
+      # ~/.pi. Its gateway bridge (agent/mcp.json) ships with the project.
+      # The checked-in .pi/ is also visible (read-only via the project mount)
+      # for pi's auto-discovery from the working dir.
+      - ${PROJECT_PARENT_PATH}/.docker/pi:/home/node/.pi
     networks:
       - dev-network
     depends_on:
@@ -184,8 +268,24 @@ services:
       target: agent-opencode
       args:
         - PROJECT_NAME=${PROJECT_NAME}
+        - USER_ID=${HOST_UID:-1000}
+        - GROUP_ID=${HOST_GID:-1000}
     profiles: ["opencode"]
     container_name: opencode_agent
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      # Explicit exec: Docker's default tmpfs options are noexec, which makes
+      # dlopen of /tmp/*.node fail with EPERM (harmless watcher warnings, but
+      # wrong). /home/devuser/.npm is tmpfs as belt-and-suspenders so any
+      # runtime npm cache write can never EROFS against the read_only rootfs.
+      - /tmp:mode=1777,exec
+      - /home/devuser/.cache:mode=1777,exec
+      - /home/devuser/.npm:mode=1777
     stdin_open: true
     tty: true
     working_dir: /app/model_md
@@ -193,12 +293,24 @@ services:
       - OPENCODE_CONFIG=/app/model_md/opencode.json
       - GOOGLE_API_KEY=${GEMINI_API_KEY}
       - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/sse
+      # Resolves {env:MCP_GATEWAY_AUTH_TOKEN} in the MCP_DOCKER headers.
+      - MCP_GATEWAY_AUTH_TOKEN=${MCP_GATEWAY_AUTH_TOKEN}
+      # oh-my-openagent writes per-session transcripts (and reads its
+      # settings.json) under getClaudeConfigDir() = $CLAUDE_CONFIG_DIR or
+      # ~/.claude. The rootfs is read_only and ~/.claude is not on tmpfs, so
+      # every prompt EROFS'd (HTTP 500, frozen TUI). Point it at the writable
+      # state bind mount instead (persists across restarts).
+      - CLAUDE_CONFIG_DIR=/home/devuser/.local/state/claude
+      # The TUI needs TERM to initialize rendering; docker exec does not
+      # forward the host's TERM, so inject it here (baked from host value).
+      - "TERM=${TERM:-xterm-256color}"
     volumes:
       - ../..:/app
       - ..:/app/${PROJECT_NAME}:ro
       - omo_state:/app/${PROJECT_NAME}/.omo
-      - ~/.config/opencode:/home/devuser/.config/opencode
-      - ~/.local/share/opencode:/home/devuser/.local/share/opencode
+      - ${PROJECT_PARENT_PATH}/.docker/opencode/config:/home/devuser/.config/opencode
+      - ${PROJECT_PARENT_PATH}/.docker/opencode/share:/home/devuser/.local/share/opencode
+      - ${PROJECT_PARENT_PATH}/.docker/opencode/state:/home/devuser/.local/state
     networks:
       - dev-network
     depends_on:
@@ -207,16 +319,32 @@ services:
   cache:
     image: redis:alpine
     profiles: ["agent-core"]
+    cap_drop:
+      - ALL
+    cap_add:
+      # redis:alpine entrypoint drops from root to the redis user via gosu
+      # (setuid/setgid) after chown'ing its data dir. Without these the
+      # container exits 1 immediately under cap_drop ALL.
+      - CHOWN
+      - SETUID
+      - SETGID
+    security_opt:
+      - no-new-privileges:true
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
       - dev-network
 
 volumes:
   redis_data:
   pnpm_store:
-    external: true
+    name: pnpm_store
   main_node_modules:
   omo_state:
 
@@ -225,6 +353,6 @@ networks:
     driver: bridge
   supabase_network:
     external: true
-    name: supabase_network_supabase_${PROJECT_NAME}
+    name: supabase_network_${PROJECT_NAME}
   observability-bridge:
     external: true

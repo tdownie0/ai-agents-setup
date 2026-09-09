@@ -6,6 +6,9 @@
   "mcpServers": {
     "mcp-gateway": {
       "url": "http://mcp-gateway:8811/sse",
+      "headers": {
+        "Authorization": "Bearer ${MCP_GATEWAY_AUTH_TOKEN}"
+      },
       "lifecycle": "keep-alive",
       "directTools": true
     }

@@ -15,12 +15,14 @@ tasks:
     dir: "{{.DB_DIR}}"
     cmds:
       - "{{.SUPABASE_BIN}} start --ignore-health-check"
+      - "sudo chown -R {{.HOST_UID}}:{{.HOST_GID}} {{.DB_DIR}}/supabase/.branches {{.DB_DIR}}/supabase/.temp 2>/dev/null || true"
 
   down:
     desc: "Stop database"
     dir: "{{.DB_DIR}}"
     cmds:
       - "{{.SUPABASE_BIN}} stop"
+      - "sudo chown -R {{.HOST_UID}}:{{.HOST_GID}} {{.DB_DIR}}/supabase/.branches {{.DB_DIR}}/supabase/.temp 2>/dev/null || true"
 
   status:
     desc: "Check database status"

@@ -1,10 +1,20 @@
 version: "3"
 
+vars:
+  DOCKER_ENV: |
+    if [ -S "$XDG_RUNTIME_DIR/docker.sock" ]; then
+      export DOCKER_SOCKET_PATH="$XDG_RUNTIME_DIR/docker.sock"
+    else
+      export DOCKER_SOCKET_PATH="${DOCKER_SOCKET_PATH:-/var/run/docker.sock}"
+    fi
+
 tasks:
   up:
     desc: "Starts observability stack used with mcp to fetch logs"
     cmds:
-      - docker compose --env-file .env -p observability -f infra/docker-compose.obs.yml up -d
+      - |
+        {{.DOCKER_ENV}}
+        docker compose --env-file .env -p observability -f infra/docker-compose.obs.yml up -d
 
   down:
     desc: "Stops observability stack used with mcp to fetch logs"

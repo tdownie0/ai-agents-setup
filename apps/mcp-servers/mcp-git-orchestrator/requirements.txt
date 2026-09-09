@@ -1,4 +1,4 @@
-mcp
+mcp<2
 psutil
 redis>=5.0.0
 dbos

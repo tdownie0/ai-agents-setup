@@ -6,10 +6,21 @@ includes:
   db: ./tasks/db.yml
   obs: ./tasks/obs.yml
   mcp: ./tasks/mcp.yml
+  ai: ./tasks/ai.yml
   feature: ./tasks/feature.yml
 
 vars:
   AGENT_CORE: "agent-core"
+  DOCKER_ENV: |
+    export HOST_UID="${SUDO_UID:-$(id -u)}"
+    export HOST_GID="${SUDO_GID:-$(id -g)}"
+    if [ -S "$XDG_RUNTIME_DIR/docker.sock" ]; then
+      export DOCKER_SOCKET_PATH="$XDG_RUNTIME_DIR/docker.sock"
+      export DOCKER_HOST="unix://$XDG_RUNTIME_DIR/docker.sock"
+    else
+      export DOCKER_SOCKET_PATH="${DOCKER_SOCKET_PATH:-/var/run/docker.sock}"
+      export DOCKER_GROUP_GID=$(getent group docker | cut -d: -f3)
+    fi
 
 tasks:
   up:
@@ -32,7 +43,14 @@ tasks:
     vars:
       P_FLAG: '{{if .P}}--profile {{splitList " " .P | join " --profile "}}{{end}}'
     cmds:
-      - docker compose --env-file .env -p {{.PROJECT_NAME}} -f infra/docker-compose.yml {{.P_FLAG}} up {{.CLI_ARGS}}
+      - |
+        {{.DOCKER_ENV}}
+        if [ ! -d "{{.PROJECT_PARENT_PATH}}" ]; then
+          echo "ERROR: PROJECT_PARENT_PATH does not exist: {{.PROJECT_PARENT_PATH}}"
+          echo "Set it to an absolute path in .env"
+          exit 1
+        fi
+        docker compose --env-file .env -p {{.PROJECT_NAME}} -f infra/docker-compose.yml {{.P_FLAG}} up {{.CLI_ARGS}}
 
   app:down:
     vars:
@@ -41,7 +59,7 @@ tasks:
       - docker compose --env-file .env -p {{.PROJECT_NAME}} {{.P_FLAG}} down {{.CLI_ARGS}}
 
   build:docker-assets:
-    desc: "Build external volumes and networks used"
+    desc: "Create shared volumes and networks used by the stack"
     cmds:
       - docker volume inspect pnpm_store >/dev/null 2>&1 || docker volume create pnpm_store
       - docker network inspect observability-bridge >/dev/null 2>&1 || docker network create observability-bridge
@@ -51,7 +69,9 @@ tasks:
     vars:
       P_FLAG: '{{if .P}}--profile {{splitList " " .P | join " --profile "}}{{end}}'
     cmds:
-      - docker compose --env-file .env -p {{.PROJECT_NAME}} -f infra/docker-compose.yml --profile {{.AGENT_CORE}} {{.P_FLAG}} up {{.CLI_ARGS}}
+      - |
+        {{.DOCKER_ENV}}
+        docker compose --env-file .env -p {{.PROJECT_NAME}} -f infra/docker-compose.yml --profile {{.AGENT_CORE}} {{.P_FLAG}} up {{.CLI_ARGS}}
 
   ai:down:
     desc: "Bring down AI CLI container"
