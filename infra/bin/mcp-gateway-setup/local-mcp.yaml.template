@@ -26,6 +26,8 @@ registry:
         value: "${PROJECT_NAME}"
       - name: DOCKER_MCP_TRANSPORT
         value: "stdio"
+      - name: DOCKER_HOST
+        value: "tcp://mcp-socket-proxy:2375"
     tools:
       - name: scan_specific_file
         description: "Deep scan a single file to refresh its AST cache or get detailed signatures. Use when precision is needed for one file."
@@ -55,6 +57,8 @@ registry:
         value: ${TASKFILE_DATABASE_URL}
       - name: DOCKER_MCP_TRANSPORT
         value: "stdio"
+      - name: DOCKER_HOST
+        value: "tcp://mcp-socket-proxy:2375"
     tools:
       - name: get_user_stats
         description: "Returns the total count of users and recent signups from the database."
@@ -89,6 +93,8 @@ registry:
         value: "${HOST_GID}"
       - name: DBOS_SYSTEM_DATABASE_URL
         value: ${TASKFILE_DATABASE_URL}
+      - name: DOCKER_HOST
+        value: "tcp://mcp-socket-proxy:2375"
     tools:
       - name: initialize_worktree
         description: "Creates a new git worktree, allocates ports, and starts the feature Docker environment."

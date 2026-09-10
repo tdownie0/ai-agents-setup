@@ -5,7 +5,7 @@
   },
   "mcpServers": {
     "mcp-gateway": {
-      "url": "http://mcp-gateway:8811/sse",
+      "url": "http://mcp-gateway:8811/mcp",
       "headers": {
         "Authorization": "Bearer ${MCP_GATEWAY_AUTH_TOKEN}"
       },

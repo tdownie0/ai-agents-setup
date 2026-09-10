@@ -1,101 +1,76 @@
 #!/usr/bin/env python3
 import sys
-import urllib.request
 import json
-import threading
-import queue
+import urllib.request
+import urllib.error
 
 # Force unbuffered I/O for instant line-by-line agent communication
 sys.stdout.reconfigure(line_buffering=True)
 sys.stdin.reconfigure(line_buffering=True)
 
-SSE_URL = "http://mcp-gateway:8811/sse"
-client_url = None
-url_ready_event = threading.Event()
-msg_queue = queue.Queue()
+MCP_URL = "http://mcp-gateway:8811/mcp"
+session_id = None
 
 
-def listen_to_sse():
-    global client_url
-    try:
-        req = urllib.request.Request(SSE_URL)
-        with urllib.request.urlopen(req) as response:
-            buffer = ""
-            for chunk in response:
-                buffer += chunk.decode("utf-8")
-                while "\n\n" in buffer:
-                    event_block, buffer = buffer.split("\n\n", 1)
-                    lines = event_block.split("\n")
-
-                    for line in lines:
-                        # 1. Capture the unique session URL assigned by the gateway
-                        if line.startswith("event: endpoint"):
-                            for next_line in lines:
-                                if next_line.startswith("data:"):
-                                    endpoint_path = next_line[5:].strip()
-                                    if endpoint_path.startswith("http"):
-                                        client_url = endpoint_path
-                                    else:
-                                        client_url = (
-                                            f"http://mcp-gateway:8811{endpoint_path}"
-                                        )
-                                    # Signal that our session_id/client_url is locked and ready
-                                    url_ready_event.set()
-
-                        # 2. Forward ONLY valid JSON strings back to Antigravity
-                        elif line.startswith("data:"):
-                            data_content = line[5:].strip()
-                            if data_content and data_content.startswith("{"):
-                                sys.stdout.write(data_content + "\n")
-
-    except Exception as e:
-        sys.stderr.write(f"SSE Stream Error: {str(e)}\n")
+def post(payload: dict) -> str:
+    global session_id
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if session_id:
+        headers["Mcp-Session-Id"] = session_id
+    req = urllib.request.Request(
+        MCP_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    with urllib.request.urlopen(req) as response:
+        if "Mcp-Session-Id" in response.headers:
+            session_id = response.headers["Mcp-Session-Id"]
+        return response.read().decode("utf-8")
 
 
-def send_worker():
-    """Background worker that waits for the session URL, then posts tool calls."""
-    while True:
-        line = msg_queue.get()
-        if line is None:
-            break
-
-        # Wait until the SSE handshake completes and yields our active session ID path
-        url_ready_event.wait()
-
-        try:
-            payload = json.loads(line.strip())
-
-            # CRITICAL FIX: Ensure the request goes to the absolute session URI assigned to us
-            req = urllib.request.Request(
-                client_url,
-                data=json.dumps(payload).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-            )
-            with urllib.request.urlopen(req) as response:
-                response.read()  # Read acknowledgement; results stream back via the SSE loop
-        except Exception as e:
-            sys.stderr.write(f"Write Error: {str(e)}\n")
-        finally:
-            msg_queue.task_done()
+def reinitialize(payload: dict) -> str:
+    """Establish a fresh session (gateway restart invalidates old ones)."""
+    global session_id
+    session_id = None
+    init = {
+        "jsonrpc": "2.0",
+        "id": "session-init",
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "clientInfo": {"name": "mcp-bridge", "version": "2.0.0"},
+        },
+    }
+    post(init)
+    post({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    return post(payload)
 
 
 def main():
-    # Start the SSE listener thread
-    sse_thread = threading.Thread(target=listen_to_sse, daemon=True)
-    sse_thread.start()
-
-    # Start the message sender processing thread
-    sender_thread = threading.Thread(target=send_worker, daemon=True)
-    sender_thread.start()
-
-    # Continuously read incoming JSON-RPC lines from Antigravity's stdin
     while True:
         line = sys.stdin.readline()
         if not line:
             break
-        msg_queue.put(line)
+        try:
+            payload = json.loads(line.strip())
+            response = post(payload)
+            if response.strip():
+                sys.stdout.write(response + "\n")
+        except urllib.error.HTTPError as e:
+            if e.code == 404 and session_id:
+                try:
+                    response = reinitialize(payload)
+                    if response.strip():
+                        sys.stdout.write(response + "\n")
+                except Exception as retry_err:
+                    sys.stderr.write(f"Retry Error: {str(retry_err)}\n")
+            else:
+                sys.stderr.write(f"HTTP Error: {e.code}: {e.reason}\n")
+        except Exception as e:
+            sys.stderr.write(f"Write Error: {str(e)}\n")
 
 
 if __name__ == "__main__":
     main()
-

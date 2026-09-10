@@ -123,10 +123,20 @@ services:
     ports:
       - "127.0.0.1:8811:8811"
     command:
-      - --transport=sse
+      # streamable-http (--transport=streaming) instead of deprecated SSE:
+      # sessions carry an explicit Mcp-Session-Id and clients reinitialize on
+      # 404, so tool calls can't get stuck in a stale "initializing" session.
+      # The /health endpoint is always available without auth.
+      - --transport=streaming
       - --port=8811
       - --catalog=/root/.docker/mcp/catalogs/local-mcp.yaml
       - --servers=ast-explorer,supabase-manager,git-orchestrator
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8811/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - dev-network
       - supabase_network
@@ -204,7 +214,7 @@ services:
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/sse
+      - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/mcp
     volumes:
       - ../..:/app
       - ..:/app/${PROJECT_NAME}:ro
@@ -246,7 +256,7 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - PI_CODING_AGENT_DIR=/home/node/.pi/agent
-      - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/sse
+      - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/mcp
       # Resolves ${MCP_GATEWAY_AUTH_TOKEN} in the pi mcp.json headers.
       - MCP_GATEWAY_AUTH_TOKEN=${MCP_GATEWAY_AUTH_TOKEN}
     volumes:
@@ -294,7 +304,7 @@ services:
     environment:
       - OPENCODE_CONFIG=/app/model_md/opencode.json
       - GOOGLE_API_KEY=${GEMINI_API_KEY}
-      - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/sse
+      - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/mcp
       # Resolves {env:MCP_GATEWAY_AUTH_TOKEN} in the MCP_DOCKER headers.
       - MCP_GATEWAY_AUTH_TOKEN=${MCP_GATEWAY_AUTH_TOKEN}
       # oh-my-openagent writes per-session transcripts (and reads its
