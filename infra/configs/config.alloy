@@ -1,6 +1,6 @@
 // 1. Discover Docker containers
 discovery.docker "all_containers" {
-  host = "unix:///var/run/docker.sock"
+  host = "tcp://mcp-socket-proxy:2375"
 }
 
 discovery.relabel "clean_docker_names" {
@@ -16,7 +16,7 @@ discovery.relabel "clean_docker_names" {
 
 // 2. Collect Logs and send to Loki
 loki.source.docker "logs" {
-  host       = "unix:///var/run/docker.sock"
+  host       = "tcp://mcp-socket-proxy:2375"
   targets    = discovery.relabel.clean_docker_names.output
   forward_to = [loki.write.local_loki.receiver]
 }

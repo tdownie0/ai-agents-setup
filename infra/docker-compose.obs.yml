@@ -5,7 +5,6 @@ services:
     container_name: alloy
     volumes:
       - ./configs/config.alloy:/etc/alloy/config.alloy:ro
-      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock:ro
       # Alloy needs a place to store its own state (positions of logs read, etc.)
       - alloy-data:/var/lib/alloy/data
     command: ["run", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]

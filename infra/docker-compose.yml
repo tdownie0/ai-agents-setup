@@ -100,11 +100,15 @@ services:
     security_opt:
       - no-new-privileges:true
     restart: always
+    depends_on:
+      - mcp-socket-proxy
     environment:
       - SUPABASE_URL=${SUPABASE_URL}
       # Standalone gateway (Docker CE, no Docker Desktop): bypass Desktop
       # feature-flag checks and talk to the engine directly.
       - DOCKER_MCP_IN_CONTAINER=1
+      # Talk to proxy instead of host unix socket
+      - DOCKER_HOST=tcp://mcp-socket-proxy:2375
       # The generated catalog binds the project tree into the spawned MCP
       # server containers. docker/mcp-gateway refuses host paths outside its
       # default allowed roots (/tmp, /var/tmp) unless explicitly allow-listed.
@@ -116,7 +120,6 @@ services:
       - MCP_GATEWAY_AUTH_TOKEN=${MCP_GATEWAY_AUTH_TOKEN}
     volumes:
       - ${LOCAL_MCP_REGISTRY}:/root/.docker/mcp
-      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock:ro
     ports:
       - "127.0.0.1:8811:8811"
     command:
@@ -140,8 +143,6 @@ services:
     profiles: ["agent-core"]
     container_name: orchestrator-worker
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
-    group_add:
-      - "${DOCKER_GROUP_GID:-999}"
     cap_drop:
       - ALL
     security_opt:
@@ -150,6 +151,11 @@ services:
     tmpfs:
       - /tmp
     restart: always
+    depends_on:
+      mcp-socket-proxy:
+        condition: service_started
+      cache:
+        condition: service_healthy
     environment:
       - REDIS_HOST=cache
       - REDIS_PORT=6379
@@ -161,20 +167,16 @@ services:
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - VITE_SUPABASE_URL=${VITE_SUPABASE_URL:-${SUPABASE_URL}}
       - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY:-${SUPABASE_ANON_KEY}}
-      - DOCKER_HOST=unix:///var/run/docker.sock
+      - DOCKER_HOST=tcp://mcp-socket-proxy:2375
     volumes:
       - ../..:/app
       - ../apps/mcp-servers/mcp-git-orchestrator/:/opt/orchestrator
       - /opt/orchestrator/__pycache__
       - /opt/orchestrator/.venv
-      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock:ro
       - /home/devuser
     networks:
       - dev-network
       - supabase_network
-    depends_on:
-      cache:
-        condition: service_healthy
 
   antigravity:
     build:
@@ -340,6 +342,33 @@ services:
       retries: 10
     networks:
       - dev-network
+
+  mcp-socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    container_name: mcp-socket-proxy
+    profiles: ["agent-core"]
+    restart: always
+    environment:
+      # Allow container lifecycle management for tool containers
+      - CONTAINERS=1
+      - IMAGES=1
+      - NETWORKS=1
+      - POST=1
+      - EXEC=1
+      # Block high-risk escalation pathways
+      - PRIVILEGED=0
+      - VOLUMES=1
+      - AUTH=0
+      - SYSTEM=0
+    volumes:
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock:ro
+    networks:
+      - dev-network
+      - observability-bridge
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   redis_data:
