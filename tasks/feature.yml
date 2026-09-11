@@ -42,7 +42,7 @@ tasks:
         sh: pwd
     cmds:
       - |
-        FRONT_PORT=$(task feature:find-ports)
+        FRONT_PORT=$(go-task feature:find-ports)
         BACK_PORT=$((FRONT_PORT + 1000))
         DB_PORT=$((FRONT_PORT + 2000))
 
@@ -75,11 +75,7 @@ tasks:
   seed:
     desc: "Run seed for the specific feature branch"
     cmds:
-      - |
-        # Use the same logic to determine the DB_URL or pass it explicitly
-        # This forces the seed script to use the internal DB hostname
-        export DATABASE_URL="postgres://postgres:password@db:5432/postgres" \
-        docker compose -p {{.BRANCH}} exec backend pnpm db:seed
+      - docker compose -p {{.BRANCH}} exec backend pnpm db:seed
 
   status:
     desc: "Check the health and status of a feature environment"

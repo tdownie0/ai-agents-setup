@@ -49,6 +49,7 @@ services:
       - "${BACKEND_PORT:-3000}:3000"
     networks:
       - feature-net
+      - supabase_network
     depends_on:
       - db
     healthcheck:
@@ -108,6 +109,9 @@ networks:
   feature-net:
     driver: bridge
     name: ${BRANCH:-feature}_net
+  supabase_network:
+    external: true
+    name: supabase_network_${PROJECT_NAME}
 
 volumes:
   pnpm_store:
