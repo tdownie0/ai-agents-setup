@@ -1,5 +1,5 @@
 # --- STAGE 1: Builder ---
-FROM node:25-slim AS builder
+FROM node:26-slim AS builder
 RUN npm install -g corepack@latest --force
 RUN corepack enable
 WORKDIR /app
@@ -21,7 +21,7 @@ RUN pnpm --filter @model_md/mcp-database-service run build
 RUN ls -la /app/apps/mcp-servers/mcp-database-service/dist/index.js
 
 # --- STAGE 2: Runner ---
-FROM node:25-slim AS runner
+FROM node:26-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
