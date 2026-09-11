@@ -9,8 +9,6 @@ from provider import release_ports, find_available_port_block
 from engine import DockerComposeRunner, GitRunner
 
 # --- Configuration ---
-UID = os.getenv("USER_ID", "1000")
-GID = os.getenv("GROUP_ID", "1000")
 PROJECT_NAME = os.environ.get("PROJECT_NAME", "model_md")
 APP_ROOT = Path("/app")
 BASE_PROJECT = APP_ROOT / PROJECT_NAME
@@ -183,13 +181,6 @@ def run_lifecycle_workflow(feature_slug: str, action: str) -> str:
         if action == "install":
             composer.exec_pnpm("backend", ["--filter", "@model_md/database", "build"])
             res = composer.restart(["backend", "frontend"])
-
-        # Restore worktree ownership: pnpm ran as root inside the container.
-        uid_gid = (
-            f"{os.environ.get('USER_ID', os.getuid())}:"
-            f"{os.environ.get('GROUP_ID', os.getgid())}"
-        )
-        composer.exec_chown(uid_gid)
 
         return "\n---\n".join(results)
     except Exception as e:

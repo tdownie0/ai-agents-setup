@@ -4,20 +4,20 @@ services:
       context: ..
       dockerfile: ./infra/builds/Dockerfile
       target: development
+      args:
+        - USER_ID=${HOST_UID:-1000}
+        - GROUP_ID=${HOST_GID:-1000}
     image: dev-base:latest
+    # Run as the host user: the image owns its workspace for this identity,
+    # so bind-mounted writes land host-owned without DAC_OVERRIDE/CHOWN hacks.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     cap_drop:
       - ALL
-    cap_add:
-      # Dev image runs as root but cap_drop ALL strips CAP_DAC_OVERRIDE +
-      # CAP_CHOWN: without them root cannot write into the rts-owned host tree
-      # (tsc build) nor chown build artifacts back to HOST_UID:GID.
-      - DAC_OVERRIDE
-      - CHOWN
     security_opt:
       - no-new-privileges:true
     working_dir: /app
     command: >
-      sh -c "pnpm install --frozen-lockfile --store-dir=/pnpm-store && pnpm --filter @model_md/database build && (chown -R ${HOST_UID:-1000}:${HOST_GID:-1000} /app/packages/database/dist /app/packages/database/tsconfig.tsbuildinfo || true) && exec pnpm run dev:server"
+      sh -c "pnpm install --frozen-lockfile --store-dir=/pnpm-store && pnpm --filter @model_md/database build && exec pnpm run dev:server"
     environment:
       - CI=true
       - PORT=3000
@@ -57,13 +57,14 @@ services:
       context: ..
       dockerfile: ./infra/builds/Dockerfile
       target: development
+      args:
+        - USER_ID=${HOST_UID:-1000}
+        - GROUP_ID=${HOST_GID:-1000}
     image: dev-base:latest
+    # See backend: vite writes into the host-owned tree as the host user.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     cap_drop:
       - ALL
-    cap_add:
-      # See backend: tsc/vite builds write into the rts-owned host tree.
-      - DAC_OVERRIDE
-      - CHOWN
     security_opt:
       - no-new-privileges:true
     working_dir: /app
@@ -171,6 +172,10 @@ services:
       - REDIS_PORT=6379
       - PROJECT_NAME=${PROJECT_NAME}
       - PROJECT_PARENT_PATH=${PROJECT_PARENT_PATH}
+      # The worker spawns feature containers via a nested `docker compose`; it
+      # must interpolate the same host identity it itself runs as.
+      - HOST_UID=${HOST_UID:-1000}
+      - HOST_GID=${HOST_GID:-1000}
       - DBOS_SYSTEM_DATABASE_URL=${DATABASE_URL}
       - TEST_USER_ID=${TEST_USER_ID}
       - SUPABASE_URL=${SUPABASE_URL}

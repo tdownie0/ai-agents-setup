@@ -15,17 +15,20 @@ services:
       context: ..
       dockerfile: ./infra/builds/Dockerfile
       target: development
+      args:
+        - USER_ID=${HOST_UID:-1000}
+        - GROUP_ID=${HOST_GID:-1000}
     image: dev-base:latest
     container_name: ${BRANCH}-backend
+    # Run as the host user so lifecycle writes into the bind-mounted worktree
+    # land host-owned; no post-hoc chown step needed anymore.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     cap_drop:
       - ALL
-    cap_add:
-      - DAC_OVERRIDE
-      - CHOWN
     security_opt:
       - no-new-privileges:true
     command: >
-      sh -c "pnpm install --no-frozen-lockfile --store-dir=/pnpm-store && pnpm --filter @model_md/database build && (chown -R ${HOST_UID:-1000}:${HOST_GID:-1000} /app/packages/database/dist /app/packages/database/tsconfig.tsbuildinfo || true) && exec pnpm run dev:server"
+      sh -c "pnpm install --no-frozen-lockfile --store-dir=/pnpm-store && pnpm --filter @model_md/database build && exec pnpm run dev:server"
     environment:
       - CI=true
       - PORT=3000
@@ -66,13 +69,15 @@ services:
       context: ..
       dockerfile: ./infra/builds/Dockerfile
       target: development
+      args:
+        - USER_ID=${HOST_UID:-1000}
+        - GROUP_ID=${HOST_GID:-1000}
     image: dev-base:latest
     container_name: ${BRANCH}-frontend
+    # Run as the host user; vite writes into the bind-mounted worktree.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     cap_drop:
       - ALL
-    cap_add:
-      - DAC_OVERRIDE
-      - CHOWN
     security_opt:
       - no-new-privileges:true
     command: pnpm run dev:client

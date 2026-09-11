@@ -64,31 +64,6 @@ class DockerComposeRunner:
             [*self.base_cmd, "exec", "-T", service, "pnpm", *pnpm_args]
         )
 
-    def exec_chown(self, uid_gid: str, path: str = "/app"):
-        """
-        Hands host-tree files written as root back to HOST_UID:HOST_GID.
-
-        Lifecycle actions (pnpm build / db:generate / lint:fix / vite build)
-        exec as root inside the backend container. Anything they write into
-        the bind-mounted worktree lands root-owned; this restores ownership
-        so the host user (and the orchestrator process) can manage the files.
-        'node_modules' trees are Docker volumes, so they are pruned and left
-        alone (pnpm runs as root and manages those itself).
-        """
-        return self.executor.run(
-            [
-                *self.base_cmd,
-                "exec",
-                "-T",
-                "backend",
-                "sh",
-                "-c",
-                f"find {path} -name node_modules -prune -o -exec chown {uid_gid} {{}} +",
-            ],
-            check=False,
-            timeout=600,
-        )
-
     def up(self):
         return self.executor.run([*self.base_cmd, "up", "-d"])
 
