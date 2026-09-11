@@ -1,6 +1,7 @@
 import os
 import json
 import psycopg2
+import re
 from psycopg2.extras import RealDictCursor
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
@@ -20,10 +21,20 @@ mcp = FastMCP("Worktree-Orchestrator")
 
 # --- Helpers ---
 def _get_paths(feature_slug: str):
-    """Utility to keep path logic consistent across all tools."""
+    # 1. Strict character allowlist
+    if not re.match(r"^[a-zA-Z0-9_-]+$", feature_slug):
+        raise ValueError(f"Invalid feature_slug: '{feature_slug}'.")
+
+    worktree_path = (APP_ROOT / f"{PROJECT_NAME}-worktree-{feature_slug}").resolve()
+    host_path = (HOST_ROOT / f"{PROJECT_NAME}-worktree-{feature_slug}").resolve()
+
+    # 2. Canonical path boundary check (Python 3.9+)
+    if not host_path.is_relative_to(HOST_ROOT.resolve()):
+        raise ValueError("Path traversal attempt detected.")
+
     return {
-        "worktree": APP_ROOT / f"{PROJECT_NAME}-worktree-{feature_slug}",
-        "host": HOST_ROOT / f"{PROJECT_NAME}-worktree-{feature_slug}",
+        "worktree": worktree_path,
+        "host": host_path,
     }
 
 
