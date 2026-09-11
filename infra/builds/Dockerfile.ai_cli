@@ -57,7 +57,7 @@ CMD ["bash"]
 
 
 # Pi
-FROM node:22-alpine AS agent-pi
+FROM node:26-alpine AS agent-pi
 USER root
 
 RUN apk add --no-cache curl bash unzip icu-libs gcompat
@@ -94,7 +94,7 @@ WORKDIR /app
 
 # Opencode
 FROM oven/bun:alpine AS opencode-bun-source
-FROM ghcr.io/anomalyco/opencode:1.14.48 AS agent-opencode
+FROM ghcr.io/anomalyco/opencode:1.18.30 AS agent-opencode
 
 USER root
 RUN apk add --no-cache curl bash unzip icu-libs gcompat

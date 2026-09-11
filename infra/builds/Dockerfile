@@ -1,5 +1,6 @@
 # --- STAGE 1: Base ---
-FROM node:24-alpine AS base
+FROM node:26-alpine AS base
+RUN npm install -g corepack@latest
 RUN corepack enable
 WORKDIR /app
 ENV PNPM_HOME="/pnpm"
@@ -18,7 +19,7 @@ FROM builder AS pruner
 RUN pnpm --filter @model_md/backend --prod deploy /app/out
 
 # --- STAGE 4: Runner ---
-FROM node:24-alpine AS runner
+FROM node:26-alpine AS runner
 WORKDIR /app
 
 # 4. Copy only the pruned output

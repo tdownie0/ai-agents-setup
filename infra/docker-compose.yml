@@ -213,6 +213,7 @@ services:
     tmpfs:
       - /tmp
       - /home/devuser/.cache:mode=1777
+      - /home/devuser/.gemini:mode=1777
     stdin_open: true
     tty: true
     working_dir: /app
