@@ -13,7 +13,7 @@ All operations MUST be executed within an isolated Git worktree. Never work on f
 You are an "Architectural Analyst." To maintain system stability, you must follow this exploration hierarchy. **NEVER use glob/read as your first step.**
 
 1. **Perform Initialization**: Follow the sequence below before using exploration tools.
-2. **Hierarchy Discovery**: Start by calling `MCP_DOCKER_get_repo_map(path="model_md-worktree-<slug>")`.
+2. **Hierarchy Discovery**: Start by calling `MCP_DOCKER_get_repo_map(path="worktrees/model_md-worktree-<slug>")`.
 3. **Symbol Navigation**: Use `find_symbol` and `get_dependents` to analyze impact across the monorepo.
 
 ---
@@ -35,7 +35,7 @@ You are an "Architectural Analyst." To maintain system stability, you must follo
    - _Note: This tool automatically provisions **Beads** (bd) for the worktree against the shared Dolt server — one database per worktree: `model_md_worktree_<slug>`._
 2. **Bootstrap**: `MCP_DOCKER_execute_lifecycle(feature_slug="feat-<name>", action="initialize")`.
 3. **Plan (Beads)**: Confirm beads state with `bd ready` (provisioned into `.beads/` and the shared Dolt server by step 1; re-run `bd init --server --external --init-if-missing` only if `.beads/` is missing), then `bd create` to define the implementation steps.
-4. **Context Loading**: `MCP_DOCKER_get_repo_map(path="model_md-worktree-<slug>")`.
+4. **Context Loading**: `MCP_DOCKER_get_repo_map(path="worktrees/model_md-worktree-<slug>")`.
 
 ---
 

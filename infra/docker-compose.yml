@@ -127,9 +127,12 @@ services:
       start_period: 5s
     networks:
       - dev-network
+      # Agents run beads against the shared Dolt server from agent-network,
+      # so dolt is dual-homed (dev-network: worker + spawned servers).
+      - agent-network
 
   mcp-gateway:
-    image: docker/mcp-gateway:latest
+    image: docker/mcp-gateway:v0.43.3
     profiles: ["agent-core"]
     cap_drop:
       - ALL
@@ -148,8 +151,14 @@ services:
       # The generated catalog binds the project tree into the spawned MCP
       # server containers. docker/mcp-gateway refuses host paths outside its
       # default allowed roots (/tmp, /var/tmp) unless explicitly allow-listed.
+      # Read-only binds may source anywhere under the project parent.
       - MCP_GATEWAY_DOCKER_BIND_ALLOWED_PATHS=${PROJECT_PARENT_PATH}
-      - MCP_GATEWAY_DOCKER_BIND_ALLOW_WRITABLE_PATHS=${PROJECT_PARENT_PATH}
+      # Writable binds are restricted to the worktrees directory (agents must
+      # modify feature code) and the main repo's .git (git worktree metadata /
+      # commits). Colon = Linux path-list separator; enforced by
+      # pkg/gateway/docker_binds.go. Agents can no longer mount .docker/
+      # configs or sibling repos writable.
+      - MCP_GATEWAY_DOCKER_BIND_ALLOW_WRITABLE_PATHS=${PROJECT_PARENT_PATH}/worktrees:${PROJECT_PARENT_PATH}/${PROJECT_NAME}/.git
       # v0.43.1+: SSE requires Bearer auth by default (CVE GHSA-g879-4j4f-6vj7).
       # Pin the shared token so clients can authenticate; otherwise the gateway
       # auto-generates a random one the clients never learn.
@@ -174,9 +183,14 @@ services:
       retries: 3
       start_period: 10s
     networks:
+      # dev-network stays FIRST: the gateway spawns MCP server containers there
+      # (they must resolve `cache`, `mcp-socket-proxy`). agent-network is
+      # appended LAST so adding agent-facing connectivity can never shift the
+      # gateway's default spawn network.
       - dev-network
       - supabase_network
       - observability-bridge
+      - agent-network
 
   orchestrator-worker:
     build:
@@ -268,8 +282,12 @@ services:
       - BEADS_DOLT_SERVER_PORT=3306
       - BEADS_DOLT_SERVER_MODE=1
     volumes:
-      - ../..:/app
-      - ..:/app/${PROJECT_NAME}:ro
+      # Parent workspace is READ-ONLY for agents: they may only write inside
+      # the worktrees bind (feature code) and their own tool-config bind.
+      # .docker/ configs, the main repo, and sibling repos are now immutable
+      # to them. The rw worktrees bind shadows the ro parent at /app/worktrees.
+      - ../..:/app:ro
+      - ${PROJECT_PARENT_PATH}/worktrees:/app/worktrees
       # Copy-on-first-run: host config is copied into the project parent by
       # `task ai:setup P=antigravity`; the container never mounts ~/.config/antigravity.
       # ~/.gemini is deliberately NOT mounted: it holds only image-baked antigravity
@@ -277,7 +295,7 @@ services:
       # shadowing the baked skills and any host credential exposure.
       - ${PROJECT_PARENT_PATH}/.docker/antigravity/config:/home/devuser/.config/antigravity
     networks:
-      - dev-network
+      - agent-network
     depends_on:
       - mcp-gateway
 
@@ -317,8 +335,10 @@ services:
       # Resolves ${MCP_GATEWAY_AUTH_TOKEN} in the pi mcp.json headers.
       - MCP_GATEWAY_AUTH_TOKEN=${MCP_GATEWAY_AUTH_TOKEN}
     volumes:
-      - ../..:/app
-      - ..:/app/${PROJECT_NAME}:ro
+      # Parent workspace is READ-ONLY for agents (see antigravity above):
+      # only the worktrees bind and the tool's own config bind are writable.
+      - ../..:/app:ro
+      - ${PROJECT_PARENT_PATH}/worktrees:/app/worktrees
       # Copy-on-first-run: project .pi/ configs are copied into the project
       # parent by `task ai:setup P=pi`; the container never mounts the host's
       # ~/.pi. Its gateway bridge (agent/mcp.json) ships with the project.
@@ -326,7 +346,7 @@ services:
       # for pi's auto-discovery from the working dir.
       - ${PROJECT_PARENT_PATH}/.docker/pi:/home/node/.pi
     networks:
-      - dev-network
+      - agent-network
     depends_on:
       - mcp-gateway
 
@@ -379,19 +399,23 @@ services:
       # forward the host's TERM, so inject it here (baked from host value).
       - "TERM=${TERM:-xterm-256color}"
     volumes:
-      - ../..:/app
-      - ..:/app/${PROJECT_NAME}:ro
+      # Parent workspace is READ-ONLY for agents (see antigravity above).
+      # Note: OPENCODE_CONFIG points at /app/model_md/opencode.json inside the
+      # ro parent mount, so the permission config that governs the agent is
+      # itself immutable.
+      - ../..:/app:ro
+      - ${PROJECT_PARENT_PATH}/worktrees:/app/worktrees
       - omo_state:/app/${PROJECT_NAME}/.omo
       - ${PROJECT_PARENT_PATH}/.docker/opencode/config:/home/devuser/.config/opencode
       - ${PROJECT_PARENT_PATH}/.docker/opencode/share:/home/devuser/.local/share/opencode
       - ${PROJECT_PARENT_PATH}/.docker/opencode/state:/home/devuser/.local/state
     networks:
-      - dev-network
+      - agent-network
     depends_on:
       - mcp-gateway
 
   cache:
-    image: redis:alpine
+    image: redis:8.8-alpine
     profiles: ["agent-core"]
     cap_drop:
       - ALL
@@ -416,7 +440,7 @@ services:
       - dev-network
 
   mcp-socket-proxy:
-    image: tecnativa/docker-socket-proxy:latest
+    image: tecnativa/docker-socket-proxy:v0.5.0
     container_name: mcp-socket-proxy
     profiles: ["agent-core"]
     restart: always
@@ -452,6 +476,13 @@ volumes:
 
 networks:
   dev-network:
+    driver: bridge
+  # AI agent containers (pi, opencode, antigravity) live on agent-network.
+  # From there the ONLY reachable services are mcp-gateway (8811, tool calls)
+  # and dolt (3306, beads) - never the Docker socket proxy (2375), redis
+  # cache, or the supabase stack. The socket-proxy host-escape finding is
+  # resolved by this isolation, not by trusting the proxy's filters.
+  agent-network:
     driver: bridge
   supabase_network:
     external: true

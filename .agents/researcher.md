@@ -41,7 +41,7 @@ Blockers encountered: <any dead ends or failed approaches>"
 Use when: Finding files, reading source, understanding project layout.
 
 ```
-Step 1: get_repo_map(path="model_md-worktree-<SLUG>")
+Step 1: get_repo_map(path="worktrees/model_md-worktree-<SLUG>")
 Step 2: find_symbol(<TARGET>) -- locate key definitions
 Step 3: get_dependents(<TARGET_FILE>) -- find dependents
 Step 4: scan_specific_file(<SUSPECT_FILE>) -- deep AST scan

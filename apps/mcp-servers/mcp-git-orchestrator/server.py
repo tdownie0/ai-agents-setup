@@ -21,14 +21,12 @@ mcp = FastMCP("Worktree-Orchestrator")
 
 # --- Helpers ---
 def _get_paths(feature_slug: str):
-    # 1. Strict character allowlist
     if not re.match(r"^[a-zA-Z0-9_-]+$", feature_slug):
         raise ValueError(f"Invalid feature_slug: '{feature_slug}'.")
 
-    worktree_path = (APP_ROOT / f"{PROJECT_NAME}-worktree-{feature_slug}").resolve()
-    host_path = (HOST_ROOT / f"{PROJECT_NAME}-worktree-{feature_slug}").resolve()
+    worktree_path = (APP_ROOT / "worktrees" / f"{PROJECT_NAME}-worktree-{feature_slug}").resolve()
+    host_path = (HOST_ROOT / "worktrees" / f"{PROJECT_NAME}-worktree-{feature_slug}").resolve()
 
-    # 2. Canonical path boundary check (Python 3.9+)
     if not host_path.is_relative_to(HOST_ROOT.resolve()):
         raise ValueError("Path traversal attempt detected.")
 
@@ -145,6 +143,7 @@ def initialize_worktree(feature_slug: str) -> str:
     Args:
         feature_slug: The unique identifier for the feature (e.g., 'feat-ui-update').
     """
+    _get_paths(feature_slug)
     client = DBOSClient(system_database_url=os.environ["DBOS_SYSTEM_DATABASE_URL"])
 
     options: EnqueueOptions = {
@@ -185,6 +184,7 @@ def execute_lifecycle(feature_slug: str, action: str) -> str:
         feature_slug: The unique identifier for the feature worktree.
         action: One of 'install', 'initialize', 'generate', 'migrate', 'seed', 'verify', 'build'.
     """
+    _get_paths(feature_slug)
     client = DBOSClient(system_database_url=os.environ["DBOS_SYSTEM_DATABASE_URL"])
     handle = client.enqueue(
         {
@@ -206,6 +206,7 @@ def get_environment_logs(
     Retrieves logs from Loki for a specific feature.
     If 'service' is provided, it narrows the search to that specific container.
     """
+    _get_paths(feature_slug)
     loki = LokiClient()
 
     query_target = f"{feature_slug}.*{service}" if service else feature_slug
@@ -268,6 +269,7 @@ def stop_environment(feature_slug: str) -> str:
     """
     Enqueues a background job to tear down the feature environment.
     """
+    _get_paths(feature_slug)
     client = DBOSClient(system_database_url=os.environ["DBOS_SYSTEM_DATABASE_URL"])
 
     options: EnqueueOptions = {
@@ -289,5 +291,8 @@ def stop_environment(feature_slug: str) -> str:
 @mcp.tool()
 def list_features() -> str:
     """Lists all active feature worktrees."""
-    worktrees = [p.name for p in APP_ROOT.glob(f"{PROJECT_NAME}-worktree-*")]
+    worktrees_dir = APP_ROOT / "worktrees"
+    if not worktrees_dir.is_dir():
+        return "No active feature worktrees."
+    worktrees = [p.name for p in worktrees_dir.glob(f"{PROJECT_NAME}-worktree-*")]
     return "\n".join(worktrees) if worktrees else "No active feature worktrees."

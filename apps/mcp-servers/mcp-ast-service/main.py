@@ -60,11 +60,19 @@ async def process_file(file_path, r_client):
 
 def get_safe_path(input_path: str) -> str:
     """Standardizes path resolution for security and Redis key consistency."""
-    root = os.path.abspath(WORKSPACE_ROOT)
+    root = os.path.realpath(WORKSPACE_ROOT)
     # lstrip('/') prevents user input from 'resetting' the path to root during join
     safe_join = os.path.join(root, input_path.lstrip("/"))
-    # normpath removes ../ and ./; abspath makes it final
-    return os.path.abspath(os.path.normpath(safe_join))
+    # normpath removes ../ and ./; realpath resolves symlinks so a link inside
+    # the workspace cannot be used to read outside it (the caller then checks
+    # containment against the same realpath root).
+    return os.path.realpath(safe_join)
+
+
+def _is_within_workspace(path: str) -> bool:
+    """Prefix-safe containment check against the real workspace root."""
+    root = os.path.realpath(WORKSPACE_ROOT)
+    return path == root or path.startswith(root + os.sep)
 
 
 @mcp.tool()
@@ -83,7 +91,7 @@ async def scan_specific_file(file_path: str) -> str:
              the file cannot be read or is outside the workspace.
     """
     abs_path = get_safe_path(file_path)
-    if not abs_path.startswith(os.path.abspath(WORKSPACE_ROOT)):
+    if not _is_within_workspace(abs_path):
         return "Access Denied: Path is outside workspace."
 
     r_client = get_redis_client()
@@ -107,7 +115,7 @@ async def get_repo_map(path: str | None = None) -> str:
     target_slug = path if path else DEFAULT_PROJECT
     target = get_safe_path(target_slug)
 
-    if not target.startswith(os.path.abspath(WORKSPACE_ROOT)):
+    if not _is_within_workspace(target):
         return "Access Denied."
 
     try:

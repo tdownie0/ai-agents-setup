@@ -20,8 +20,8 @@ Pi AI coding agent container, and begin having it develop features in isolated e
 ### Installation
 
 This structure requires access to the parent directory of wherever the main project will live.
-In order to facilitate creating separate worktrees that are sibling directories to the main
-directory, this structure is required. It also requires that the end user has Docker Desktop
+In order to facilitate creating separate worktrees under a `worktrees/` directory inside the
+parent, this structure is required. It also requires that the end user has Docker Desktop
 installed on their machine (though users may be able to get away with another containerization
 strategy as long as they can build the mcp-gateway and register MCP servers).
 
@@ -51,9 +51,9 @@ task mcp:setup
 ```
 
 Running this generates the local catalog into `$LOCAL_MCP_REGISTRY` — an **absolute**
-path inside the parent workspace (`.docker/mcp`, next to where git worktrees live).
-It must not be `~`-based; under sudo, `~` would resolve to `/root` and scatter
-root-owned catalog files.
+path inside the parent workspace (`.docker/mcp`; git worktrees live in `worktrees/`
+beside it). It must not be `~`-based; under sudo, `~` would resolve to `/root` and
+scatter root-owned catalog files.
 
 Now, the supabase CLI can be installed to interact with the main project directory, and have
 access to the GUI for the database. This is installed separate due to not working as a node_module
@@ -72,7 +72,8 @@ sudo task db:up
 sudo task db:down
 ```
 
-Additionally, we will need this volume created for the application:
+Additionally, we will need this volume created for the application — this also
+creates the user-owned `worktrees/` directory the agents write feature code into:
 
 ```bash
 sudo task build:docker-assets
@@ -170,7 +171,12 @@ sudo task db:reset
 sudo task db:seed
 ```
 
-The agent-core profile includes the mcp-gateway, the orchestrator-worker, and a cache. The AI CLI
+The agent-core profile includes the mcp-gateway, the orchestrator-worker, and a cache. Agents
+do **not** join the main `dev-network`: they run on a dedicated `agent-network` from which the
+only reachable services are `mcp-gateway` (tool calls) and `dolt` (beads) — never the Docker
+socket proxy or the database/cache. The parent workspace is mounted **read-only** into the AI
+CLI containers; the only writable bind is `worktrees/` (feature code) plus the main repo's
+`.git` for the git-orchestrator server. The AI CLI
 can be selected by the user. In this case we will use Pi as an example, assuming you spun up that
 CLI container. Once this is all up, Pi can be interacted with like so (also similarly for the
 other options):
@@ -243,8 +249,8 @@ The environment is optimized for **Git Worktrees**. This allows the AI agent to:
 
 - Spawn a new "physical" folder for every feature branch.
 - Work on multiple features in parallel without "context-bleeding."
-- Maintain a clean `main` repository while experimentation happens in sibling directories.
-- Use `--relative-paths` to ensure Git remains compatible across the Host/Container boundary.
+- Maintain a clean `main` repository while experimentation happens in the `worktrees/` directory.
+- Use relative paths (`gitdir: ../../`) to ensure Git remains compatible across the Host/Container boundary.
 
 ### 2. Docker-Native MCP
 
@@ -283,6 +289,7 @@ Unlike traditional setups where MCP servers run on the host, this project treats
 ## 📂 Project Structure
 
 - `/model_md`: The primary repository/anchor for the AI agent.
+- `/worktrees`: Feature worktrees created by the git-orchestrator (e.g. `model_md-worktree-<slug>`).
 - `/ast-mcp-service`: Source and Dockerfile for the AST-based MCP server.
 - `.pi/`: Contains the Pi AI coding tool project configuration (settings, MCP, system prompts).
 - `../.`: This setup assumes that the user will have access to the parent directory of the current application's directory.
@@ -293,9 +300,9 @@ Unlike traditional setups where MCP servers run on the host, this project treats
 ## 🧠 The AI Workflow
 
 1.  **Request:** "Agent, build a login feature."
-2.  **Orchestration:** The agent spawns `../model_md-login-feat` using a Git worktree.
+2.  **Orchestration:** The agent spawns `../worktrees/model_md-worktree-login-feat` using a Git worktree.
 3.  **Development:** The agent writes code and runs tests in isolation.
-4.  **Review:** You inspect the sibling folder on your host.
+4.  **Review:** You inspect the worktree folder (`../worktrees/`) on your host.
 5.  **Merge/Cleanup:** You merge the branch, and the agent removes the worktree.
 
 ---

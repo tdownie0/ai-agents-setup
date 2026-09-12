@@ -60,6 +60,9 @@ tasks:
           echo "    seeded opencode.json from project"
         else
           echo "    existing opencode.json preserved (no-clobber); delete it to re-seed from project"
+          if ! cmp -s "$SRC" "$DST"; then
+            echo "    WARNING: seeded copy differs from project opencode.json (seed drift) - delete $DST, re-run task ai:setup to refresh"
+          fi
         fi
 
   # Seeds the container's global pi dir (~/.pi/agent, PI_CODING_AGENT_DIR)
@@ -87,6 +90,17 @@ tasks:
           --exclude='*.db-shm' --exclude='auth.json' --exclude='*token*' \
           --exclude='*key*' --exclude='*credential*' --exclude='.cache/' \
           "$SRC"/ "$DST"/
+        # Same exclusions, dry-run: any file the project adds (or removes)
+        # that the seeded copy lacks means the container config drifts from
+        # the project. No-clobber + ignore-existing keep the old copy, so
+        # surface the drift so the operator can decide to re-seed fresh.
+        DRIFT=$(rsync -a -n -i --ignore-existing --exclude='*.db' \
+          --exclude='*.db-wal' --exclude='*.db-shm' --exclude='auth.json' \
+          --exclude='*token*' --exclude='*key*' --exclude='*credential*' \
+          --exclude='.cache/' "$SRC"/ "$DST"/ 2>/dev/null | wc -l)
+        if [ "${DRIFT:-0}" -gt 0 ]; then
+          echo "    WARNING: seeded pi config drifts from project .pi (seed drift) - delete $DST, re-run task ai:setup to refresh"
+        fi
         echo "    done ($(find "$DST" -type f | wc -l) files)"
 
   # antigravity has no project-shipped config: it runs on image-baked skills

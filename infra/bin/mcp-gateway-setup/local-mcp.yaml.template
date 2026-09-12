@@ -14,7 +14,7 @@ registry:
         - local
         - python
     volumes:
-      - ${PROJECT_PARENT_PATH}:/app
+      - ${PROJECT_PARENT_PATH}:/app:ro
     env:
       - name: PYTHONUNBUFFERED
         value: "1"
@@ -26,8 +26,6 @@ registry:
         value: "${PROJECT_NAME}"
       - name: DOCKER_MCP_TRANSPORT
         value: "stdio"
-      - name: DOCKER_HOST
-        value: "tcp://mcp-socket-proxy:2375"
     tools:
       - name: scan_specific_file
         description: "Deep scan a single file to refresh its AST cache or get detailed signatures. Use when precision is needed for one file."
@@ -57,8 +55,6 @@ registry:
         value: ${TASKFILE_DATABASE_URL}
       - name: DOCKER_MCP_TRANSPORT
         value: "stdio"
-      - name: DOCKER_HOST
-        value: "tcp://mcp-socket-proxy:2375"
     tools:
       - name: get_user_stats
         description: "Returns the total count of users and recent signups from the database."
@@ -72,8 +68,16 @@ registry:
       - "${PROJECT_PARENT_PATH}"
       - "/app/"
     volumes:
-      - ${PROJECT_PARENT_PATH}:/app
-      - ${PROJECT_PATH}/apps/mcp-servers/mcp-git-orchestrator/:/opt/orchestrator
+      # Whole workspace is READ-ONLY: the spawned server may only write into
+      # the worktrees bind (feature code) and the main repo's .git (git_ops
+      # commits / worktree metadata). The /opt/orchestrator overlay keeps the
+      # container running live repo source without a rebuild, but is ro so a
+      # compromised server cannot tamper with orchestrator code in the main
+      # repo.
+      - ${PROJECT_PARENT_PATH}:/app:ro
+      - ${PROJECT_PARENT_PATH}/worktrees:/app/worktrees
+      - ${PROJECT_PARENT_PATH}/${PROJECT_NAME}/.git:/app/${PROJECT_NAME}/.git
+      - ${PROJECT_PATH}/apps/mcp-servers/mcp-git-orchestrator/:/opt/orchestrator:ro
     env:
       - name: REDIS_HOST
         value: "cache"
@@ -93,8 +97,6 @@ registry:
         value: "${HOST_GID}"
       - name: DBOS_SYSTEM_DATABASE_URL
         value: ${TASKFILE_DATABASE_URL}
-      - name: DOCKER_HOST
-        value: "tcp://mcp-socket-proxy:2375"
     tools:
       - name: initialize_worktree
         description: "Creates a new git worktree, allocates ports, and starts the feature Docker environment."

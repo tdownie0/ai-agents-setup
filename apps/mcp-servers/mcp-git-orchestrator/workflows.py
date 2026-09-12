@@ -22,13 +22,31 @@ VITE_SUPABASE_URL = os.getenv("VITE_SUPABASE_URL")
 
 orchestrator_queue = Queue("orchestrator_queue", worker_concurrency=1)
 
+# Any of these key fragments marks an .env variable as a credential that must
+# not be copied into feature worktrees (see _provision_git_worktree).
+SECRET_ENV_RE = re.compile(
+    r"(SERVICE_ROLE|API_KEY|TOKEN|SECRET|PASSWORD|PRIVATE|CREDENTIAL|AUTH)",
+    re.IGNORECASE,
+)
+
+
+def _is_secret_env_line(line: str) -> bool:
+    """True when an .env line carries a credential-bearing key."""
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        return False
+    key = stripped.split("=", 1)[0].strip()
+    return bool(SECRET_ENV_RE.search(key))
+
 
 # --- Helpers ---
 def _get_paths(feature_slug: str):
     """Utility to keep path logic consistent across all tools."""
+    if not re.match(r"^[a-zA-Z0-9_-]+$", feature_slug):
+        raise ValueError(f"Invalid feature_slug: '{feature_slug}'.")
     return {
-        "worktree": APP_ROOT / f"{PROJECT_NAME}-worktree-{feature_slug}",
-        "host": HOST_ROOT / f"{PROJECT_NAME}-worktree-{feature_slug}",
+        "worktree": APP_ROOT / "worktrees" / f"{PROJECT_NAME}-worktree-{feature_slug}",
+        "host": HOST_ROOT / "worktrees" / f"{PROJECT_NAME}-worktree-{feature_slug}",
     }
 
 
@@ -41,19 +59,34 @@ def _provision_git_worktree(new_path: Path, feature_slug: str):
         )
         return
 
+    # Worktrees live under APP_ROOT/worktrees (host: PROJECT_PARENT_PATH/
+    # worktrees). The parent must exist before `git worktree add` can create
+    # the leaf; inside the worker the bind target is /app/worktrees.
+    new_path.parent.mkdir(parents=True, exist_ok=True)
+
     git = GitRunner(BASE_PROJECT)
     git.run_git("worktree", ["add", str(new_path), "-b", feature_slug])
 
-    # Patch .git file for container environment (relative pathing fix)
+    # Patch .git file for relative pathing across the host/container boundary.
+    # Worktrees are now two levels below the mount root (worktrees/<name>),
+    # so the gitdir resolves via "../../" back to <mount-root>/model_md/.git.
     git_file = new_path / ".git"
     if git_file.exists():
         content = git_file.read_text()
-        git_file.write_text(content.replace("gitdir: /app/", "gitdir: ../"))
+        git_file.write_text(content.replace("gitdir: /app/", "gitdir: ../../"))
 
-    # Sync environment configuration
+    # Sync environment configuration WITHOUT credentials. The worktree .env
+    # feeds the feature docker-compose (public URLs, ports, project identity);
+    # secrets (gateway token, provider keys, service-role key) flow exclusively
+    # via container env vars and must never land in feature worktrees.
     env_file = BASE_PROJECT / ".env"
     if env_file.exists():
-        (new_path / ".env").write_text(env_file.read_text())
+        scrubbed = "\n".join(
+            line
+            for line in env_file.read_text().splitlines()
+            if not _is_secret_env_line(line)
+        )
+        (new_path / ".env").write_text(scrubbed + "\n")
 
 
 def _beads_database_name(feature_slug: str) -> str:

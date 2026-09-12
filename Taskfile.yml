@@ -65,6 +65,15 @@ tasks:
       - docker network inspect observability-bridge >/dev/null 2>&1 || docker network create observability-bridge
       - |
         {{.DOCKER_ENV}}
+        # Worktrees are bind-mounted into the agent containers
+        # (${PROJECT_PARENT_PATH}/worktrees:/app/worktrees rw). If the host dir
+        # is auto-created by Docker at compose-up it is root-owned and the
+        # HOST_UID agents cannot write feature code, so create it explicitly
+        # with the host identity. Newer compose/docker might also refuse to
+        # auto-create a bind source that is nested inside another bind mount
+        # (the parent ../..:/app on the worker).
+        mkdir -p "{{.PROJECT_PARENT_PATH}}/worktrees"
+        chown "${HOST_UID}:${HOST_GID}" "{{.PROJECT_PARENT_PATH}}/worktrees"
         # Dev containers now run as the host user. Volumes created by
         # `docker volume create` (always root-owned) and volumes populated by
         # the previous root-running dev image would otherwise EACCES uid

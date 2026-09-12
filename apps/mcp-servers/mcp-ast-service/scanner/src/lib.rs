@@ -138,12 +138,16 @@ fn perform_parallel_scan(
         .filter_entry(|entry| {
             let name = entry.file_name().to_str().unwrap_or("");
             !IGNORE_DIRS.contains(&name)
+                && !entry.file_type().map_or(false, |t| t.is_symlink())
         })
         .build();
 
     let files: Vec<_> = walker
         .filter_map(|e| e.ok())
         .filter(|e| {
+            if e.file_type().map_or(false, |t| t.is_symlink()) {
+                return false;
+            }
             let path = e.path();
             path.is_file()
                 && path
