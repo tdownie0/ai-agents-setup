@@ -158,7 +158,7 @@ bd gate open "component-api" "
 ### 2.4 Close Task
 
 ```bash
-bd close model_md-...bd-design-profile "Design complete: layout mockup, design tokens, component API spec"
+bd close model_md-...bd-design-profile --reason "Design complete: layout mockup, design tokens, component API spec"
 ```
 
 ---
@@ -199,7 +199,7 @@ The CSS agent implements:
 # Verify no type/lint errors
 # lsp_diagnostics clean on all changed CSS files
 
-bd close model_md-...bd-css-dashboard "CSS: implemented dashboard layout grid, responsive breakpoints, card styles, animations"
+bd close model_md-...bd-css-dashboard --reason "CSS: implemented dashboard layout grid, responsive breakpoints, card styles, animations"
 ```
 
 ### 3.2 HTML Architect
@@ -276,7 +276,7 @@ CSS class naming: BEM-style, .component__element--modifier
 Data attributes: data-testid, data-action, data-user-id
 "
 
-bd close model_md-...bd-html-dashboard "HTML: implemented Dashboard, UserProfileCard, StatsCard, ActivityList components"
+bd close model_md-...bd-html-dashboard --reason "HTML: implemented Dashboard, UserProfileCard, StatsCard, ActivityList components"
 ```
 
 ---
@@ -352,7 +352,7 @@ export function useDashboard(userId: string): DashboardState & { refresh: () => 
 ```bash
 # lsp_diagnostics clean
 # Tests pass
-bd close model_md-...bd-jsts-dashboard "JS/TS: implemented useDashboard hook, API integration, error handling, loading states"
+bd close model_md-...bd-jsts-dashboard --reason "JS/TS: implemented useDashboard hook, API integration, error handling, loading states"
 ```
 
 ---
@@ -393,7 +393,7 @@ execute_lifecycle action="verify"
 bd epic close-eligible bd-epic-profile-dashboard-a3f8
 # ✓ All children complete. Epic ready to close.
 
-bd close bd-epic-profile-dashboard-a3f8 "User Profile Dashboard widget complete: design, CSS, HTML, JS/TS integrated and verified"
+bd close bd-epic-profile-dashboard-a3f8 --reason "User Profile Dashboard widget complete: design, CSS, HTML, JS/TS integrated and verified"
 ```
 
 ---

@@ -150,7 +150,7 @@ Columns: id (uuid PK), user_id (uuid FK→users, unique), theme (text),
 File: packages/database/src/schema/preferences.ts
 "
 
-bd close model_md-...bd-pref-db \
+bd close model_md-...bd-pref-db --reason \
   "Schema: created user_preferences table with FK, migration applied, tests passing"
 ```
 
@@ -179,7 +179,7 @@ PUT body: { theme?, language?, notificationEnabled? }
 Errors: { success: false, error: string }
 "
 
-bd close model_md-...bd-pref-api \
+bd close model_md-...bd-pref-api --reason \
   "Routes: GET/PUT /api/preferences with auth, validation, typed responses"
 ```
 
@@ -196,7 +196,7 @@ Work performed:
 2. Wire up `hc<AppType>` typed RPC calls with `@tanstack/react-query`
 
 ```bash
-bd close model_md-...bd-pref-ui \
+bd close model_md-...bd-pref-ui --reason \
   "UI: Preferences panel with theme, language, notification controls via RPC typed calls"
 ```
 
@@ -232,7 +232,7 @@ bd epic status bd-epic-preferences-a7d2
 # bd-pref-integrate [closed] Integration verified, build passes
 
 bd epic close-eligible bd-epic-preferences-a7d2
-bd close bd-epic-preferences-a7d2 \
+bd close bd-epic-preferences-a7d2 --reason \
   "Epic complete: User Preferences system with DB schema, API, and UI"
 ```
 

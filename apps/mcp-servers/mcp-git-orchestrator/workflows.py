@@ -87,9 +87,21 @@ def _init_beads_for_worktree(new_path: Path, feature_slug: str):
         "--init-if-missing",
         "-q",
     ]
+    # Force beads state into the worktree. bd resolves the repo root via git,
+    # and from inside a worktree that resolves to the MAIN repo's common dir,
+    # silently dropping .beads into BASE_PROJECT (observed 08:50 on the e2e
+    # run and 09:29 on feat-test-beads). BEADS_DIR pins the state location so
+    # placement no longer depends on git's toplevel resolution.
+    env = os.environ.copy()
+    env["BEADS_DIR"] = str(new_path / ".beads")
     try:
         result = subprocess.run(
-            cmd, cwd=new_path, capture_output=True, text=True, timeout=120
+            cmd,
+            cwd=new_path,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
     except FileNotFoundError:
         raise RuntimeError(
@@ -117,7 +129,12 @@ def _init_beads_for_worktree(new_path: Path, feature_slug: str):
     # CREATE DATABASE IF NOT EXISTS on first open.
     try:
         ready = subprocess.run(
-            ["bd", "ready"], cwd=new_path, capture_output=True, text=True, timeout=30
+            ["bd", "ready"],
+            cwd=new_path,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError(

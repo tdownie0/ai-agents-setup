@@ -87,7 +87,7 @@ To combine multiple feature worktrees (e.g., merging a backend worktree into a f
 ### Storage Topology (Shared Dolt Server)
 
 - One shared **Dolt sql-server** runs in the main stack (`infra/docker-compose.yml` → service `dolt`, image `dolthub/dolt-sql-server:2.2.0` — beads pins Dolt 2.2.0), reachable on the dev network at `dolt:3306`, data persisted in the `dolt_data` volume. It never exposes a host port.
-- **Every git worktree gets its own database** `model_md_worktree_<slug>`. `initialize_worktree` provisions `.beads/` automatically and bd creates the database at first connect (CREATE DATABASE IF NOT EXISTS). Agents never need to run `bd init` in a worktree — start with `bd ready`.
+- **Every git worktree gets its own database** `model_md_worktree_<slug>`. The slug is MySQL-sanitized (`-` → `_`, so `feat-my-feature` becomes `model_md_worktree_feat_my_feature`). `initialize_worktree` provisions `.beads/` automatically and bd creates the database at first connect (CREATE DATABASE IF NOT EXISTS). Agents never need to run `bd init` in a worktree — start with `bd ready`.
 - All bd-capable containers (opencode, pi, antigravity, orchestrator-worker) carry `BEADS_DOLT_SERVER_HOST=dolt`, `BEADS_DOLT_SERVER_PORT=3306`, `BEADS_DOLT_SERVER_MODE=1`.
 - **Main repository sessions**: the main repo is mounted read-only in the agent containers, so `.beads/` cannot live inside it. For coordination from the main repo, pin `BEADS_DIR` to a writable session path — e.g. `BEADS_DIR=/tmp/beads-main` (pi/antigravity) or `BEADS_DIR=/home/devuser/.local/state/beads-main` (opencode) — then `bd init --server --external --database model_md_main -q`.
 
@@ -99,7 +99,7 @@ Every agent working on a feature MUST follow this loop for every single task:
 2. **Create**: `bd create "Task title" -p <priority>` before writing any code.
 3. **Claim**: `bd update <TASK_ID> --claim` before starting a file edit.
 4. **Work**: Implement changes and run local verifications.
-5. **Close**: `bd close <TASK_ID> "Summary of changes"` only after code is committed and verified.
+5. **Close**: `bd close <TASK_ID> --reason "Summary of changes"` only after code is committed and verified.
 
 ### Coordination & Dependencies
 
@@ -127,7 +127,7 @@ bd ready
 
 # Update task status
 bd update bd-a1b2 --claim
-bd close bd-a1b2 "Completed"
+bd close bd-a1b2 --reason "Completed"
 
 # Create an epic for multi-agent coordination
 bd create "Epic: User Profile Dashboard" --mol-type=swarm -p 0
@@ -145,7 +145,7 @@ Before declaring any task complete, verify:
 
 - [ ] Every file changed has a corresponding beads task
 - [ ] Task was **claimed** before editing (`bd update <id> --claim`)
-- [ ] Task is **closed** after commit (`bd close <id> "Summary"`)
+- [ ] Task is **closed** after commit (`bd close <id> --reason "Summary"`)
 - [ ] Dependencies are linked with `bd dep add`
 - [ ] `bd ready` shows no orphaned tasks
 
@@ -220,7 +220,7 @@ For complex features involving multiple specialities (e.g., frontend + backend +
    bd ready                       # Find unblocked work
    bd update bd-design-task --claim  # Claim the task
    # ... implement ...
-   bd close bd-design-task "Design mockup complete"
+   bd close bd-design-task --reason "Design mockup complete"
    ```
 
 ### Checkpointing via Gates

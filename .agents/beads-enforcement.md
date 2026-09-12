@@ -18,7 +18,7 @@ This document defines the mandatory beads usage rules and the multi-agent swarm 
 | ---------------------- | ------------------------------------------------------------------- | ------------------------------------ |
 | **Create before code** | `bd create "Title" -p N` before writing any implementation code     | Task is considered incomplete        |
 | **Claim before edit**  | `bd update <ID> --claim` before starting a file edit                | Revert changes, create task, restart |
-| **Close after commit** | `bd close <ID> "Summary"` only after code is committed and verified | Definition of Done not met           |
+| **Close after commit** | `bd close <ID> --reason "Summary"` only after code is committed and verified | Definition of Done not met           |
 | **Link dependencies**  | `bd dep add <CHILD> <PARENT>` for all inter-task relationships      | Swarm validation will fail           |
 | **Close all tasks**    | Every task in the epic must be closed before epic is complete       | `bd epic close-eligible` will reject |
 
@@ -88,7 +88,7 @@ Each specialist sub-agent is responsible for:
 3. **Implementation**: Writing code within their specialty domain
 4. **Checkpointing**: Opening gates for downstream dependents when milestones are reached
 5. **Verification**: Ensuring lsp_diagnostics clean and tests pass
-6. **Closing**: `bd close <TASK_ID> "Summary of what was done"`
+6. **Closing**: `bd close <TASK_ID> --reason "Summary of what was done"`
 7. **Documentation**: Leaving notes on API decisions, file paths, interfaces
 
 ### 2.4 Checkpoint Protocol (Gates)
@@ -212,26 +212,26 @@ Agent A (no deps → starts immediately):
   2. bd update bd-a --claim
   3. ... implements ...
   4. bd gate open "contract-ab" "Published: interface IFoo { ... }"
-  5. bd close bd-a "Implemented Foo module with IFoo interface"
+  5. bd close bd-a --reason "Implemented Foo module with IFoo interface"
 
 Agent B (blocked by A → waits for gate):
   1. bd gate wait "contract-ab"
   2. bd ready → bd-b now unblocked
   3. bd update bd-b --claim
   4. ... implements using IFoo from gate note ...
-  5. bd close bd-b "Implemented Bar module consuming IFoo"
+  5. bd close bd-b --reason "Implemented Bar module consuming IFoo"
 
 Agent C (blocked by B → waits for B to close):
   1. bd ready → bd-c unblocked after bd-b closes
   2. bd update bd-c --claim
   3. ... implements ...
-  4. bd close bd-c "Completed integration layer"
+  4. bd close bd-c --reason "Completed integration layer"
 
 Manager:
   10. bd epic status bd-epic-123  # Monitor progress
   11. ... integration verification ...
   12. bd epic close-eligible bd-epic-123
-  13. bd close bd-epic-123 "Feature X complete"
+  13. bd close bd-epic-123 --reason "Feature X complete"
 ```
 
 ### 2.7 Swarm Validation Requirements
@@ -301,7 +301,7 @@ A swarm feature is complete only when:
 | Claim task   | `bd update <ID> --claim`        |
 | Open gate    | `bd gate open "name" "Details"` |
 | Wait on gate | `bd gate wait "name"`           |
-| Close task   | `bd close <ID> "Summary"`       |
+| Close task   | `bd close <ID> --reason "Summary"`       |
 
 ---
 

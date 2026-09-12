@@ -36,7 +36,7 @@ Agent images are rebuilt via `sudo task up -- --build`; the orchestrator image
 | `bd update <id> --claim` | Atomically claim a task |
 | `bd dep add <child> <parent>` | Link tasks (blocks, related, parent-child) |
 | `bd show <id>` | View task details and audit trail |
-| `bd close <id> "Fixed"` | Close with resolution message |
+| `bd close <id> --reason "Fixed"` | Close with resolution message |
 
 ### Workflow Integration
 
@@ -82,7 +82,7 @@ Use 'bd' for task tracking:
 - Run `bd ready` to find unblocked tasks
 - Create tasks with `bd create "Title" -p <priority>`
 - Link dependencies with `bd dep add <child> <parent>`
-- Update status with `bd update <id> --claim` and `bd close <id> <resolution>`
+- Update status with `bd update <id> --claim` and `bd close <id> --reason <resolution>`
 ```
 
 ## Storage Modes

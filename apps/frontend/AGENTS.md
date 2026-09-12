@@ -15,7 +15,7 @@ Every frontend component change MUST have a corresponding beads task:
    ```bash
    bd dep add <FE_TASK> <BE_TASK>  # Frontend blocked by Backend API
    ```
-4. **Close**: `bd close <TASK_ID> "Component: UserProfile card with avatar, name, bio"` after rendering verified.
+4. **Close**: `bd close <TASK_ID> --reason "Component: UserProfile card with avatar, name, bio"` after rendering verified.
 
 > If this task is delegated to you as part of a multi-agent swarm, the Swarm Manager will have created the epic. Your job is to claim, implement, and close the relevant task.
 

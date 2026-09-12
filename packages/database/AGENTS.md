@@ -37,6 +37,6 @@ Every database schema change MUST have a corresponding beads task:
    ```bash
    bd dep add <DB_TASK> <FEATURE_EPIC>  # DB task is part of the feature epic
    ```
-4. **Close**: `bd close <TASK_ID> "Schema: added notifications table with FK to users"` after migration and verification.
+4. **Close**: `bd close <TASK_ID> --reason "Schema: added notifications table with FK to users"` after migration and verification.
 
 > If this task is delegated to you as part of a multi-agent swarm, the Swarm Manager will have created the epic. Your job is to claim, implement, and close the relevant task.

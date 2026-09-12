@@ -33,6 +33,6 @@ Every backend route change MUST have a corresponding beads task:
    ```bash
    bd dep add <BACKEND_TASK> <DB_TASK>  # Backend blocked by DB schema change
    ```
-4. **Close**: `bd close <TASK_ID> "Route: added GET /users/:id with auth middleware"` after tests pass.
+4. **Close**: `bd close <TASK_ID> --reason "Route: added GET /users/:id with auth middleware"` after tests pass.
 
 > If this task is delegated to you as part of a multi-agent swarm, the Swarm Manager will have created the epic. Your job is to claim, implement, and close the relevant task.
