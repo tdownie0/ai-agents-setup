@@ -25,7 +25,7 @@
   "mcp": {
     "MCP_DOCKER": {
       "type": "remote",
-      "url": "http://mcp-gateway:8811/sse",
+      "url": "http://mcp-gateway:8811/mcp",
       "enabled": true
     }
   }
