@@ -24,18 +24,20 @@ This document defines the mandatory beads usage rules and the multi-agent swarm 
 
 ### 1.3 Beads Initialization
 
-Beads is auto-initialized during worktree provisioning (`MCP_DOCKER_initialize_worktree`). If you need to reinitialize:
+Beads state is auto-provisioned during worktree provisioning (`MCP_DOCKER_initialize_worktree`): the orchestrator-worker runs `bd init --server --external --database model_md_worktree_<slug>` against the shared Dolt service (`infra/docker-compose.yml` → service `dolt`, `dolt:3306`); bd creates the per-worktree database itself at first connect. Only reinitialize for worktrees created outside the orchestrator:
 
 ```bash
-# Stealth mode (no git operations - preferred for worktrees)
-bd init --stealth --server
-
-# Server mode (connects to shared Dolt server)
-bd init --server
+# Shared-server mode: connection env is baked into every bd-capable container
+bd init --server --external --init-if-missing -q
 
 # Verify initialization
 bd status
 ```
+
+Notes:
+
+- Database naming: worktrees use `model_md_worktree_<slug>`; the main repo uses `model_md_main` (passed via `--database`).
+- **Main-repository sessions** cannot write `.beads/` in-tree because the main repo mount is read-only. Pin `BEADS_DIR` to a writable path for the session — `/tmp/beads-main` (pi/antigravity) or `/home/devuser/.local/state/beads-main` (opencode) — then `bd init --server --external --database model_md_main -q`.
 
 ### 1.4 Compliance Verification Checklist
 

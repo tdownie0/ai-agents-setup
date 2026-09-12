@@ -93,6 +93,41 @@ services:
       backend:
         condition: service_healthy
 
+  # Shared beads storage backend: one Dolt sql-server for ALL worktree beads
+  # databases. beads pins Dolt to 2.2.0 (docs/architecture/dolt.md); each git
+  # worktree gets its own database (model_md_worktree_<slug>), created by
+  # `bd init --server` during orchestrator provisioning (CREATE DATABASE IF
+  # NOT EXISTS at open). The official image entrypoint hardcodes
+  # `--host=0.0.0.0 --port=3306` AND its readiness probe checks 3306, so the
+  # server must stay on 3306; every client sets
+  # BEADS_DOLT_SERVER_HOST=dolt / BEADS_DOLT_SERVER_PORT=3306.
+  # Unprofiled so it starts with ANY `docker compose up` (app or ai:up).
+  dolt:
+    image: dolthub/dolt-sql-server:2.2.0
+    container_name: dolt
+    restart: always
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      # Dolt >= 1.46 restricts the root superuser to root@localhost by
+      # default; beads connects as user "root" with no password, so grant
+      # root@% on the internal dev-network (never published to the host).
+      - DOLT_ROOT_HOST=%
+    volumes:
+      - dolt_data:/var/lib/dolt
+    healthcheck:
+      # dolt sql-server accepts on 127.0.0.1:3306 once ready; bash /dev/tcp
+      # probe (the image entrypoint already depends on bash).
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/3306'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    networks:
+      - dev-network
+
   mcp-gateway:
     image: docker/mcp-gateway:latest
     profiles: ["agent-core"]
@@ -183,6 +218,12 @@ services:
       - VITE_SUPABASE_URL=${VITE_SUPABASE_URL:-${SUPABASE_URL}}
       - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY:-${SUPABASE_ANON_KEY}}
       - DOCKER_HOST=tcp://mcp-socket-proxy:2375
+      # beads → shared Dolt server (the `dolt` service above). The worker
+      # runs `bd init --server` when provisioning each worktree; bd inherits
+      # these env vars for that and every subsequent connection.
+      - BEADS_DOLT_SERVER_HOST=dolt
+      - BEADS_DOLT_SERVER_PORT=3306
+      - BEADS_DOLT_SERVER_MODE=1
     volumes:
       - ../..:/app
       - ../apps/mcp-servers/mcp-git-orchestrator/:/opt/orchestrator
@@ -221,6 +262,11 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/mcp
+      # beads → shared Dolt server (the `dolt` service above), one database
+      # per worktree. Worktrees are pre-initialized by the orchestrator worker.
+      - BEADS_DOLT_SERVER_HOST=dolt
+      - BEADS_DOLT_SERVER_PORT=3306
+      - BEADS_DOLT_SERVER_MODE=1
     volumes:
       - ../..:/app
       - ..:/app/${PROJECT_NAME}:ro
@@ -263,6 +309,11 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - PI_CODING_AGENT_DIR=/home/node/.pi/agent
       - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/mcp
+      # beads → shared Dolt server (the `dolt` service above), one database
+      # per worktree. Worktrees are pre-initialized by the orchestrator worker.
+      - BEADS_DOLT_SERVER_HOST=dolt
+      - BEADS_DOLT_SERVER_PORT=3306
+      - BEADS_DOLT_SERVER_MODE=1
       # Resolves ${MCP_GATEWAY_AUTH_TOKEN} in the pi mcp.json headers.
       - MCP_GATEWAY_AUTH_TOKEN=${MCP_GATEWAY_AUTH_TOKEN}
     volumes:
@@ -311,6 +362,11 @@ services:
       - OPENCODE_CONFIG=/app/model_md/opencode.json
       - GOOGLE_API_KEY=${GEMINI_API_KEY}
       - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/mcp
+      # beads → shared Dolt server (the `dolt` service above), one database
+      # per worktree. Worktrees are pre-initialized by the orchestrator worker.
+      - BEADS_DOLT_SERVER_HOST=dolt
+      - BEADS_DOLT_SERVER_PORT=3306
+      - BEADS_DOLT_SERVER_MODE=1
       # Resolves {env:MCP_GATEWAY_AUTH_TOKEN} in the MCP_DOCKER headers.
       - MCP_GATEWAY_AUTH_TOKEN=${MCP_GATEWAY_AUTH_TOKEN}
       # oh-my-openagent writes per-session transcripts (and reads its
@@ -388,6 +444,7 @@ services:
 
 volumes:
   redis_data:
+  dolt_data:
   pnpm_store:
     name: pnpm_store
   main_node_modules:

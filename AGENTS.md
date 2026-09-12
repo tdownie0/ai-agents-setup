@@ -32,9 +32,9 @@ You are an "Architectural Analyst." To maintain system stability, you must follo
 ### 🛠️ MANDATORY INITIALIZATION SEQUENCE
 
 1. **Provision**: `MCP_DOCKER_initialize_worktree(feature_slug="feat-<name>")`.
-   - _Note: This tool automatically initializes **Beads** (bd) in stealth mode._
+   - _Note: This tool automatically provisions **Beads** (bd) for the worktree against the shared Dolt server — one database per worktree: `model_md_worktree_<slug>`._
 2. **Bootstrap**: `MCP_DOCKER_execute_lifecycle(feature_slug="feat-<name>", action="initialize")`.
-3. **Plan (Beads)**: Before writing code, use `bd init --stealth --server` if beads is not already created for the worktree directory, and `bd create` to define the implementation steps.
+3. **Plan (Beads)**: Confirm beads state with `bd ready` (provisioned into `.beads/` and the shared Dolt server by step 1; re-run `bd init --server --external --init-if-missing` only if `.beads/` is missing), then `bd create` to define the implementation steps.
 4. **Context Loading**: `MCP_DOCKER_get_repo_map(path="model_md-worktree-<slug>")`.
 
 ---
@@ -84,11 +84,18 @@ To combine multiple feature worktrees (e.g., merging a backend worktree into a f
 
 **Beads** (bd CLI) **MUST be used for ALL feature development.** No exceptions. The internal todo list is only for scratch notes. Every task in the implementation DAG must be a beads issue.
 
+### Storage Topology (Shared Dolt Server)
+
+- One shared **Dolt sql-server** runs in the main stack (`infra/docker-compose.yml` → service `dolt`, image `dolthub/dolt-sql-server:2.2.0` — beads pins Dolt 2.2.0), reachable on the dev network at `dolt:3306`, data persisted in the `dolt_data` volume. It never exposes a host port.
+- **Every git worktree gets its own database** `model_md_worktree_<slug>`. `initialize_worktree` provisions `.beads/` automatically and bd creates the database at first connect (CREATE DATABASE IF NOT EXISTS). Agents never need to run `bd init` in a worktree — start with `bd ready`.
+- All bd-capable containers (opencode, pi, antigravity, orchestrator-worker) carry `BEADS_DOLT_SERVER_HOST=dolt`, `BEADS_DOLT_SERVER_PORT=3306`, `BEADS_DOLT_SERVER_MODE=1`.
+- **Main repository sessions**: the main repo is mounted read-only in the agent containers, so `.beads/` cannot live inside it. For coordination from the main repo, pin `BEADS_DIR` to a writable session path — e.g. `BEADS_DIR=/tmp/beads-main` (pi/antigravity) or `BEADS_DIR=/home/devuser/.local/state/beads-main` (opencode) — then `bd init --server --external --database model_md_main -q`.
+
 ### Operational Loop (MANDATORY)
 
 Every agent working on a feature MUST follow this loop for every single task:
 
-1. **Initialize**: `bd init --stealth --server` (auto-done during worktree provisioning).
+1. **Initialize**: `bd ready` (worktree beads state is auto-provisioned to the shared Dolt server; no manual init).
 2. **Create**: `bd create "Task title" -p <priority>` before writing any code.
 3. **Claim**: `bd update <TASK_ID> --claim` before starting a file edit.
 4. **Work**: Implement changes and run local verifications.
@@ -104,8 +111,9 @@ Every agent working on a feature MUST follow this loop for every single task:
 ### Usage Reference
 
 ```bash
-# Initialize in worktree (stealth mode - no git operations)
-bd init --stealth --server
+# Worktrees are beads-initialized during provisioning; only needed for
+# worktrees created outside the orchestrator (env points at the shared server)
+bd init --server --external --init-if-missing -q
 
 # Create tasks with priorities
 bd create "Implement feature X" -p 1

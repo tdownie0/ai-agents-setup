@@ -1,5 +1,7 @@
 import os
 import json
+import re
+import subprocess
 import sys
 from pathlib import Path
 from dbos import DBOS, Queue
@@ -52,6 +54,80 @@ def _provision_git_worktree(new_path: Path, feature_slug: str):
     env_file = BASE_PROJECT / ".env"
     if env_file.exists():
         (new_path / ".env").write_text(env_file.read_text())
+
+
+def _beads_database_name(feature_slug: str) -> str:
+    """Server-mode database name for a feature worktree (MySQL-safe)."""
+    safe = re.sub(r"[^A-Za-z0-9_]", "_", feature_slug)
+    return f"{PROJECT_NAME}_worktree_{safe}"
+
+
+@DBOS.step()
+def _init_beads_for_worktree(new_path: Path, feature_slug: str):
+    """Provision beads state for the worktree against the shared Dolt server.
+
+    The dolt connection comes from the worker's BEADS_DOLT_* env (the `dolt`
+    service in infra/docker-compose.yml); bd creates the database itself at
+    open (CREATE DATABASE IF NOT EXISTS). --init-if-missing makes re-runs
+    after partial failures a no-op.
+    """
+    database = _beads_database_name(feature_slug)
+    cmd = [
+        "bd",
+        "init",
+        "--server",
+        "--external",
+        "--database",
+        database,
+        "--non-interactive",
+        "--role",
+        "maintainer",
+        "--skip-hooks",
+        "--skip-agents",
+        "--init-if-missing",
+        "-q",
+    ]
+    try:
+        result = subprocess.run(
+            cmd, cwd=new_path, capture_output=True, text=True, timeout=120
+        )
+    except FileNotFoundError:
+        raise RuntimeError(
+            "bd CLI missing from orchestrator image: rebuild with sudo task mcp:build-servers"
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"bd init timed out for {new_path}: is the dolt service up? (sudo task app:up)"
+        )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"bd init failed for {new_path} (db={database}):\n{result.stderr}"
+        )
+    # bd resolves the repo root via git; a mis-resolved toplevel would silently
+    # drop .beads into BASE_PROJECT instead of the worktree (observed 08:50
+    # on the e2e run). Verify placement explicitly before continuing.
+    if not (new_path / ".beads").exists():
+        raise RuntimeError(
+            f"bd init wrote .beads outside the worktree (expected "
+            f"{new_path / '.beads'}); git toplevel resolution is off - check "
+            "the .git worktree patching"
+        )
+    # Fail loudly if the shared server is unreachable instead of letting the
+    # first bd command fail later with a confusing error. Also triggers the
+    # CREATE DATABASE IF NOT EXISTS on first open.
+    try:
+        ready = subprocess.run(
+            ["bd", "ready"], cwd=new_path, capture_output=True, text=True, timeout=30
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"bd ready timed out for {new_path}: is the dolt service up? (sudo task app:up)"
+        )
+    if ready.returncode != 0:
+        raise RuntimeError(
+            f"bd ready failed for {new_path} (db={database}):\n{ready.stderr}"
+        )
+    sys.stderr.write(f"Beads provisioned for {new_path} (db={database}).\n")
 
 
 @DBOS.step()
@@ -118,6 +194,7 @@ def run_initialize_workflow(feature_slug: str) -> str:
         raise Exception(f"Base project directory {BASE_PROJECT} not found.")
 
     DBOS.run_step(None, _provision_git_worktree, worktree_path, feature_slug)
+    DBOS.run_step(None, _init_beads_for_worktree, worktree_path, feature_slug)
 
     fe, be, db = DBOS.run_step(None, _get_or_assign_ports, worktree_path, feature_slug)
 
