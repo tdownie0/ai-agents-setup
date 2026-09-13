@@ -1,10 +1,12 @@
 import asyncio
 import json
-import sys
 import os
-import subprocess
+import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # --- 1. Configuration & Environment ---
@@ -23,61 +25,69 @@ if not DBOS_DATABASE:
     print("❌ Error: DATABASE_URL not set in .env")
     sys.exit(1)
 
+MCP_GATEWAY_AUTH_TOKEN = os.environ.get("MCP_GATEWAY_AUTH_TOKEN")
+if not MCP_GATEWAY_AUTH_TOKEN:
+    print("❌ Error: MCP_GATEWAY_AUTH_TOKEN not set in .env")
+    sys.exit(1)
+
 REDIS_HOST = os.environ.get("REDIS_HOST", "model_md-cache-1")
 CONTAINER_NAME = "git-orchestrator-e2e-test"
 IMAGE_NAME = "git-orchestrator:latest"
 FEATURE_SLUG = "e2e-canary"
 
-# The command to spin up the "Brain" (The Orchestrator)
-DOCKER_CMD = [
-    "docker",
-    "run",
-    "-i",
-    "--rm",
-    "--name",
-    CONTAINER_NAME,
-    "--network",
-    "model_md_dev-network",
-    "--network",
-    "supabase_network_model_md",
-    "--network",
-    "observability-bridge",
-    "-v",
-    ".:/opt/orchestrator",
-    "-v",
-    f"{WORKSPACE_ROOT}:/app",
-    "-v",
-    "/opt/orchestrator/.venv",
-    "-v",
-    "/opt/orchestrator/__pycache__",
-    "-e",
-    "WORKSPACE_ROOT=/app",
-    "-e",
-    f"PROJECT_PARENT_PATH={WORKSPACE_ROOT}",
-    "-e",
-    f"REDIS_HOST={REDIS_HOST}",
-    "-e",
-    f"USER_ID={os.getuid()}",
-    "-e",
-    f"GROUP_ID={os.getgid()}",
-    "-e",
-    f"DBOS_SYSTEM_DATABASE_URL={DBOS_DATABASE}",
-    IMAGE_NAME,
-    "python3",
-    "main.py",
-]
+# The mcp-gateway owns the git-orchestrator server lifecycle; this test only
+# talks to the already-running gateway over streamable HTTP (mirrors
+# infra/mcp_bridge.py). No container is spawned here.
+MCP_URL = os.environ.get("MCP_GATEWAY_ENDPOINT", "http://localhost:8811/mcp")
+session_id = None
+
+
+def post(payload: dict) -> str:
+    global session_id
+    headers = {
+        "Content-Type": "application/json",
+        # Streamable HTTP: response may arrive as SSE events, so the client
+        # must advertise text/event-stream too (gateway 400s otherwise: "Accept
+        # must contain both 'application/json' and 'text/event-stream'").
+        "Accept": "application/json, text/event-stream",
+        "Authorization": f"Bearer {MCP_GATEWAY_AUTH_TOKEN}",
+    }
+    if session_id:
+        headers["Mcp-Session-Id"] = session_id
+    req = urllib.request.Request(
+        MCP_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    with urllib.request.urlopen(req) as response:
+        if "Mcp-Session-Id" in response.headers:
+            session_id = response.headers["Mcp-Session-Id"]
+        return response.read().decode("utf-8")
+
+
+def reinitialize(payload: dict) -> str:
+    """Establish a fresh session (gateway restart invalidates old ones)."""
+    global session_id
+    session_id = None
+    init = {
+        "jsonrpc": "2.0",
+        "id": "session-init",
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "clientInfo": {"name": "mcp-bridge", "version": "2.0.0"},
+        },
+    }
+    post(init)
+    post({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    return post(payload)
 
 
 async def run_e2e_test():
-    print(f"🚀 Starting Orchestrator Container: {CONTAINER_NAME}")
-
-    # Start the orchestrator process
-    proc = await asyncio.create_subprocess_exec(
-        *DOCKER_CMD,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=sys.stderr,
-    )
+    # Worker owns the socket; host user is NOT in docker group per AGENTS.md.
+    print(f"🚀 Connecting to Orchestrator Stack: {CONTAINER_NAME}")
 
     async def call_mcp(method, params=None, msg_id=1):
         """Helper to send JSON-RPC and filter out log noise."""
@@ -86,16 +96,36 @@ async def run_e2e_test():
         if params:
             req["params"] = params
 
-        proc.stdin.write(json.dumps(req).encode() + b"\n")
-        await proc.stdin.drain()
-
-        while True:
-            line = await proc.stdout.readline()
-            if not line:
+        try:
+            response = post(req)
+        except urllib.error.HTTPError as e:
+            if e.code == 404 and session_id:
+                try:
+                    response = reinitialize(req)
+                except Exception as retry_err:
+                    print(f"⚠️  Retry Error: {str(retry_err)}")
+                    return None
+            else:
+                print(f"⚠️  HTTP Error: {e.code}: {e.reason}")
                 return None
+        except Exception as e:
+            print(f"⚠️  Request Error: {str(e)}")
+            return None
 
-            decoded = line.decode().strip()
+        if not response or not response.strip():
+            return None
+
+        for line in response.splitlines():
+            decoded = line.strip()
             if not decoded:
+                continue
+
+            # Streamable transport: responses arrive as SSE. The JSON-RPC
+            # envelope is the `data:` payload; strip the framing so the
+            # id-matching below can see it (`event:` lines are pure noise).
+            if decoded.startswith("data:"):
+                decoded = decoded[len("data:") :].strip()
+            elif decoded.startswith("event:"):
                 continue
 
             if not decoded.startswith("{"):
@@ -111,25 +141,22 @@ async def run_e2e_test():
                 print(f"⚠️  Junk ignored: {decoded[:50]}...")
                 continue
 
+        return None
+
     try:
         # --- PHASE 1: MCP Handshake ---
         print("🤝 Performing MCP Handshake...")
         await call_mcp(
             "initialize",
             {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": "2025-03-26",
                 "capabilities": {},
                 "clientInfo": {"name": "e2e-test-runner", "version": "1.0"},
             },
             1,
         )
 
-        proc.stdin.write(
-            json.dumps(
-                {"jsonrpc": "2.0", "method": "notifications/initialized"}
-            ).encode()
-            + b"\n"
-        )
+        post({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
         # --- PHASE 2: Create Worktree & Feature Env ---
         print(f"🛠️  Calling 'initialize_worktree' for: {FEATURE_SLUG}")
@@ -222,23 +249,28 @@ async def run_e2e_test():
                 "Orchestrator created worktree but git_ops cannot access it."
             )
 
-        # --- PHASE 4: Verify via Docker ---
-        print("🐳 Verifying Feature Containers...")
-        check_docker = subprocess.run(
-            [
-                "docker",
-                "ps",
-                "--filter",
-                f"name={FEATURE_SLUG}",
-                "--format",
-                "{{.Names}}",
-            ],
-            capture_output=True,
-            text=True,
+        # --- PHASE 4: Verify via the Running Stack (Worker-side Docker) ---
+        print("🐳 Verifying Feature Containers (via get_environment_status)...")
+        status_res = await call_mcp(
+            "tools/call",
+            {
+                "name": "get_environment_status",
+                "arguments": {"feature_slug": FEATURE_SLUG},
+            },
+            4,
         )
 
-        assert FEATURE_SLUG in check_docker.stdout, "Feature containers not found!"
-        print(f"✅ Docker containers for {FEATURE_SLUG} are running.")
+        if status_res and "result" in status_res:
+            status_text = status_res["result"]["content"][0]["text"]
+            print(f"✅ Feature Environment Status:\n{status_text}")
+
+            assert "Recent Environment Activity" in status_text
+            assert "No logs found" not in status_text
+        else:
+            print(f"❌ Status check failed: {status_res}")
+            raise AssertionError(
+                "get_environment_status failed to confirm feature containers."
+            )
 
         # --- PHASE 5: Verify Telemetry via Loki ---
         print("📊 Verifying Telemetry (Loki) via MCP...")
@@ -290,9 +322,6 @@ async def run_e2e_test():
 
             assert "Recent Environment Activity" in status_text
             assert "No logs found" not in status_text
-        else:
-            print(f"❌ Status tool check failed: {status_res}")
-            raise AssertionError("get_environment_status failed to return telemetry.")
 
         # --- PHASE 7: Teardown ---
         print(f"🧹 Tearing down environment: {FEATURE_SLUG}")
@@ -378,14 +407,15 @@ async def run_e2e_test():
     finally:
         print("🛑 Shutting down Orchestrator...")
 
-        subprocess.run(
-            ["docker", "stop", "-t", "2", CONTAINER_NAME], capture_output=True
+        stop_resp_final = await call_mcp(
+            "tools/call",
+            {
+                "name": "stop_environment",
+                "arguments": {"feature_slug": FEATURE_SLUG},
+            },
+            995,  # distinct message id, avoids clashing with the 1-104 wait loop
         )
-        if proc.returncode is None:
-            proc.terminate()
-
-            await proc.wait()
-        print("🏁 E2E Test Complete.")
+        print(f"🏁 E2E Test Complete.")
 
 
 if __name__ == "__main__":
