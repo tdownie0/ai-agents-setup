@@ -14,13 +14,13 @@ This document defines the mandatory beads usage rules and the multi-agent swarm 
 
 ### 1.2 Enforcement Rules
 
-| Rule                   | Description                                                         | Consequence of Violation             |
-| ---------------------- | ------------------------------------------------------------------- | ------------------------------------ |
-| **Create before code** | `bd create "Title" -p N` before writing any implementation code     | Task is considered incomplete        |
-| **Claim before edit**  | `bd update <ID> --claim` before starting a file edit                | Revert changes, create task, restart |
+| Rule                   | Description                                                                  | Consequence of Violation             |
+| ---------------------- | ---------------------------------------------------------------------------- | ------------------------------------ |
+| **Create before code** | `bd create "Title" -p N` before writing any implementation code              | Task is considered incomplete        |
+| **Claim before edit**  | `bd update <ID> --claim` before starting a file edit                         | Revert changes, create task, restart |
 | **Close after commit** | `bd close <ID> --reason "Summary"` only after code is committed and verified | Definition of Done not met           |
-| **Link dependencies**  | `bd dep add <CHILD> <PARENT>` for all inter-task relationships      | Swarm validation will fail           |
-| **Close all tasks**    | Every task in the epic must be closed before epic is complete       | `bd epic close-eligible` will reject |
+| **Link dependencies**  | `bd dep add <CHILD> <PARENT>` for all inter-task relationships               | Swarm validation will fail           |
+| **Close all tasks**    | Every task in the epic must be closed before epic is complete                | `bd epic close-eligible` will reject |
 
 ### 1.3 Beads Initialization
 
@@ -295,13 +295,13 @@ A swarm feature is complete only when:
 
 ### Sub-Agent Commands
 
-| Step         | Command                         |
-| ------------ | ------------------------------- |
-| Find work    | `bd ready`                      |
-| Claim task   | `bd update <ID> --claim`        |
-| Open gate    | `bd gate open "name" "Details"` |
-| Wait on gate | `bd gate wait "name"`           |
-| Close task   | `bd close <ID> --reason "Summary"`       |
+| Step         | Command                            |
+| ------------ | ---------------------------------- |
+| Find work    | `bd ready`                         |
+| Claim task   | `bd update <ID> --claim`           |
+| Open gate    | `bd gate open "name" "Details"`    |
+| Wait on gate | `bd gate wait "name"`              |
+| Close task   | `bd close <ID> --reason "Summary"` |
 
 ---
 

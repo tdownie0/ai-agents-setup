@@ -77,9 +77,7 @@ if not WORKSPACE_ROOT:
         "--clear will be unavailable (docker-based cache reset)."
     )
 
-# Gateway-managed ast-explorer session (streamable HTTP). Session ids are
-# returned in the Mcp-Session-Id header and must be echoed back on every
-# request; a stale session 404s and is re-established by reinitialize().
+
 session_id = None
 
 
@@ -87,10 +85,6 @@ def post(payload: dict) -> str:
     global session_id
     headers = {
         "Content-Type": "application/json",
-        # Streamable HTTP: the response may arrive as SSE events, so the
-        # client must advertise text/event-stream too (gateway 400s
-        # otherwise: "Accept must contain both 'application/json' and
-        # 'text/event-stream'").
         "Accept": "application/json, text/event-stream",
         "Authorization": f"Bearer {MCP_GATEWAY_AUTH_TOKEN}",
     }
@@ -330,8 +324,6 @@ async def run_scenario(
             print(f"❌ scan_specific_file failed: {warm_res}")
 
     finally:
-        # The gateway owns the ast-explorer container lifecycle (starts it on
-        # demand, reaps it on idle timeout) — nothing to tear down here.
         print("✅ Test complete. Gateway-managed server left to the stack.")
 
 
@@ -373,3 +365,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n✅ Stopped by user.")
         sys.exit(0)
+

@@ -32,7 +32,7 @@ You are an "Architectural Analyst." To maintain system stability, you must follo
 ### 🛠️ MANDATORY INITIALIZATION SEQUENCE
 
 1. **Provision**: `MCP_DOCKER_initialize_worktree(feature_slug="feat-<name>")`.
-   - _Note: This tool automatically provisions **Beads** (bd) for the worktree against the shared Dolt server — one database per worktree: `model_md_worktree_<slug>`._
+   - _Note: This tool automatically provisions **Beads** (bd) for the worktree against the shared Dolt server — one database per worktree: `model_md_worktree_<slug>`.\_
 2. **Bootstrap**: `MCP_DOCKER_execute_lifecycle(feature_slug="feat-<name>", action="initialize")`.
 3. **Plan (Beads)**: Confirm beads state with `bd ready` (provisioned into `.beads/` and the shared Dolt server by step 1; re-run `bd init --server --external --init-if-missing` only if `.beads/` is missing), then `bd create` to define the implementation steps.
 4. **Context Loading**: `MCP_DOCKER_get_repo_map(path="worktrees/model_md-worktree-<slug>")`.

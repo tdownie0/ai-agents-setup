@@ -300,7 +300,7 @@ MCP_DOCKER_stop_environment(feature_slug="feat-<fe-branch>")
 | **Verify fails**                 | `execute_lifecycle verify` non-zero             | Create `bd create "Fix: <issue>" -p 0 --parent bd-epic-<hash>`, deploy sub-agent, rerun.                  |
 | **Contract mismatch**            | FE expects `{user}`, BE returns `{data.user}`   | Update gate note with corrected contract. Spawn new sub-agent with `bd update <downstream-task> --claim`. |
 | **Merge conflict**               | `git_ops merge` fails                           | Create conflict-resolution task from merge output. Sub-agent resolves manually.                           |
-| **Epic close rejected**          | `bd epic close-eligible` lists unfinished tasks | Close each: `bd close <TASK> --reason "..."`. Complete any abandoned tasks first.                                  |
+| **Epic close rejected**          | `bd epic close-eligible` lists unfinished tasks | Close each: `bd close <TASK> --reason "..."`. Complete any abandoned tasks first.                         |
 | **Gate never opens**             | Downstream stuck on `bd gate wait`              | Check upstream agent status. If failed, reassign with `bd update <upstream-task> --claim`.                |
 
 ---

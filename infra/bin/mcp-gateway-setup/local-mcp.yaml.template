@@ -26,15 +26,6 @@ registry:
         value: "${PROJECT_NAME}"
       - name: DOCKER_MCP_TRANSPORT
         value: "stdio"
-      # REQUIRED - do not remove. mcp-gateway spawns servers by running
-      # `docker run` as a CHILD PROCESS with a clean env (PATH + catalog env
-      # only; container os.Environ() is NOT inherited). Without DOCKER_HOST
-      # here the child falls back to /var/run/docker.sock and every spawn
-      # fails ("Can't start <name>: calling initialize: EOF", 0 tools).
-      # The spawned containers also see this var, but they already reach the
-      # socket proxy at mcp-socket-proxy:2375 via dev-network; the real
-      # isolation is the proxy's allow-list + container not holding the
-      # host socket.
       - name: DOCKER_HOST
         value: "tcp://mcp-socket-proxy:2375"
     tools:
@@ -66,8 +57,6 @@ registry:
         value: ${TASKFILE_DATABASE_URL}
       - name: DOCKER_MCP_TRANSPORT
         value: "stdio"
-      # REQUIRED - see ast-explorer block: gateway's docker-run child needs
-      # this to reach the socket proxy; child env is PATH + catalog env only.
       - name: DOCKER_HOST
         value: "tcp://mcp-socket-proxy:2375"
     tools:
@@ -112,8 +101,6 @@ registry:
         value: "${HOST_GID}"
       - name: DBOS_SYSTEM_DATABASE_URL
         value: ${TASKFILE_DATABASE_URL}
-      # REQUIRED - see ast-explorer block: the gateway spawns this container
-      # via a docker-run child whose env is PATH + catalog env only.
       - name: DOCKER_HOST
         value: "tcp://mcp-socket-proxy:2375"
     tools:

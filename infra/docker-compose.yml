@@ -8,8 +8,6 @@ services:
         - USER_ID=${HOST_UID:-1000}
         - GROUP_ID=${HOST_GID:-1000}
     image: dev-base:latest
-    # Run as the host user: the image owns its workspace for this identity,
-    # so bind-mounted writes land host-owned without DAC_OVERRIDE/CHOWN hacks.
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     cap_drop:
       - ALL
@@ -61,7 +59,6 @@ services:
         - USER_ID=${HOST_UID:-1000}
         - GROUP_ID=${HOST_GID:-1000}
     image: dev-base:latest
-    # See backend: vite writes into the host-owned tree as the host user.
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     cap_drop:
       - ALL
@@ -101,7 +98,6 @@ services:
   # `--host=0.0.0.0 --port=3306` AND its readiness probe checks 3306, so the
   # server must stay on 3306; every client sets
   # BEADS_DOLT_SERVER_HOST=dolt / BEADS_DOLT_SERVER_PORT=3306.
-  # Unprofiled so it starts with ANY `docker compose up` (app or ai:up).
   dolt:
     image: dolthub/dolt-sql-server:2.2.0
     container_name: dolt
@@ -155,23 +151,14 @@ services:
       - MCP_GATEWAY_DOCKER_BIND_ALLOWED_PATHS=${PROJECT_PARENT_PATH}
       # Writable binds are restricted to the worktrees directory (agents must
       # modify feature code) and the main repo's .git (git worktree metadata /
-      # commits). Colon = Linux path-list separator; enforced by
-      # pkg/gateway/docker_binds.go. Agents can no longer mount .docker/
-      # configs or sibling repos writable.
+      # commits).
       - MCP_GATEWAY_DOCKER_BIND_ALLOW_WRITABLE_PATHS=${PROJECT_PARENT_PATH}/worktrees:${PROJECT_PARENT_PATH}/${PROJECT_NAME}/.git
-      # v0.43.1+: SSE requires Bearer auth by default (CVE GHSA-g879-4j4f-6vj7).
-      # Pin the shared token so clients can authenticate; otherwise the gateway
-      # auto-generates a random one the clients never learn.
       - MCP_GATEWAY_AUTH_TOKEN=${MCP_GATEWAY_AUTH_TOKEN}
     volumes:
       - ${LOCAL_MCP_REGISTRY}:/root/.docker/mcp
     ports:
       - "127.0.0.1:8811:8811"
     command:
-      # streamable-http (--transport=streaming) instead of deprecated SSE:
-      # sessions carry an explicit Mcp-Session-Id and clients reinitialize on
-      # 404, so tool calls can't get stuck in a stale "initializing" session.
-      # The /health endpoint is always available without auth.
       - --transport=streaming
       - --port=8811
       - --catalog=/root/.docker/mcp/catalogs/local-mcp.yaml
@@ -276,23 +263,12 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/mcp
-      # beads → shared Dolt server (the `dolt` service above), one database
-      # per worktree. Worktrees are pre-initialized by the orchestrator worker.
       - BEADS_DOLT_SERVER_HOST=dolt
       - BEADS_DOLT_SERVER_PORT=3306
       - BEADS_DOLT_SERVER_MODE=1
     volumes:
-      # Parent workspace is READ-ONLY for agents: they may only write inside
-      # the worktrees bind (feature code) and their own tool-config bind.
-      # .docker/ configs, the main repo, and sibling repos are now immutable
-      # to them. The rw worktrees bind shadows the ro parent at /app/worktrees.
       - ../..:/app:ro
       - ${PROJECT_PARENT_PATH}/worktrees:/app/worktrees
-      # Copy-on-first-run: host config is copied into the project parent by
-      # `task ai:setup P=antigravity`; the container never mounts ~/.config/antigravity.
-      # ~/.gemini is deliberately NOT mounted: it holds only image-baked antigravity
-      # skills, and on some hosts also credentials - keeping it in-image avoids both
-      # shadowing the baked skills and any host credential exposure.
       - ${PROJECT_PARENT_PATH}/.docker/antigravity/config:/home/devuser/.config/antigravity
     networks:
       - agent-network
@@ -327,23 +303,13 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - PI_CODING_AGENT_DIR=/home/node/.pi/agent
       - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/mcp
-      # beads → shared Dolt server (the `dolt` service above), one database
-      # per worktree. Worktrees are pre-initialized by the orchestrator worker.
       - BEADS_DOLT_SERVER_HOST=dolt
       - BEADS_DOLT_SERVER_PORT=3306
       - BEADS_DOLT_SERVER_MODE=1
-      # Resolves ${MCP_GATEWAY_AUTH_TOKEN} in the pi mcp.json headers.
       - MCP_GATEWAY_AUTH_TOKEN=${MCP_GATEWAY_AUTH_TOKEN}
     volumes:
-      # Parent workspace is READ-ONLY for agents (see antigravity above):
-      # only the worktrees bind and the tool's own config bind are writable.
       - ../..:/app:ro
       - ${PROJECT_PARENT_PATH}/worktrees:/app/worktrees
-      # Copy-on-first-run: project .pi/ configs are copied into the project
-      # parent by `task ai:setup P=pi`; the container never mounts the host's
-      # ~/.pi. Its gateway bridge (agent/mcp.json) ships with the project.
-      # The checked-in .pi/ is also visible (read-only via the project mount)
-      # for pi's auto-discovery from the working dir.
       - ${PROJECT_PARENT_PATH}/.docker/pi:/home/node/.pi
     networks:
       - agent-network
@@ -382,12 +348,9 @@ services:
       - OPENCODE_CONFIG=/app/model_md/opencode.json
       - GOOGLE_API_KEY=${GEMINI_API_KEY}
       - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/mcp
-      # beads → shared Dolt server (the `dolt` service above), one database
-      # per worktree. Worktrees are pre-initialized by the orchestrator worker.
       - BEADS_DOLT_SERVER_HOST=dolt
       - BEADS_DOLT_SERVER_PORT=3306
       - BEADS_DOLT_SERVER_MODE=1
-      # Resolves {env:MCP_GATEWAY_AUTH_TOKEN} in the MCP_DOCKER headers.
       - MCP_GATEWAY_AUTH_TOKEN=${MCP_GATEWAY_AUTH_TOKEN}
       # oh-my-openagent writes per-session transcripts (and reads its
       # settings.json) under getClaudeConfigDir() = $CLAUDE_CONFIG_DIR or
@@ -399,10 +362,6 @@ services:
       # forward the host's TERM, so inject it here (baked from host value).
       - "TERM=${TERM:-xterm-256color}"
     volumes:
-      # Parent workspace is READ-ONLY for agents (see antigravity above).
-      # Note: OPENCODE_CONFIG points at /app/model_md/opencode.json inside the
-      # ro parent mount, so the permission config that governs the agent is
-      # itself immutable.
       - ../..:/app:ro
       - ${PROJECT_PARENT_PATH}/worktrees:/app/worktrees
       - omo_state:/app/${PROJECT_NAME}/.omo
@@ -445,13 +404,11 @@ services:
     profiles: ["agent-core"]
     restart: always
     environment:
-      # Allow container lifecycle management for tool containers
       - CONTAINERS=1
       - IMAGES=1
       - NETWORKS=1
       - POST=1
       - EXEC=1
-      # Block high-risk escalation pathways
       - PRIVILEGED=0
       - VOLUMES=1
       - AUTH=0
@@ -480,8 +437,7 @@ networks:
   # AI agent containers (pi, opencode, antigravity) live on agent-network.
   # From there the ONLY reachable services are mcp-gateway (8811, tool calls)
   # and dolt (3306, beads) - never the Docker socket proxy (2375), redis
-  # cache, or the supabase stack. The socket-proxy host-escape finding is
-  # resolved by this isolation, not by trusting the proxy's filters.
+  # cache, or the supabase stack.
   agent-network:
     driver: bridge
   supabase_network:

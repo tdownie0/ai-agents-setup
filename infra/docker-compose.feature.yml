@@ -20,8 +20,6 @@ services:
         - GROUP_ID=${HOST_GID:-1000}
     image: dev-base:latest
     container_name: ${BRANCH}-backend
-    # Run as the host user so lifecycle writes into the bind-mounted worktree
-    # land host-owned; no post-hoc chown step needed anymore.
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     cap_drop:
       - ALL
@@ -75,7 +73,6 @@ services:
         - GROUP_ID=${HOST_GID:-1000}
     image: dev-base:latest
     container_name: ${BRANCH}-frontend
-    # Run as the host user; vite writes into the bind-mounted worktree.
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     cap_drop:
       - ALL
