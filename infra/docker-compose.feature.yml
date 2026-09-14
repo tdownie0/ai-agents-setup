@@ -1,6 +1,6 @@
 services:
   db:
-    image: supabase/postgres:17.6.1.106
+    image: supabase/postgres:17.6.1.167
     environment:
       - POSTGRES_PASSWORD=password
     ports:
