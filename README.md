@@ -25,7 +25,7 @@ parent, this structure is required. It also requires that the end user has Docke
 installed on their machine (though users may be able to get away with another containerization
 strategy as long as they can build the mcp-gateway and register MCP servers).
 
-Currently, task is used for much of this process, and can be installed from here: [`Taskfile`](https://taskfile.dev/).
+Currently, `go-task` is used for much of this process, and can be installed from here: [`Taskfile`](https://taskfile.dev/).
 
 > ⚠️ **Privilege model**: Keep your user **out of the `docker` group**. The docker group
 > is root-equivalent, and any process running as your user (including an AI coding agent)
@@ -40,14 +40,14 @@ The first Taskfile command will build these MCP servers as docker images so we c
 containers.
 
 ```bash
-sudo task mcp:build-servers
+sudo go-task mcp:build-servers
 ```
 
 Next we will generate a local MCP configuration files to be added to whichever path the machine's
 Docker Desktop installation happens to live:
 
 ```bash
-task mcp:setup
+go-task mcp:setup
 ```
 
 Running this generates the local catalog into `$LOCAL_MCP_REGISTRY` — an **absolute**
@@ -60,29 +60,29 @@ access to the GUI for the database. This is installed separate due to not workin
 with pnpm:
 
 ```bash
-task db:install-supabase-cli
+go-task db:install-supabase-cli
 ```
 
 Once this is done, these commands can be used to interact with the service (which provides the
 auth for the application):
 
 ```bash
-sudo task db:up
+sudo go-task db:up
 
-sudo task db:down
+sudo go-task db:down
 ```
 
 Additionally, we will need this volume created for the application — this also
 creates the user-owned `worktrees/` directory the agents write feature code into:
 
 ```bash
-sudo task build:docker-assets
+sudo go-task build:docker-assets
 ```
 
 After this, the stack can be built using this Docker command:
 
 ```bash
-sudo task up P=agent-core -- --build
+sudo go-task up P=agent-core -- --build
 ```
 
 From here you may choose any of the currently available AI CLI tools in the current
@@ -93,15 +93,15 @@ lowercase.
 For example:
 
 ```bash
-sudo task up P="agent-core antigravity" -- --build
+sudo go-task up P="agent-core antigravity" -- --build
 ```
 
 These AI CLIs can also be individiually brought up and down from the main stack like so:
 
 ```bash
-sudo task ai:up P=antigravity
+sudo go-task ai:up P=antigravity
 
-sudo task ai:down P=antigravity
+sudo go-task ai:down P=antigravity
 ```
 
 The AI CLI containers are fully isolated from your host profile: they never mount
@@ -116,9 +116,9 @@ this repo), run the setup — this must **not** be run with sudo:
 
 ```bash
 # One tool, several, or all (same usage as profiles)
-task ai:setup P=opencode
-task ai:setup P="pi antigravity"
-task ai:setup
+go-task ai:setup P=opencode
+go-task ai:setup P="pi antigravity"
+go-task ai:setup
 ```
 
 Copy semantics: **config only, never state and never credentials.** Files the tool
@@ -147,18 +147,18 @@ Since an environment variable has been updated, we will have to run these comman
 for the backend to update the value:
 
 ```bash
-sudo task app:down -- backend
+sudo go-task app:down -- backend
 
-sudo task app:up
+sudo go-task app:up
 ```
 
 The Users model can be seeded with data so that users can appear in the table. To do so, we run
 the following commands:
 
 ```bash
-sudo task db:migrate
+sudo go-task db:migrate
 
-sudo task db:seed
+sudo go-task db:seed
 ```
 
 If this does not cause the current logged in user to have notifications, or if the database needs
@@ -166,9 +166,9 @@ to be reset, this following command can be ran, which will reset the database an
 The database can be seeded again as well.
 
 ```bash
-sudo task db:reset
+sudo go-task db:reset
 
-sudo task db:seed
+sudo go-task db:seed
 ```
 
 The agent-core profile includes the mcp-gateway, the orchestrator-worker, and a cache. Agents
