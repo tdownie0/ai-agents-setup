@@ -8,32 +8,29 @@ this case, the application included in the repository is a web application. This
 that this structure can only be used for web application purposes, rather it is more of a blueprint
 for workflow automation with AI. To demonstrate this end, the custom MCP servers included in
 `apps/mcp-servers` serve as examples of the extension capabilities with this setup, relying on
-Docker Desktop's MCP toolkit to bring these additional tools in. Once they are incorporated through
-this medium, these MCPs can be incorporated in multiple applications, as long as they work with
-mcp-gateway (Docker's MCP orchestrator), or directly with the MCP toolkit. Such examples could be
+Docker's `mcp-gateway` MCP toolkit to bring these additional tools in. Once these MCP servers are
+included, they can be incorporated in multiple applications, as long as they work with
+`mcp-gateway` (Docker's MCP orchestrator), or directly with the MCP toolkit. Such examples could be
 CLI tools like Pi AI coding tool, or even GUI frontends like Claude Desktop.
 
 With those details out of the way, we can move on to the installation phase. Really, once Docker
-is configured correctly, this application should work out of the box, allowing users to spin up the
-Pi AI coding agent container, and begin having it develop features in isolated environments.
+is configured correctly, this application should work out of the box, allowing users to spin up
+an available AI coding agent container, and begin having it develop features in isolated environments.
 
 ### Installation
 
 This structure requires access to the parent directory of wherever the main project will live.
 In order to facilitate creating separate worktrees under a `worktrees/` directory inside the
-parent, this structure is required. It also requires that the end user has Docker Desktop
-installed on their machine (though users may be able to get away with another containerization
-strategy as long as they can build the mcp-gateway and register MCP servers).
+parent, this structure is required.
 
-Currently, `go-task` is used for much of this process, and can be installed from here: [`Taskfile`](https://taskfile.dev/).
+Currently, `go-task` is used for much of the installation, and can be installed from here: [`Taskfile`](https://taskfile.dev/).
 
-> ⚠️ **Privilege model**: Keep your user **out of the `docker` group**. The docker group
-> is root-equivalent, and any process running as your user (including an AI coding agent)
-> would be able to escalate to host root via `docker run -v /:/host ...`. Instead, docker
-> commands below are run with **password-gated sudo** — a human-presence check the agent
-> cannot pass. The Taskfile detects `SUDO_UID`/`SUDO_GID` and uses `${HOST_HOME}` (set in
-> `.env`) instead of `~`, so the stack runs with the right identity and the right config
-> paths even under sudo. Tasks that only write host files (`mcp:setup`,
+> ⚠️ **Privilege model**: The following install uses `sudo` for docker related tasks, assuming the user
+> may not be included in the docker group. This is due to being able to mount arbitrary volumes
+> on the system and such related manipulations with docker control. Using **password-gated sudo**
+> provides a human-presence check an agent cannot pass. The Taskfile detects `SUDO_UID`/`SUDO_GID`
+> and uses `${HOST_HOME}` (set in `.env`) instead of `~`, so the stack runs with the right
+> identity and the right config paths even under sudo. Tasks that only write host files (`mcp:setup`,
 > `db:install-supabase-cli`) must **not** be run with sudo.
 
 The first Taskfile command will build these MCP servers as docker images so we can use their
@@ -44,16 +41,14 @@ sudo go-task mcp:build-servers
 ```
 
 Next we will generate a local MCP configuration files to be added to whichever path the machine's
-Docker Desktop installation happens to live:
+Docker catalogs are set in the `.env`:
 
 ```bash
 go-task mcp:setup
 ```
 
 Running this generates the local catalog into `$LOCAL_MCP_REGISTRY` — an **absolute**
-path inside the parent workspace (`.docker/mcp`; git worktrees live in `worktrees/`
-beside it). It must not be `~`-based; under sudo, `~` would resolve to `/root` and
-scatter root-owned catalog files.
+path inside the parent workspace (`.docker/mcp`).
 
 Now, the supabase CLI can be installed to interact with the main project directory, and have
 access to the GUI for the database. This is installed separate due to not working as a node_module
@@ -73,7 +68,8 @@ sudo go-task db:down
 ```
 
 Additionally, we will need this volume created for the application — this also
-creates the user-owned `worktrees/` directory the agents write feature code into:
+creates the user-owned `worktrees/` directory, which lives in the parent directory,
+and the agents write feature code into:
 
 ```bash
 sudo go-task build:docker-assets
@@ -132,16 +128,16 @@ User-level personalization (extra models, custom skills, personal provider keys)
 is a future opt-in overlay; today the containers are 100% project-derived by design.
 
 Once this is completed, for anyone that would like to log into the demonstration site and create a
-user to interact with it, they can visit `http://localhost:54323/project/default`. From here, at
-the top right of the screen is a menu toggle, and once this is selected, `Authentication` can be
-clicked upon. After doing so, we should see a green button for `Add user` on the screen. This
-can be toggled, and `Create new user` selected. At this point, any email and password can be
+user to interact with it, they can visit `http://localhost:54323/project/default`. From here,
+the `Authentication` menu option should be located and clicked upon. After doing so, there
+should be a green button for `Add user` on the screen. This can be toggled, and
+`Create new user` selected. At this point, any email and password can be
 selected for a testing account. The option `Auto Confirm User?` can be left selected so the
 account is automatically verified for authentication.
 
-From here, we should be able to login to the site and see the Users page load. If we would like
-to create data for this specific user, we can populate the `.env` variable `TEST_USER_ID` with
-the UID that was created in the process, and that should now be on the Supabase page.
+From here, we should be able to login to the site and see the Users page load. To use the user we
+just created in the authentication process, we can populate the `.env` variable `TEST_USER_ID` with
+the UID that should now be on the Supabase page.
 
 Since an environment variable has been updated, we will have to run these commands specifically
 for the backend to update the value:
@@ -176,23 +172,13 @@ do **not** join the main `dev-network`: they run on a dedicated `agent-network` 
 only reachable services are `mcp-gateway` (tool calls) and `dolt` (beads) — never the Docker
 socket proxy or the database/cache. The parent workspace is mounted **read-only** into the AI
 CLI containers; the only writable bind is `worktrees/` (feature code) plus the main repo's
-`.git` for the git-orchestrator server. The AI CLI
-can be selected by the user. In this case we will use Pi as an example, assuming you spun up that
-CLI container. Once this is all up, Pi can be interacted with like so (also similarly for the
-other options):
+`.git` for the git-orchestrator server. The AI CLI can be selected by the user. In this case
+we will use Pi as an example, assuming this is spun up for an AI CLI container. Once this
+is all up, Pi can be interacted with like so (also similarly for the other options):
 
 ```bash
 sudo docker exec -it pi_agent pi
 sudo docker exec -it opencode_agent opencode
-```
-
-The `opencode` container is self-contained: its plugin (`oh-my-openagent`)
-and model registry are baked into the image at build time, because the
-read-only rootfs cannot npm-install missing plugins at runtime. Scripted or
-headless runs (no interactive TUI) work the same way:
-
-```bash
-sudo docker exec opencode_agent opencode run "your prompt here"
 ```
 
 With the Pi AI Coding tool, this setup is currently implemented to use the /subagent orchestration
@@ -219,102 +205,6 @@ the computer's entire file system.
 Additionally, the MCPs themselves serve as an example of security boundaries. They are based on
 Dockerfiles that define what technologies that MCP is able to use, and also these technologies
 are gated behind the tool calls designed in the MCP. With this, even if an MCP has git installed,
-it cannot just call any git command. This contrasts with an AI agent installed locally that would
-have access to many of the tools installed natively, allowing it to try its
-hand at calling them in the ways it desires.
-
-Here comes the AI description:
-
-# AI Assisted Code Development Workstation 🚀
-
-A high-performance, containerized development environment designed for **Agent-Host Parity**.
-This project enables AI agents to operate within a Docker ecosystem while maintaining the ability to spawn parallel Git worktrees and access deep code intelligence via MCP.
-Using this approach, MCP tools can be added through the Docker MCP toolkit, its catalogue, or directly to Pi.
-
-## 🏗 Architectural Overview
-
-This system bridges the gap between a local host and AI agents using a modular, "Gateway-first" approach:
-
-- **MCP Gateway:** Centralized communication hub using `mcp-gateway` to expose multiple tools to the AI via a single SSE (Server-Sent Events) endpoint.
-- **Custom MCP Services:** Includes specialized tools like the `ast-mcp-service` (AST Explorer), which runs in its own container to provide the agent with deep semantic understanding of the codebase.
-- **Unified Identity:** Synchronized UID/GID (1000) between the host and container to ensure seamless file permissions across the volume.
-
----
-
-## ⚡ Key Features
-
-### 1. Parallel Worktree Orchestration
-
-The environment is optimized for **Git Worktrees**. This allows the AI agent to:
-
-- Spawn a new "physical" folder for every feature branch.
-- Work on multiple features in parallel without "context-bleeding."
-- Maintain a clean `main` repository while experimentation happens in the `worktrees/` directory.
-- Use relative paths (`gitdir: ../../`) to ensure Git remains compatible across the Host/Container boundary.
-
-### 2. Docker-Native MCP
-
-Unlike traditional setups where MCP servers run on the host, this project treats tools as **services**:
-
-- **ast-mcp-service:** Provides an `ast-explorer` to index and search code logic, not just text.
-- **Scalability:** New tools (Database explorers, Browser controllers, etc.) can be added simply by updating the `docker-compose.yml` and the Gateway config.
-
----
-
-## 🛠 Setup & Installation
-
-### Prerequisites
-
-- Docker & Docker Compose
-- Git 2.41+ (On the host for worktree compatibility)
-
-### Quick Start
-
-1.  **Configure Environment:**
-
-    ```bash
-    cp .env.example .env
-    # Ensure UID/GID are set to your local user
-    export UID=$(id -u)
-    export GID=$(id -g)
-    ```
-
-2.  **Launch the Factory:**
-    ```bash
-    docker-compose --profile agent up -d
-    ```
-
----
-
-## 📂 Project Structure
-
-- `/model_md`: The primary repository/anchor for the AI agent.
-- `/worktrees`: Feature worktrees created by the git-orchestrator (e.g. `model_md-worktree-<slug>`).
-- `/ast-mcp-service`: Source and Dockerfile for the AST-based MCP server.
-- `.pi/`: Contains the Pi AI coding tool project configuration (settings, MCP, system prompts).
-- `../.`: This setup assumes that the user will have access to the parent directory of the current application's directory.
-  We do this in order to facilitate worktree functionality (mounted in docker-compose.yml for Pi in this case).
-
----
-
-## 🧠 The AI Workflow
-
-1.  **Request:** "Agent, build a login feature."
-2.  **Orchestration:** The agent spawns `../worktrees/model_md-worktree-login-feat` using a Git worktree.
-3.  **Development:** The agent writes code and runs tests in isolation.
-4.  **Review:** You inspect the worktree folder (`../worktrees/`) on your host.
-5.  **Merge/Cleanup:** You merge the branch, and the agent removes the worktree.
-
----
-
-## ⚠️ Troubleshooting: Git Versioning
-
-If you see `fatal: NOT_A_GIT_REPOSITORY` errors on the host while the container is working, your host Git version is likely too old to read relative worktree paths.
-
-**Fix (Ubuntu):**
-
-```bash
-sudo add-apt-repository ppa:git-core/ppa
-sudo apt update
-sudo apt install git
-```
+it cannot just call any git command. This contrasts in comparison to an AI agent installed locally
+running through a CLI, which would have access to any tools provided by the shell based on the permissions
+granted to the user running the process.
