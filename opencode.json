@@ -33,7 +33,7 @@
   "mcp": {
     "MCP_DOCKER": {
       "type": "remote",
-      "url": "http://mcp-gateway:8811/mcp",
+      "url": "http://{env:MCP_GATEWAY_HOST}:8811/mcp",
       "oauth": false,
       "headers": {
         "Authorization": "Bearer {env:MCP_GATEWAY_AUTH_TOKEN}"

@@ -262,6 +262,7 @@ services:
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - MCP_GATEWAY_HOST=${MCP_GATEWAY_HOST}
       - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/mcp
       - BEADS_DOLT_SERVER_HOST=dolt
       - BEADS_DOLT_SERVER_PORT=3306
@@ -302,6 +303,7 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - PI_CODING_AGENT_DIR=/home/node/.pi/agent
+      - MCP_GATEWAY_HOST=${MCP_GATEWAY_HOST}
       - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/mcp
       - BEADS_DOLT_SERVER_HOST=dolt
       - BEADS_DOLT_SERVER_PORT=3306
@@ -347,6 +349,7 @@ services:
     environment:
       - OPENCODE_CONFIG=/app/model_md/opencode.json
       - GOOGLE_API_KEY=${GEMINI_API_KEY}
+      - MCP_GATEWAY_HOST=${MCP_GATEWAY_HOST}
       - MCPGATEWAY_ENDPOINT=http://mcp-gateway:8811/mcp
       - BEADS_DOLT_SERVER_HOST=dolt
       - BEADS_DOLT_SERVER_PORT=3306
