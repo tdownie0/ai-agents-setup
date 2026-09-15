@@ -1,7 +1,7 @@
 # Backend Specialist (Hono/Drizzle)
 
 - **Framework**: Hono with RPC. App entry: `src/index.ts` — routes are mounted with `.route()`, and the chained app is exported as `AppType` for typed clients.
-- **RPC**: Keep `AppType` strictly typed against database types. `hc<AppType>` is the typed client path for future frontend consumption (frontend today calls `/api/*` with `fetch` + Supabase Bearer; introducing `hc()` requires adding `@hono/client`).
+- **RPC**: Keep `AppType` strictly typed against database types. The frontend consumes it via a centralized `hc<AppType>` client in `apps/frontend/src/lib/api.ts` — any route signature change must coordinate with the Frontend Specialist.
 - **Security**: CORS must be explicitly configured on the `*` path (`app.use("*", cors())` inside the `/api` basePath).
 - **Auth**: Supabase JWT middleware in `src/middleware/authMiddleware.ts` (validates `Authorization: Bearer <token>` via `supabase.auth.getUser`, sets `userId` on context). Use it on protected routes. Env access goes through `src/env.ts` — never read `process.env` inline.
 - **Dependencies**: The backend depends on `@model_md/database`.

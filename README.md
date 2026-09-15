@@ -134,19 +134,27 @@ MCP toolchain. The stack's `mcp-gateway` publishes `127.0.0.1:8811` on the host
 loopback, so a host-side agent just points its MCP client at
 `http://127.0.0.1:8811/mcp` — **no need to join any docker network**.
 
-Recommended for host-side usage (see `opencode.json` / `.pi/mcp.json` for the shape):
+The project's `opencode.json` uses a `MCP_GATEWAY_HOST` env var for the gateway
+URL, so the same config works everywhere: containers set `MCP_GATEWAY_HOST=mcp-gateway`
+(the internal Docker DNS name), and the host sets `MCP_GATEWAY_HOST=127.0.0.1`.
+
+Host-side setup (see `opencode.json` / `.pi/mcp.json` for the shape):
 
 ```jsonc
 {
   "mcp": {
-    "model_md": {
+    "MCP_DOCKER": {
       "type": "remote",
       "url": "http://127.0.0.1:8811/mcp",
-      "headers": { "Authorization": "Bearer ${MCP_GATEWAY_AUTH_TOKEN}" }
-    }
-  }
+      "headers": { "Authorization": "Bearer <MCP_GATEWAY_AUTH_TOKEN from .env>" },
+    },
+  },
 }
 ```
+
+If your host-side CLI supports environment variable interpolation (as `opencode.json`
+does with `{env:MCP_GATEWAY_HOST}`), you can leave the URL as-is and just set
+`MCP_GATEWAY_HOST=127.0.0.1` in your shell or `.env`.
 
 Notes and caveats:
 

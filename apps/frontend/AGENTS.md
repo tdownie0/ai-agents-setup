@@ -9,7 +9,7 @@
   const res = await client.api.notifications.$get({}, { headers: await getAuthHeaders() });
   ```
 - **Creating a centralized Hono client**: Do not create new `hc<AppType>` instances in components or modules — always import the singleton from `src/lib/api.ts`. Hono's `hc()` accepts a static headers object (no async callback); inject auth per-request via `getAuthHeaders()`.
-- **Data Types**: Import types from `@model_md/database` only (e.g. `Notification`). **Do not touch `packages/database`** — schema is the Database Specialist's domain.
+- **Data Types**: Use the wire-format types exported from `src/lib/api.ts` (`ApiUser`, `ApiNotification`, etc.) for API responses — these account for serialization (e.g. `Date` → ISO string). Import raw row types from `@model_md/database` only for non-API contexts. **Do not touch `packages/database`** — schema is the Database Specialist's domain.
 - **Verification**: `pnpm -w lint` (oxlint), `pnpm -w fmt:check` (oxfmt), and `pnpm --filter @model_md/frontend build` must pass before closing a task.
 
 ## 🎯 Beads Task Tracking (MANDATORY)

@@ -10,10 +10,10 @@ A meta-orchestrator that receives a feature request and drives it through the sw
 
 Extract scope, technologies, layers affected, and dependencies.
 
-| Layer    | Agent Type                 | Context                                           |
-| -------- | -------------------------- | ------------------------------------------------- |
-| Database | `deep` agent               | `.agents/db-tasks.md`, Drizzle schema, migrations |
-| Backend  | `unspecified-high` agent   | `.agents/api-tasks.md`, Hono RPC                  |
+| Layer    | Agent Type                 | Context                                                                                                                                  |
+| -------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Database | `deep` agent               | `.agents/db-tasks.md`, Drizzle schema, migrations                                                                                        |
+| Backend  | `unspecified-high` agent   | `.agents/api-tasks.md`, Hono RPC                                                                                                         |
 | Frontend | `visual-engineering` agent | React, Tailwind, `fetch("/api/...")` + Supabase Bearer (see `apps/frontend/AGENTS.md`; `hc<AppType>` only after `@hono/client` is added) |
 
 ### 0.2 Classify Complexity

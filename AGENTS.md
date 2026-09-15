@@ -33,7 +33,7 @@ You are an "Architectural Analyst." To maintain system stability, you must follo
 ### 🛠️ MANDATORY INITIALIZATION SEQUENCE
 
 1. **Provision**: `MCP_DOCKER_initialize_worktree(feature_slug="feat-<name>")`.
-   - _Note: This tool automatically provisions **Beads** (bd) for the worktree against the shared Dolt server — one database per worktree: `model_md_worktree_<slug>`._
+   - _Note: This tool automatically provisions **Beads** (bd) for the worktree against the shared Dolt server — one database per worktree: `model_md_worktree_<slug>`.\_
 2. **Bootstrap**: `MCP_DOCKER_execute_lifecycle(feature_slug="feat-<name>", action="initialize")`.
 3. **Plan (Beads)**: Confirm beads state with `bd ready` (provisioned into `.beads/` and the shared Dolt server by step 1; re-run `bd init --server --external --init-if-missing` only if `.beads/` is missing), then `bd create` to define the implementation steps.
 4. **Context Loading**: `MCP_DOCKER_get_repo_map(path="worktrees/model_md-worktree-<slug>")`.
@@ -44,18 +44,18 @@ You are an "Architectural Analyst." To maintain system stability, you must follo
 
 All agent tooling arrives through the **mcp-gateway** (`infra/bin/mcp-gateway-setup/local-mcp.yaml.template` is the catalog). The exact tool names/shapes your client exposes are authoritative — this table is the map:
 
-| Area | Tool | Purpose |
-|---|---|---|
-| Worktree | `initialize_worktree` | Create a git worktree + feature Docker env + auto-provision beads |
-| Worktree | `get_job_status` | Poll long-running `initialize_worktree` background jobs |
-| Worktree | `list_features` | List all active feature worktrees |
-| Worktree | `get_environment_status` / `get_environment_logs` | Health / logs of a feature's containers |
-| Worktree | `stop_environment` | Tear down a feature env + clean volumes |
-| Lifecycle | `execute_lifecycle` | `initialize` (db reset/seed), `generate` (Drizzle codegen), `migrate`, `seed`, `verify` (tests + lint), `format`, `build` |
-| Git | `git_ops` | Safe git: `add`, `commit`, `status`, `diff`, `log`, `branch`, `merge` |
-| AST | `get_repo_map` | Repo structure overview (Redis-cached; re-run after edits) |
-| AST | `find_symbol` / `get_dependents` / `scan_specific_file` | Symbol navigation + change-impact analysis |
-| DB | `get_user_stats` | Supabase user counts/signups (supabase-manager server) |
+| Area      | Tool                                                    | Purpose                                                                                                                   |
+| --------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Worktree  | `initialize_worktree`                                   | Create a git worktree + feature Docker env + auto-provision beads                                                         |
+| Worktree  | `get_job_status`                                        | Poll long-running `initialize_worktree` background jobs                                                                   |
+| Worktree  | `list_features`                                         | List all active feature worktrees                                                                                         |
+| Worktree  | `get_environment_status` / `get_environment_logs`       | Health / logs of a feature's containers                                                                                   |
+| Worktree  | `stop_environment`                                      | Tear down a feature env + clean volumes                                                                                   |
+| Lifecycle | `execute_lifecycle`                                     | `initialize` (db reset/seed), `generate` (Drizzle codegen), `migrate`, `seed`, `verify` (tests + lint), `format`, `build` |
+| Git       | `git_ops`                                               | Safe git: `add`, `commit`, `status`, `diff`, `log`, `branch`, `merge`                                                     |
+| AST       | `get_repo_map`                                          | Repo structure overview (Redis-cached; re-run after edits)                                                                |
+| AST       | `find_symbol` / `get_dependents` / `scan_specific_file` | Symbol navigation + change-impact analysis                                                                                |
+| DB        | `get_user_stats`                                        | Supabase user counts/signups (supabase-manager server)                                                                    |
 
 ---
 
