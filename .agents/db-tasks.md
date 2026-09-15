@@ -17,9 +17,10 @@ export type User = InferSelectModel<typeof users>;
 
 - **Generate Migration**: `pnpm db:generate --name=[description]` (use `snake_case`)
 - **Apply Migration**: `pnpm db:migrate`
-- **Reset DB**: `pnpm db:reset`
-- **Seed DB**: `pnpm db:seed`
-- **Test DB**: `pnpm test:db`
+- **Check Sync**: `pnpm db:check` (`drizzle-kit check` — schema vs migration snapshots)
+- **Reset DB**: `pnpm db:reset` (drops schema via `scripts/reset.ts`, then re-applies migrations)
+- **Seed DB**: `pnpm db:seed` (and `pnpm db:seed:clear` to clear seeded data)
+- **Test DB**: `pnpm test:db` (vitest; seed-based contract tests)
 
 ## ⚠️ Guardrails
 

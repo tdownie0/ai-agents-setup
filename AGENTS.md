@@ -6,7 +6,8 @@
 All operations MUST be executed within an isolated Git worktree. Never work on features in the
 `/app/model_md` directory.
 
-`/app/model_md` is the main project directory, from which all worktrees are derived (using the initialize_worktree tool as described below.
+`/app/model_md` is the main project directory, from which all worktrees are derived using the
+`initialize_worktree` tool (described below).
 
 ## 🔍 CODE EXPLORATION & ANALYSIS PROTOCOL (Tool-First Policy)
 
@@ -32,16 +33,35 @@ You are an "Architectural Analyst." To maintain system stability, you must follo
 ### 🛠️ MANDATORY INITIALIZATION SEQUENCE
 
 1. **Provision**: `MCP_DOCKER_initialize_worktree(feature_slug="feat-<name>")`.
-   - _Note: This tool automatically provisions **Beads** (bd) for the worktree against the shared Dolt server — one database per worktree: `model_md_worktree_<slug>`.\_
+   - _Note: This tool automatically provisions **Beads** (bd) for the worktree against the shared Dolt server — one database per worktree: `model_md_worktree_<slug>`._
 2. **Bootstrap**: `MCP_DOCKER_execute_lifecycle(feature_slug="feat-<name>", action="initialize")`.
 3. **Plan (Beads)**: Confirm beads state with `bd ready` (provisioned into `.beads/` and the shared Dolt server by step 1; re-run `bd init --server --external --init-if-missing` only if `.beads/` is missing), then `bd create` to define the implementation steps.
 4. **Context Loading**: `MCP_DOCKER_get_repo_map(path="worktrees/model_md-worktree-<slug>")`.
 
 ---
 
+### 🧰 MCP Tool Reference
+
+All agent tooling arrives through the **mcp-gateway** (`infra/bin/mcp-gateway-setup/local-mcp.yaml.template` is the catalog). The exact tool names/shapes your client exposes are authoritative — this table is the map:
+
+| Area | Tool | Purpose |
+|---|---|---|
+| Worktree | `initialize_worktree` | Create a git worktree + feature Docker env + auto-provision beads |
+| Worktree | `get_job_status` | Poll long-running `initialize_worktree` background jobs |
+| Worktree | `list_features` | List all active feature worktrees |
+| Worktree | `get_environment_status` / `get_environment_logs` | Health / logs of a feature's containers |
+| Worktree | `stop_environment` | Tear down a feature env + clean volumes |
+| Lifecycle | `execute_lifecycle` | `initialize` (db reset/seed), `generate` (Drizzle codegen), `migrate`, `seed`, `verify` (tests + lint), `format`, `build` |
+| Git | `git_ops` | Safe git: `add`, `commit`, `status`, `diff`, `log`, `branch`, `merge` |
+| AST | `get_repo_map` | Repo structure overview (Redis-cached; re-run after edits) |
+| AST | `find_symbol` / `get_dependents` / `scan_specific_file` | Symbol navigation + change-impact analysis |
+| DB | `get_user_stats` | Supabase user counts/signups (supabase-manager server) |
+
+---
+
 ## 🏗️ Isolated Environment Lifecycle
 
-> **See also**: Full lifecycle details in [`.agents/worktree-lifecycle.md`](.agents/beads-enforcement.md#part-3-integration--definition-of-done).
+> **See also**: Full lifecycle details in [`.agents/beads-enforcement.md §Part 3`](.agents/beads-enforcement.md#part-3-integration--definition-of-done).
 
 ### 1. Action Library (via `MCP_DOCKER_execute_lifecycle`)
 
@@ -86,7 +106,7 @@ To combine multiple feature worktrees (e.g., merging a backend worktree into a f
 
 ### Storage Topology (Shared Dolt Server)
 
-- One shared **Dolt sql-server** runs in the main stack (`infra/docker-compose.yml` → service `dolt`, image `dolthub/dolt-sql-server:2.2.0` — beads pins Dolt 2.2.0), reachable on the dev network at `dolt:3306`, data persisted in the `dolt_data` volume. It never exposes a host port.
+- One shared **Dolt sql-server** runs in the main stack (`infra/docker-compose.yml` → service `dolt`, image `dolthub/dolt-sql-server:2.2.0` — beads pins Dolt 2.2.0), data persisted in the `dolt_data` volume. It never exposes a host port. The service is **dual-homed**: reachable as `dolt:3306` from `dev-network` (orchestrator-worker) and from `agent-network` (AI CLI containers).
 - **Every git worktree gets its own database** `model_md_worktree_<slug>`. The slug is MySQL-sanitized (`-` → `_`, so `feat-my-feature` becomes `model_md_worktree_feat_my_feature`). `initialize_worktree` provisions `.beads/` automatically and bd creates the database at first connect (CREATE DATABASE IF NOT EXISTS). Agents never need to run `bd init` in a worktree — start with `bd ready`.
 - All bd-capable containers (opencode, pi, antigravity, orchestrator-worker) carry `BEADS_DOLT_SERVER_HOST=dolt`, `BEADS_DOLT_SERVER_PORT=3306`, `BEADS_DOLT_SERVER_MODE=1`.
 - **Main repository sessions**: the main repo is mounted read-only in the agent containers, so `.beads/` cannot live inside it. For coordination from the main repo, pin `BEADS_DIR` to a writable session path — e.g. `BEADS_DIR=/tmp/beads-main` (pi/antigravity) or `BEADS_DIR=/home/devuser/.local/state/beads-main` (opencode) — then `bd init --server --external --database model_md_main -q`.
@@ -153,103 +173,16 @@ Before declaring any task complete, verify:
 
 ## 🧠 Multi-Agent Swarm Orchestration
 
-> **See also**: Full swarm protocol with gates, checkpoint lifecycle, and error recovery in [`.agents/beads-enforcement.md`](.agents/beads-enforcement.md#part-2-multi-agent-swarm-orchestration).
+> **Full protocol** — gate lifecycle, gate naming conventions, API/UI contract gates, checkpoint protocol, error recovery: [`.agents/beads-enforcement.md §Part 2`](.agents/beads-enforcement.md#part-2-multi-agent-swarm-orchestration).
+> **End-to-end pipeline** — request intake → decomposition → parallel delegation (6-field templates) → integration → T-RECOVERY: [`.agents/swarm-feature-creator.md`](.agents/swarm-feature-creator.md).
 
-For complex features involving multiple specialities (e.g., frontend + backend + database), use the **Swarm Manager** pattern. This allows a coordinating agent to decompose work, delegate to specialist sub-agents, and synchronize via beads checkpoints.
+Use the **Swarm Manager** pattern when a feature spans 2+ specialist domains (DB + Backend + Frontend) or independent work can run in parallel.
 
-### Architecture
+### Roles
 
-```
-                    ┌──────────────────────────┐
-                    │    Swarm Manager Agent    │
-                    │  (creates epic, plans     │
-                    │   tasks, assigns work,    │
-                    │   validates integration)  │
-                    └──────────┬───────────────┘
-                               │
-                ┌──────────────┼──────────────────┐
-                │              │                   │
-        ┌───────▼───────┐ ┌───▼────────┐  ┌──────▼─────────┐
-        │ Specialist A   │ │ Specialist B│  │ Specialist C    │
-        │ (e.g. Designer)│ │ (e.g. CSS) │  │ (e.g. JS/TS)  │
-        │ Creates task,  │ │ Creates task│  │ Creates task,   │
-        │ implements,    │ │ depends on  │  │ depends on      │
-        │ checkpoints    │ │ Designer    │  │ HTML structure  │
-        └────────────────┘ └────────────┘  └─────────────────┘
-```
-
-### Swarm Manager Protocol
-
-1. **Create Epic**: Manager creates an epic in beads for the full feature:
-
-   ```bash
-   bd create "Epic: User Profile Dashboard" --mol-type=swarm -p 0
-   ```
-
-2. **Decompose into Sub-Tasks**: Manager creates concrete tasks with explicit dependencies:
-
-   ```bash
-   bd create "Design profile layout" -p 1 --parent bd-epic-123
-   bd create "Implement CSS styling" -p 2 --parent bd-epic-123
-   bd create "Write HTML structure" -p 2 --parent bd-epic-123
-   bd create "Add JS/TS interactivity" -p 2 --parent bd-epic-123
-   ```
-
-3. **Link Dependencies**: Establish the DAG:
-
-   ```bash
-   bd dep add bd-css-task bd-design-task   # CSS blocked by Design
-   bd dep add bd-html-task bd-design-task  # HTML blocked by Design
-   bd dep add bd-jsts-task bd-html-task    # JS/TS blocked by HTML
-   ```
-
-4. **Validate Swarm**: Confirm the dependency graph is sound:
-
-   ```bash
-   bd swarm validate bd-epic-123
-   ```
-
-5. **Create Swarm Molecule**: Enable coordinator discovery:
-
-   ```bash
-   bd swarm create bd-epic-123 --coordinator=manager/
-   ```
-
-6. **Sub-Agent Claims & Works**: Each specialist runs `bd ready`, finds unblocked tasks, claims them:
-   ```bash
-   bd ready                       # Find unblocked work
-   bd update bd-design-task --claim  # Claim the task
-   # ... implement ...
-   bd close bd-design-task --reason "Design mockup complete"
-   ```
-
-### Checkpointing via Gates
-
-Use **bd gate** to synchronize sub-agents at agreed checkpoints without blocking the entire pipeline:
-
-```bash
-# Manager creates a gate for API contract agreement
-bd gate create "profile-api-contract" --description "Designer and JS/TS agent agree on data shapes"
-
-# Designer opens the gate when design spec is ready
-bd gate open "profile-api-contract" "Design spec published: shapes for UserProfile, Preferences"
-
-# JS/TS agent waits for the gate
-bd gate wait "profile-api-contract"
-
-# JS/TS agent proceeds knowing the contract is settled
-```
-
-### Parallel Execution Waves
-
-Tasks are organized into execution **waves** based on dependency depth:
-
-| Wave | Tasks       | Description                                                                   |
-| ---- | ----------- | ----------------------------------------------------------------------------- |
-| 1    | Design      | Designer creates mockups, specs, API contracts                                |
-| 2    | CSS, HTML   | CSS implements styles, HTML implements structure (parallel, depend on Design) |
-| 3    | JS/TS       | Interactivity layer (depends on HTML structure)                               |
-| 4    | Integration | Manager merges all work, verifies integration                                 |
+- **Swarm Manager** (`.pi/agents/manager.md`): creates the epic (`bd create "Epic: X" --mol-type=swarm -p 0`), decomposes into sub-tasks with `--parent`, links the DAG (`bd dep add`), validates (`bd swarm validate`), opens contract gates, tracks progress (`bd epic status`), verifies integration, closes the epic (`bd epic close-eligible`).
+- **Specialists** (`.pi/agents/db-specialist.md`, `.pi/agents/backend-specialist.md`, `.pi/agents/frontend-specialist.md`): `bd ready` → `bd update <TASK> --claim` → implement → open gates for downstream → `bd close <TASK> --reason "..."`.
+- **Researcher** (`.agents/researcher.md`): read-only fact-finder that publishes findings via gates (`research-*`, `impact-*`, `synthesis-*`).
 
 ### Sub-Agent Contract
 
@@ -259,15 +192,6 @@ When a sub-agent completes its portion, it MUST:
 2. **Document** any API decisions, file paths created, or interfaces defined in a gate note
 3. **Open gates** for downstream dependents
 4. **Verification**: Confirm `lsp_diagnostics` clean on changed files
-
-### Manager Integration
-
-The Swarm Manager is responsible for:
-
-1. Tracking all task completion via `bd epic status bd-epic-123`
-2. Running integration verification across all sub-agent outputs
-3. Closing the epic when all children are complete: `bd epic close-eligible bd-epic-123`
-4. Resolving dependency conflicts between sub-agent outputs
 
 ### When NOT to Use Swarm
 

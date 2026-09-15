@@ -138,7 +138,10 @@ Step 4: bd gate open "synthesis-<TOPIC>" --description="Report complete at <FILE
 - <gate note ID or tool invocation>
 ```
 
-Save this report to `.agents/research-reports/<TOPIC>-<TIMESTAMP>.md`.
+Save this report to a **writable** location only. The main repo mount (`/app/model_md`) is read-only, and `.agents/` inside a worktree would create untracked noise in the feature branch. Use:
+
+- Default: `/tmp/research-reports/<TOPIC>-<TIMESTAMP>.md` (tmpfs in every agent container — fine for short-lived findings).
+- If the report must outlive the container or be shared with the Swarm Manager: publish the full content in the gate note instead (or `bd gate open "synthesis-<TOPIC>" "<report>"`).
 
 ---
 

@@ -14,7 +14,7 @@ Extract scope, technologies, layers affected, and dependencies.
 | -------- | -------------------------- | ------------------------------------------------- |
 | Database | `deep` agent               | `.agents/db-tasks.md`, Drizzle schema, migrations |
 | Backend  | `unspecified-high` agent   | `.agents/api-tasks.md`, Hono RPC                  |
-| Frontend | `visual-engineering` agent | React, Tailwind, `hc<AppType>`                    |
+| Frontend | `visual-engineering` agent | React, Tailwind, `fetch("/api/...")` + Supabase Bearer (see `apps/frontend/AGENTS.md`; `hc<AppType>` only after `@hono/client` is added) |
 
 ### 0.2 Classify Complexity
 
@@ -199,11 +199,11 @@ Every sub-agent delegation must include every field below:
 **Frontend (P1)** — `subagent_type: "visual-engineering"`, context: `apps/frontend/src/`
 
 ```
-1. GOAL: Build component with React + Tailwind. Connect via hc<AppType>.
+1. GOAL: Build component with React + Tailwind. Call backend via fetch("/api/...") + Supabase Bearer.
 2. FILES: apps/frontend/src/components/<feature>/ (new dir), apps/frontend/src/App.tsx (route).
-   Use /components/ui primitives.
+   Use /components/ui primitives. Follow the fetch pattern in src/lib/notifications.ts.
 3. PATTERNS: apps/frontend/src/components/ (existing components), frontend AGENTS.md.
-4. IN: Components, pages, styles, RPC calls. OUT: Backend, DB, infra.
+4. IN: Components, pages, styles, API calls. OUT: Backend, DB, infra.
 5. BUDGET: 35 calls.
 6. GATE: ui-<feature>-complete.
 ```
@@ -222,7 +222,7 @@ bd dep add <NEW-TASK> <ORIGINAL-TASK>
 **Step 2:** Open a gate with partial results.
 
 ```
-bd gate open "subdivide-<TASK>" \
+bd gate open "subdivide-<TASK_ID>" \
   "Partial: <done>. Remaining: <left>. Files: <paths>. Next: <instructions>."
 ```
 

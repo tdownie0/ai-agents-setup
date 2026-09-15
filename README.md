@@ -127,6 +127,41 @@ force a full refresh from the project config, delete that tool's directory and r
 User-level personalization (extra models, custom skills, personal provider keys)
 is a future opt-in overlay; today the containers are 100% project-derived by design.
 
+### Host-Side AI CLIs (no container, no docker network)
+
+You can also run an AI CLI **directly on your host** and still use this project's
+MCP toolchain. The stack's `mcp-gateway` publishes `127.0.0.1:8811` on the host
+loopback, so a host-side agent just points its MCP client at
+`http://127.0.0.1:8811/mcp` — **no need to join any docker network**.
+
+Recommended for host-side usage (see `opencode.json` / `.pi/mcp.json` for the shape):
+
+```jsonc
+{
+  "mcp": {
+    "model_md": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8811/mcp",
+      "headers": { "Authorization": "Bearer ${MCP_GATEWAY_AUTH_TOKEN}" }
+    }
+  }
+}
+```
+
+Notes and caveats:
+
+- The gateway is only reachable this way while the stack is up
+  (`sudo go-task up P=agent-core`). The auth token comes from `.env`
+  (`MCP_GATEWAY_AUTH_TOKEN`).
+- **Sandbox tradeoff**: a host-side agent has your host's filesystem and shell
+  permissions. The containerized agents are deliberately restricted (read-only
+  project mount, isolated `agent-network`, worktree-only writes); running locally
+  bypasses those boundaries, so only do this on your own machine with your own
+  credentials.
+- The git-orchestrator and ast-explorer MCP servers are designed around the
+  worktree layout; the worktree creation flow (`initialize_worktree`) works the
+  same from a local client as from a container.
+
 Once this is completed, for anyone that would like to log into the demonstration site and create a
 user to interact with it, they can visit `http://localhost:54323/project/default`. From here,
 the `Authentication` menu option should be located and clicked upon. After doing so, there

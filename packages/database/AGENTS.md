@@ -2,6 +2,7 @@
 
 - **Source of Truth**: `src/schema/*` and `src/index.ts` are the absolute sources of truth.
 - **Constraint**: Never perform raw SQL migrations manually. Always use `drizzle-kit`.
+- **Runtime**: The schema lives against the Supabase-managed Postgres given by `DATABASE_URL` (`postgres-js` client with `prepare: false` for the Supabase pooler). Local dev can run the Supabase CLI from `supabase/` — but schema changes still flow through Drizzle, never raw SQL.
 - **Validation**: Ensure all changes are verified against the `drizzle/` snapshot and `_journal.json`.
 
 ## ⚙️ Lifecycle Protocol
@@ -10,8 +11,9 @@
   - **Naming**: Use `snake_case` for the description. Drizzle automatically prepends the sequential index.
   - **Example**: `pnpm db:generate --name=add_user_notifications`
 - **Apply**: `pnpm db:migrate`.
-- **Reset**: `pnpm db:reset`.
-- **Test**: `pnpm test:db`.
+- **Reset**: `pnpm db:reset` (drops the schema via `scripts/reset.ts`, then re-applies migrations).
+- **Check**: `pnpm db:check` (`drizzle-kit check`) — confirms the schema and migration snapshots are in sync.
+- **Test**: `pnpm test:db` (vitest; seed-based contract tests).
 
 ## 📝 Migration Workflow
 

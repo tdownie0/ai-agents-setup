@@ -21,21 +21,32 @@ const routes = app
 export type AppType = typeof routes;
 ```
 
-### 2. Frontend Consumption (apps/frontend/src/App.tsx)
+### 2. Frontend Consumption (ACTUAL PATTERN)
 
-Initialize the RPC client using the imported `AppType`.
+The frontend does **not** use `hc()` today (`@hono/client` is not installed). It calls the
+backend with `fetch("/api/...")` plus a Supabase Bearer token — see `apps/frontend/src/lib/notifications.ts`
+(`getAuthHeaders()` → `Authorization: Bearer <session.access_token>`). In dev, the Vite proxy
+(`apps/frontend/vite.config.ts`) forwards `/api` → `http://localhost:3000`. New API calls MUST
+follow this fetch+Bearer pattern.
 
 ```typescript
-import { hc } from "hono/client";
-import type { AppType } from "@model_md/backend";
-
-const client = hc<AppType>("http://localhost:3000/");
+// apps/frontend/src/lib/notifications.ts — the pattern to copy
+const getAuthHeaders = async () => {
+  const { data: { session } } = await supabase.auth.getSession();
+  return { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` };
+};
+// fetch(`${API_BASE}/...`, { method, headers: await getAuthHeaders(), body: JSON.stringify(...) })
 ```
+
+**Typed RPC (optional, opt-in)**: The backend exports `AppType` and `hc<AppType>` is the future
+typed path — but only introduce `hc()` after adding `@hono/client` to the frontend. Do not mix
+patterns in one feature: pick fetch+Bearer (current) or hc (after the dependency lands).
 
 ## ⚠️ Implementation Guardrails
 
 - **CORS**: Ensure `app.use('*', cors())` is called within the `basePath`.
 - **Response Format**: Always return `c.json()` for correct type inference.
-- **Pathing**: Use `client.api...` to access routes defined under the `/api` base path.
+- **Pathing**: Routes live under the `/api` base path; frontend calls them via the `/api/...` URL (fetch) or `client.api...` (hc, once added).
+- **Auth**: Protected routes use `src/middleware/authMiddleware.ts` (validates the Bearer token via `supabase.auth.getUser`, sets `userId` on the context).
 - **AST-First**: Use the AST explorer MCP (`scan_specific_file`, `find_symbol`, `get_dependents`) to identify affected route handlers before modifying code.
-- **RPC Integrity**: Ensure the Hono `AppType` is strictly typed against the database schema types. If you make a breaking change, the Frontend Specialist must update the `hc<AppType>` consumption in `apps/frontend/src/`.
+- **RPC Integrity**: Ensure the Hono `AppType` is strictly typed against the database schema types. If you make a breaking change to a route, coordinate with the Frontend Specialist (fetch callers must be updated even without `hc`).
