@@ -3,8 +3,12 @@
 - **Framework**: Vite + React + Tailwind CSS. App entry: `src/main.tsx`, root component `src/App.tsx` (session-gated: `Auth` vs logged-in views).
 - **UI Components**: Use the primitives in `src/components/ui/` (button, card, input, label, table). Do not hand-roll Tailwind-only replacements when a primitive exists.
 - **Auth**: Supabase client in `src/lib/supabase.ts` (`supabase.auth.getSession()`, `onAuthStateChange`). Populate `.env` with `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` — **never** hardcode keys.
-- **Backend Integration — ACTUAL PATTERN**: The app talks to the Hono backend with `fetch("/api/...")` plus a Supabase Bearer token, e.g. the helpers in `src/lib/notifications.ts` (`getAuthHeaders()` → `Authorization: Bearer <session.access_token>`). In dev the Vite proxy (`vite.config.ts`) forwards `/api` → `http://localhost:3000`. Follow this pattern for new API calls.
-  - **Typed RPC (optional)**: The backend exports `AppType` (`@model_md/backend`) and `hc<AppType>` is the future typed-client path, but `@hono/client` is **not installed** — do not introduce `hc()` without adding the dependency.
+- **Backend Integration — MANDATORY PATTERN**: All frontend API calls MUST use the centralized Hono RPC client exported from `src/lib/api.ts` (`client` = `hc<AppType>("/")`, plus the `getAuthHeaders()` helper that auto-injects the Supabase session Bearer token). **Raw `fetch()` calls to internal `/api/*` routes are forbidden.** Type-safety comes from `@model_md/backend`'s exported `AppType`. In dev the Vite proxy (`vite.config.ts`) forwards `/api` → `http://localhost:3000`. Example:
+  ```typescript
+  import { client, getAuthHeaders } from "@/lib/api";
+  const res = await client.api.notifications.$get({}, { headers: await getAuthHeaders() });
+  ```
+- **Creating a centralized Hono client**: Do not create new `hc<AppType>` instances in components or modules — always import the singleton from `src/lib/api.ts`. Hono's `hc()` accepts a static headers object (no async callback); inject auth per-request via `getAuthHeaders()`.
 - **Data Types**: Import types from `@model_md/database` only (e.g. `Notification`). **Do not touch `packages/database`** — schema is the Database Specialist's domain.
 - **Verification**: `pnpm -w lint` (oxlint), `pnpm -w fmt:check` (oxfmt), and `pnpm --filter @model_md/frontend build` must pass before closing a task.
 

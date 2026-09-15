@@ -5,11 +5,9 @@ import { eq, desc, and } from "drizzle-orm";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 
 // Tell Hono that every route in this app has a 'userId' string in context
-const notificationsApp = new Hono<{ Variables: { userId: string } }>();
+const notificationsApp = new Hono<{ Variables: { userId: string } }>()
+  .use("*", authMiddleware)
 
-notificationsApp.use("*", authMiddleware);
-
-notificationsApp
   .get("/", async (c) => {
     const userId = c.get("userId");
 

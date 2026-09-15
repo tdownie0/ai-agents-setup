@@ -7,9 +7,7 @@ import { env } from "../env.js";
 // Validate Supabase token and extract user info
 const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
 
-const authApp = new Hono();
-
-authApp.post("/register", async (c) => {
+const authApp = new Hono().post("/register", async (c) => {
   let body;
   try {
     body = await c.req.json();

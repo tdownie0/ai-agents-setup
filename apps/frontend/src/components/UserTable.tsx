@@ -1,9 +1,6 @@
 import * as React from "react";
 import { useEffect, useState } from "react";
-import { hc } from "hono/client";
-import { supabase } from "@/lib/supabase";
-import type { AppType } from "@model_md/backend";
-import type { User } from "@model_md/database";
+import { client, getAuthHeaders, type ApiUser } from "@/lib/api";
 import {
   type ColumnDef,
   flexRender,
@@ -24,9 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react";
 
-const client = hc<AppType>("/");
-
-const columns: ColumnDef<User>[] = [
+const columns: ColumnDef<ApiUser>[] = [
   {
     accessorKey: "fullName",
     header: ({ column }) => {
@@ -90,7 +85,7 @@ interface UserTableProps {
 }
 
 export function UserTable({ caption = "A list of all users in the system." }: UserTableProps) {
-  const [data, setData] = useState<User[]>([]);
+  const [data, setData] = useState<ApiUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sorting, setSorting] = React.useState<SortingState>([]);
@@ -101,18 +96,7 @@ export function UserTable({ caption = "A list of all users in the system." }: Us
         setLoading(true);
         setError(null);
 
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-
-        const res = await client.api.users.$get(
-          {},
-          {
-            headers: {
-              Authorization: `Bearer ${session?.access_token}`,
-            },
-          },
-        );
+        const res = await client.api.users.$get({}, { headers: await getAuthHeaders() });
 
         if (!res.ok) {
           if (res.status === 401) {

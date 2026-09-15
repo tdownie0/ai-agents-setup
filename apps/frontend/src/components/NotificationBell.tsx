@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Bell, Check, Trash2 } from "lucide-react";
 import { notificationApi } from "../lib/notifications";
-import type { Notification } from "@model_md/database";
+import type { ApiNotification } from "../lib/api";
 import { cn } from "../lib/utils";
 
 interface NotificationBellProps {
@@ -9,7 +9,7 @@ interface NotificationBellProps {
 }
 
 export function NotificationBell({ userId }: NotificationBellProps) {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<ApiNotification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
