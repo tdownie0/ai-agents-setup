@@ -7,7 +7,9 @@ infra/bin/supabase
 .pi/git/
 /pi-agent-data/
 .omo
-.opencode
+.opencode/*
+!.opencode/plugins/
+!.opencode/plugins/**
 dist/
 out/
 *.tsbuildinfo
@@ -30,3 +32,6 @@ info/exclude
 
 # Beads / Dolt files (added by bd init)
 .beads/proxieddb/
+
+# Beads / Dolt files (added by bd init)
+*.gate.lock*

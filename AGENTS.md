@@ -9,18 +9,20 @@ All operations MUST be executed within an isolated Git worktree. Never work on f
 `/app/model_md` is the main project directory, from which all worktrees are derived using the
 `initialize_worktree` tool (described below).
 
-## 🔍 CODE EXPLORATION & ANALYSIS PROTOCOL (Tool-First Policy)
+## 🔍 CODE EXPLORATION & ANALYSIS PROTOCOL (Injected-Map Policy)
 
-You are an "Architectural Analyst." To maintain system stability, you must follow this exploration hierarchy. **NEVER use glob/read as your first step.**
+You are an "Architectural Analyst." A repository map (AST overview) is injected into your system prompt at session start when the repo-map plugin is active — use it as your initial orientation. **NEVER use glob/read as your first step.**
 
 1. **Perform Initialization**: Follow the sequence below before using exploration tools.
-2. **Hierarchy Discovery**: Start by calling `MCP_DOCKER_get_repo_map(path="worktrees/model_md-worktree-<slug>")`.
-3. **Symbol Navigation**: Use `find_symbol` and `get_dependents` to analyze impact across the monorepo.
+2. **Orientation**: Read the injected repo map (header `## Repo Map (code structure)`) — the deterministic, SHA-versioned AST overview of the session root, already in your context.
+3. **Refresh or Scope**: Call `MCP_DOCKER_get_repo_map` ONLY when the injected map is stale (code changed mid-session) or a sub-directory-scoped map is needed.
+4. **Symbol Navigation**: Use `find_symbol` and `get_dependents` to analyze impact across the monorepo.
 
 ---
 
 ### 🧠 Context Window & Tool Efficiency
 
+- **Injected Map**: The injected map costs zero extra tool calls and is byte-stable per code state (prefix-cache friendly). Do not re-fetch the same map at session start — that defeats the cache.
 - **Targeted Indexing**: If assigned to a sub-directory, run `get_repo_map` on that specific subdirectory first to save tokens and processing time.
 - **Quota Management**: Monitor your tool usage. If a single task requires >100 tool calls, you MUST:
   1. Use `bd create` to split the remaining work into a sub-task.
@@ -36,7 +38,7 @@ You are an "Architectural Analyst." To maintain system stability, you must follo
    - _Note: This tool automatically provisions **Beads** (bd) for the worktree against the shared Dolt server — one database per worktree: `model_md_worktree_<slug>`.\_
 2. **Bootstrap**: `MCP_DOCKER_execute_lifecycle(feature_slug="feat-<name>", action="initialize")`.
 3. **Plan (Beads)**: Confirm beads state with `bd ready` (provisioned into `.beads/` and the shared Dolt server by step 1; re-run `bd init --server --external --init-if-missing` only if `.beads/` is missing), then `bd create` to define the implementation steps.
-4. **Context Loading**: `MCP_DOCKER_get_repo_map(path="worktrees/model_md-worktree-<slug>")`.
+4. **Context Loading**: The repo map is already injected into your system prompt for the session root. Call `MCP_DOCKER_get_repo_map(path="worktrees/model_md-worktree-<slug>")` only when the injected map is missing or a fresh map is required.
 
 ---
 
@@ -53,7 +55,7 @@ All agent tooling arrives through the **mcp-gateway** (`infra/bin/mcp-gateway-se
 | Worktree  | `stop_environment`                                      | Tear down a feature env + clean volumes                                                                                   |
 | Lifecycle | `execute_lifecycle`                                     | `initialize` (db reset/seed), `generate` (Drizzle codegen), `migrate`, `seed`, `verify` (tests + lint), `format`, `build` |
 | Git       | `git_ops`                                               | Safe git: `add`, `commit`, `status`, `diff`, `log`, `branch`, `merge`                                                     |
-| AST       | `get_repo_map`                                          | Repo structure overview (Redis-cached; re-run after edits)                                                                |
+| AST       | `get_repo_map`                                          | Repo structure overview (Redis-cached; refresh / sub-directory scope only — a map is already injected)                    |
 | AST       | `find_symbol` / `get_dependents` / `scan_specific_file` | Symbol navigation + change-impact analysis                                                                                |
 | DB        | `get_user_stats`                                        | Supabase user counts/signups (supabase-manager server)                                                                    |
 

@@ -21,7 +21,7 @@
 
 ## ⚠️ Engagement Rules
 
-- **AST-First**: Use `ast-explorer` to identify affected route handlers before modifying code.
+- **Injected Map First**: A repository map (AST overview) is pre-injected into your system prompt; use it to orient and identify affected route handlers before modifying code. Use `ast-explorer` tools (`scan_specific_file`, `find_symbol`, `get_dependents`, `get_repo_map` for refresh) for targeted lookups only.
 - **RPC Integrity**: Ensure the Hono `AppType` is strictly typed against the database schema types.
 
 ## 🎯 Beads Task Tracking (MANDATORY)
