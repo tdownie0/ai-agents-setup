@@ -4,7 +4,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from dbos import DBOS, Queue
+from dbos import DBOS
 
 # Import our custom modules
 from provider import release_ports, find_available_port_block
@@ -19,8 +19,6 @@ TEST_USER_ID = os.getenv("TEST_USER_ID")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 VITE_SUPABASE_URL = os.getenv("VITE_SUPABASE_URL")
-
-orchestrator_queue = Queue("orchestrator_queue", worker_concurrency=1)
 
 # Any of these key fragments marks an .env variable as a credential that must
 # not be copied into feature worktrees (see _provision_git_worktree).

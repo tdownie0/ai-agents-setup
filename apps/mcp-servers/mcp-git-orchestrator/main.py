@@ -18,8 +18,9 @@ def main():
             "system_database_url": os.environ.get("DBOS_SYSTEM_DATABASE_URL"),
         }
         DBOS(config=dbos_config)
-        DBOS.listen_queues([workflows.orchestrator_queue])
+        DBOS.listen_queues(["orchestrator_queue"])
         DBOS.launch()
+        DBOS.register_queue("orchestrator_queue", worker_concurrency=1)
         stop_event = threading.Event()
         try:
             stop_event.wait()
