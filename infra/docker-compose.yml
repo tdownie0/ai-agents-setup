@@ -371,6 +371,7 @@ services:
       - ${PROJECT_PARENT_PATH}/.docker/opencode/config:/home/devuser/.config/opencode
       - ${PROJECT_PARENT_PATH}/.docker/opencode/share:/home/devuser/.local/share/opencode
       - ${PROJECT_PARENT_PATH}/.docker/opencode/state:/home/devuser/.local/state
+      - ${PROJECT_PARENT_PATH}/.omo:/home/devuser/.omo:ro
     networks:
       - agent-network
     depends_on:
