@@ -12,3 +12,4 @@ export * from "./types.js";
 export * from "./sources/priceSource.js";
 export * from "./sources/yahooSource.js";
 export * from "./universe.js";
+export * from "./ingest/index.js";

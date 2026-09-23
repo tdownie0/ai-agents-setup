@@ -13,13 +13,19 @@
   },
   "scripts": {
     "build": "tsc --build",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "market-data:backfill": "tsx src/cli/backfill.ts",
+    "market-data:update": "tsx src/cli/update.ts"
   },
   "dependencies": {
+    "@model_md/database": "workspace:*",
+    "dotenv": "^17.3.1",
+    "drizzle-orm": "^0.45.1",
     "yahoo-finance2": "^3.0.0"
   },
   "devDependencies": {
     "@types/node": "^25.3.3",
+    "tsx": "^4.7.1",
     "typescript": "^5.9.3"
   }
 }

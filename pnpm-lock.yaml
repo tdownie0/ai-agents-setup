@@ -229,6 +229,15 @@ importers:
 
   packages/market-data:
     dependencies:
+      '@model_md/database':
+        specifier: workspace:*
+        version: link:../database
+      dotenv:
+        specifier: ^17.3.1
+        version: 17.3.1
+      drizzle-orm:
+        specifier: ^0.45.1
+        version: 0.45.1(postgres@3.4.8)
       yahoo-finance2:
         specifier: ^3.0.0
         version: 3.15.4
@@ -236,6 +245,9 @@ importers:
       '@types/node':
         specifier: ^25.3.3
         version: 25.3.5
+      tsx:
+        specifier: ^4.7.1
+        version: 4.21.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
