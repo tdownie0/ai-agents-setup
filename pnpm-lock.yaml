@@ -39,6 +39,9 @@ importers:
       '@model_md/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@model_md/market-data':
+        specifier: workspace:*
+        version: link:../../packages/market-data
       '@supabase/supabase-js':
         specifier: ^2.98.0
         version: 2.98.0
@@ -251,6 +254,9 @@ importers:
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.4(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(msw@2.12.10(@types/node@25.3.5)(typescript@5.9.3))(tsx@4.21.0)
 
 packages:
 

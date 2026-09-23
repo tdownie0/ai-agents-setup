@@ -14,6 +14,7 @@
   "scripts": {
     "build": "tsc --build",
     "dev": "tsc --watch",
+    "test": "vitest run",
     "market-data:backfill": "tsx src/cli/backfill.ts",
     "market-data:update": "tsx src/cli/update.ts"
   },
@@ -26,6 +27,7 @@
   "devDependencies": {
     "@types/node": "^25.3.3",
     "tsx": "^4.7.1",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.5"
   }
 }
