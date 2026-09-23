@@ -8,6 +8,13 @@
       "when": 1772826268524,
       "tag": "0000_add_users_and_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790155168057,
+      "tag": "0001_regular_dracula",
+      "breakpoints": true
     }
   ]
 }
