@@ -1,0 +1,31 @@
+{
+  "name": "@model_md/agent-orchestrator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "agents:run": "tsx src/cli.ts",
+    "test": "vitest run",
+    "build": "tsc --build"
+  },
+  "dependencies": {
+    "@model_md/database": "workspace:*",
+    "@model_md/market-data": "workspace:*",
+    "dotenv": "^17.3.1",
+    "drizzle-orm": "^0.45.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.3",
+    "tsx": "^4.7.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.5"
+  }
+}
