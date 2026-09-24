@@ -42,8 +42,7 @@ export function computeRanking(equitySeries: readonly EquityPoint[]): RankingRes
   let sharpe = 0;
   if (returns.length >= 2) {
     const mean = returns.reduce((acc, v) => acc + v, 0) / returns.length;
-    const variance =
-      returns.reduce((acc, v) => acc + (v - mean) ** 2, 0) / (returns.length - 1);
+    const variance = returns.reduce((acc, v) => acc + (v - mean) ** 2, 0) / (returns.length - 1);
     const stdev = Math.sqrt(variance);
     annualizedVolPct = stdev * Math.sqrt(TRADING_DAYS_PER_YEAR) * 100;
     sharpe = stdev === 0 ? 0 : (mean / stdev) * Math.sqrt(TRADING_DAYS_PER_YEAR);

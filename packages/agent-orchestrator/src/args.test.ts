@@ -47,14 +47,7 @@ describe("parseCliArgs", () => {
   });
 
   it("parses --replicate-of and --replicates", () => {
-    const opts = parseCliArgs([
-      "--round",
-      "r1",
-      "--replicate-of",
-      "dr-value",
-      "--replicates",
-      "5",
-    ]);
+    const opts = parseCliArgs(["--round", "r1", "--replicate-of", "dr-value", "--replicates", "5"]);
     expect(opts).toMatchObject({ replicateOf: "dr-value", replicates: 5 });
   });
 
@@ -79,9 +72,7 @@ describe("parseCliArgs", () => {
   });
 
   it("throws on a missing value for --agents", () => {
-    expect(() => parseCliArgs(["--round", "r1", "--agents"])).toThrow(
-      /missing value for --agents/,
-    );
+    expect(() => parseCliArgs(["--round", "r1", "--agents"])).toThrow(/missing value for --agents/);
   });
 
   it("throws on an empty --agents list", () => {

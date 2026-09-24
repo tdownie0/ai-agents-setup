@@ -10,13 +10,7 @@
  */
 
 import { and, asc, desc, eq, exists, inArray } from "drizzle-orm";
-import {
-  agentRuns,
-  dailyPrices,
-  db,
-  instruments,
-  portfolioPositions,
-} from "@model_md/database";
+import { agentRuns, dailyPrices, db, instruments, portfolioPositions } from "@model_md/database";
 import type { AgentRun, PortfolioPosition } from "@model_md/database";
 import type { DbClient } from "@model_md/market-data";
 
@@ -75,11 +69,7 @@ export async function loadRunsForLeaderboard(
 
 /** One run by id, regardless of status (the route enforces `completed`). */
 export async function loadRunById(dbClient: DbClient, id: number): Promise<AgentRun | undefined> {
-  const [run] = await dbClient
-    .select()
-    .from(agentRuns)
-    .where(eq(agentRuns.id, id))
-    .limit(1);
+  const [run] = await dbClient.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
   return run;
 }
 

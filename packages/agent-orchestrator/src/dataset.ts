@@ -111,8 +111,7 @@ function volatility21d(px: number[]): number | null {
     rets.push(px[i] / px[i - 1] - 1);
   }
   const mean = rets.reduce((acc, v) => acc + v, 0) / rets.length;
-  const variance =
-    rets.reduce((acc, v) => acc + (v - mean) ** 2, 0) / (rets.length - 1);
+  const variance = rets.reduce((acc, v) => acc + (v - mean) ** 2, 0) / (rets.length - 1);
   return round(Math.sqrt(variance) * Math.sqrt(TRADING_DAYS_PER_YEAR) * 100, 2);
 }
 
@@ -157,10 +156,7 @@ function avgDollarVolume(bars: Bar[]): number | null {
 }
 
 /** Fetch the last ~300 bars for one symbol as of the decision date. */
-async function fetchBars(
-  symbol: string,
-  asOfTradeDate: string,
-): Promise<Bar[]> {
+async function fetchBars(symbol: string, asOfTradeDate: string): Promise<Bar[]> {
   const rows = await db
     .select({
       tradeDate: dailyPrices.tradeDate,
@@ -170,12 +166,7 @@ async function fetchBars(
     })
     .from(dailyPrices)
     .innerJoin(instruments, eq(dailyPrices.instrumentId, instruments.id))
-    .where(
-      and(
-        eq(instruments.symbol, symbol),
-        lte(dailyPrices.tradeDate, asOfTradeDate),
-      ),
-    )
+    .where(and(eq(instruments.symbol, symbol), lte(dailyPrices.tradeDate, asOfTradeDate)))
     .orderBy(desc(dailyPrices.tradeDate))
     .limit(BAR_LIMIT);
 
@@ -254,8 +245,7 @@ function computeMetrics(
     rsi14: rsi14(px),
     sma50,
     sma200,
-    sma50AboveSma200:
-      sma50 !== null && sma200 !== null ? sma50 > sma200 : null,
+    sma50AboveSma200: sma50 !== null && sma200 !== null ? sma50 > sma200 : null,
     high52w: range?.high ?? null,
     low52w: range?.low ?? null,
     offHigh52wPct,
@@ -274,9 +264,7 @@ export interface BuildDatasetOptions {
  * trade_date, compute per-symbol metrics for the full universe, persist
  * `rounds/<roundId>/dataset.json`, and return the summary.
  */
-export async function buildDataset(
-  opts: BuildDatasetOptions,
-): Promise<BuildDatasetResult> {
+export async function buildDataset(opts: BuildDatasetOptions): Promise<BuildDatasetResult> {
   const roundId = opts.roundId.trim();
   if (roundId.length === 0) {
     throw new Error("roundId must be a non-empty string");
@@ -289,9 +277,7 @@ export async function buildDataset(
     .limit(1);
 
   if (!maxRow?.maxTradeDate) {
-    throw new Error(
-      "No daily price data found — run the market-data ingestion pipeline first",
-    );
+    throw new Error("No daily price data found — run the market-data ingestion pipeline first");
   }
   const asOfTradeDate = maxRow.maxTradeDate;
 

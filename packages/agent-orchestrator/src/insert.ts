@@ -57,32 +57,21 @@ export class MissingEntryPriceError extends Error {
 
 /** True when a postgres-js error is a unique-constraint violation. */
 function isUniqueViolation(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    (err as { code?: string }).code === "23505"
-  );
+  return typeof err === "object" && err !== null && (err as { code?: string }).code === "23505";
 }
 
 /**
  * Insert one validated envelope (agent run + positions with entry fills).
  * Throws `DuplicateRunError` when (roundId, agentKey) already exists.
  */
-export async function insertRun(
-  opts: InsertRunOptions,
-): Promise<InsertRunResult> {
+export async function insertRun(opts: InsertRunOptions): Promise<InsertRunResult> {
   const { envelope, entryPrices, asOfTradeDate } = opts;
   const { roundId, agent } = envelope;
 
   const existing = await db
     .select({ id: agentRuns.id })
     .from(agentRuns)
-    .where(
-      and(
-        eq(agentRuns.roundId, roundId),
-        eq(agentRuns.agentKey, agent.agentKey),
-      ),
-    )
+    .where(and(eq(agentRuns.roundId, roundId), eq(agentRuns.agentKey, agent.agentKey)))
     .limit(1);
   if (existing.length > 0) {
     throw new DuplicateRunError(roundId, agent.agentKey);
@@ -113,11 +102,7 @@ export async function insertRun(
 
       const positions = envelope.picks.map((pick) => {
         const entryPrice = entryPrices[pick.symbol];
-        if (
-          entryPrice === undefined ||
-          !Number.isFinite(entryPrice) ||
-          entryPrice <= 0
-        ) {
+        if (entryPrice === undefined || !Number.isFinite(entryPrice) || entryPrice <= 0) {
           throw new MissingEntryPriceError(pick.symbol, asOfTradeDate);
         }
         const shares = (agent.initialCapital * pick.weight) / entryPrice;

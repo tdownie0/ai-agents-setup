@@ -162,10 +162,7 @@ describe("computeEquitySeries", () => {
     const positions = [makePosition("AAPL", 0.5, 100), makePosition("MSFT", 0.5, 200)];
     const closesA = Array.from({ length: 23 }, (_, i) => (i === 20 ? 120 : i === 21 ? 110 : 100));
     const closesM = Array.from({ length: 23 }, (_, i) => (i === 20 ? 160 : i === 21 ? 190 : 200));
-    const barsBySymbol = makeBars(
-      ["AAPL", bars("AAPL", closesA)],
-      ["MSFT", bars("MSFT", closesM)],
-    );
+    const barsBySymbol = makeBars(["AAPL", bars("AAPL", closesA)], ["MSFT", bars("MSFT", closesM)]);
 
     const series = computeEquitySeries(run, positions, barsBySymbol);
     expect(series).toHaveLength(23);
@@ -186,10 +183,7 @@ describe("computeEquitySeries", () => {
       { tradeDate: dates[1], close: 200 },
       { tradeDate: dates[3], close: 200 },
     ];
-    const barsBySymbol = makeBars(
-      ["AAPL", bars("AAPL", [100, 100, 100, 100])],
-      ["MSFT", msftBars],
-    );
+    const barsBySymbol = makeBars(["AAPL", bars("AAPL", [100, 100, 100, 100])], ["MSFT", msftBars]);
 
     const series = computeEquitySeries(run, positions, barsBySymbol);
     expect(series).toHaveLength(4);

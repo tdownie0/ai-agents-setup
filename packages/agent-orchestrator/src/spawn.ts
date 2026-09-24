@@ -172,7 +172,7 @@ export function buildAnalystPrompt(opts: BuildAnalystPromptOptions): string {
     "",
     "---",
     "OUTPUT FORMAT (STRICT)",
-    'Output ONLY a single JSON object matching this exact schema (schemaVersion 1). No prose, no markdown fences, no commentary before or after — the entire response must be parseable as one JSON object:',
+    "Output ONLY a single JSON object matching this exact schema (schemaVersion 1). No prose, no markdown fences, no commentary before or after — the entire response must be parseable as one JSON object:",
     ENVELOPE_SCHEMA_JSON,
     "",
     "Example of a valid envelope:",
@@ -272,11 +272,7 @@ function runProcess(
       if (settled) return;
       settled = true;
       child.kill("SIGKILL");
-      reject(
-        new Error(
-          `opencode run timed out after ${Math.round(timeoutMs / 1000)}s`,
-        ),
-      );
+      reject(new Error(`opencode run timed out after ${Math.round(timeoutMs / 1000)}s`));
     }, timeoutMs);
 
     child.stdout.on("data", (chunk: Buffer) => {
@@ -291,9 +287,7 @@ function runProcess(
       settled = true;
       clearTimeout(timer);
       reject(
-        new Error(
-          `Failed to spawn "${bin}": ${err.message}. Is opencode installed and on PATH?`,
-        ),
+        new Error(`Failed to spawn "${bin}": ${err.message}. Is opencode installed and on PATH?`),
       );
     });
 
@@ -318,9 +312,7 @@ function runProcess(
  * Run ONE analyst: spawn opencode, parse + validate the envelope, retry once
  * with a correction hint on failure.
  */
-export async function spawnAnalyst(
-  opts: SpawnAnalystOptions,
-): Promise<SpawnAnalystResult> {
+export async function spawnAnalyst(opts: SpawnAnalystOptions): Promise<SpawnAnalystResult> {
   const bin = opts.opencodeBin ?? "opencode";
   const timeoutMs = opts.timeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS;
   const maxAttempts = 2;
@@ -338,17 +330,10 @@ export async function spawnAnalyst(
       initialCapital: opts.initialCapital,
       replicateOf: opts.replicateOf,
       correctionHint:
-        attempt > 1 && lastFailure !== null
-          ? formatFailureHint(lastFailure)
-          : undefined,
+        attempt > 1 && lastFailure !== null ? formatFailureHint(lastFailure) : undefined,
     });
 
-    const { stdout, stderr } = await runProcess(
-      bin,
-      buildSpawnArgs(prompt),
-      opts.cwd,
-      timeoutMs,
-    );
+    const { stdout, stderr } = await runProcess(bin, buildSpawnArgs(prompt), opts.cwd, timeoutMs);
     lastStderr = stderr;
 
     try {
@@ -362,8 +347,7 @@ export async function spawnAnalyst(
     } catch (err) {
       lastFailure = err;
       if (attempt === maxAttempts) {
-        const detail =
-          err instanceof Error ? err.message : String(err);
+        const detail = err instanceof Error ? err.message : String(err);
         throw new SpawnAnalystError(
           `Analyst "${opts.agentKey}" failed after ${maxAttempts} attempts: ${detail}`,
           maxAttempts,

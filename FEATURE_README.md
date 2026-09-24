@@ -50,28 +50,28 @@ Analysis layer  DecisionProvider → DeterministicProvider (jev reserved)
 
 ### Database schema (`packages/database/src/schema/market_data.ts`, migration `0001_regular_dracula.sql`)
 
-| Table | Purpose | Key constraints |
-|-------|---------|-----------------|
-| `instruments` | Tradable instruments. Surrogate serial PK; `symbol` is never the PK because tickers change and get reused. | Partial unique index `instruments_symbol_active_unique_idx` on `symbol WHERE is_active = true`; `asset_class` defaults to `equity`; `is_active` defaults to `true` |
-| `daily_prices` | Daily OHLCV bars per instrument. | Unique index `daily_prices_instrument_trade_date_unique_idx` on `(instrument_id, trade_date)`; FK to `instruments.id` with `ON DELETE cascade`; `numeric(12,4)` OHLC columns; `volume` is `bigint` with Drizzle `mode: "number"` |
-| `ingestion_runs` | One audit row per run (backfill / update / manual). | `run_type` and `status` are typed text columns (`running` / `finished` / `failed`); counters `symbols_requested`, `symbols_succeeded`, `records_upserted`; nullable `error` |
+| Table            | Purpose                                                                                                    | Key constraints                                                                                                                                                                                                                  |
+| ---------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `instruments`    | Tradable instruments. Surrogate serial PK; `symbol` is never the PK because tickers change and get reused. | Partial unique index `instruments_symbol_active_unique_idx` on `symbol WHERE is_active = true`; `asset_class` defaults to `equity`; `is_active` defaults to `true`                                                               |
+| `daily_prices`   | Daily OHLCV bars per instrument.                                                                           | Unique index `daily_prices_instrument_trade_date_unique_idx` on `(instrument_id, trade_date)`; FK to `instruments.id` with `ON DELETE cascade`; `numeric(12,4)` OHLC columns; `volume` is `bigint` with Drizzle `mode: "number"` |
+| `ingestion_runs` | One audit row per run (backfill / update / manual).                                                        | `run_type` and `status` are typed text columns (`running` / `finished` / `failed`); counters `symbols_requested`, `symbols_succeeded`, `records_upserted`; nullable `error`                                                      |
 
 Drizzle relations (`relations.ts`) wire `instruments → many daily_prices` and `daily_prices → one instruments`. The schema is exported from `packages/database/src/index.ts` alongside the existing `users` and `notifications` tables.
 
 ### `packages/market-data` (the ingestion package)
 
-| Module | Role |
-|--------|------|
-| `src/types.ts` | Wire-format domain types: `PriceBar`, `InstrumentMeta`, `PriceSourceOptions` (concurrency 3, delay 2000ms + jitter, maxRetries 5) |
-| `src/sources/priceSource.ts` | The `PriceSource` seam: `fetchDailyBars(symbol, {years})` and best-effort `fetchInstrumentMeta(symbol)`. Implementations never read `process.env` |
+| Module                       | Role                                                                                                                                                                                                                                                          |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/types.ts`               | Wire-format domain types: `PriceBar`, `InstrumentMeta`, `PriceSourceOptions` (concurrency 3, delay 2000ms + jitter, maxRetries 5)                                                                                                                             |
+| `src/sources/priceSource.ts` | The `PriceSource` seam: `fetchDailyBars(symbol, {years})` and best-effort `fetchInstrumentMeta(symbol)`. Implementations never read `process.env`                                                                                                             |
 | `src/sources/yahooSource.ts` | Yahoo Finance adapter. `chart` for bars, `quote` for metadata, typed `PriceSourceError`, semaphore + throttle + exponential backoff. `formatTradeDate` pins the date to America/New_York via `Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" })` |
-| `src/universe.ts` | `DEFAULT_UNIVERSE`: 49 frozen US large-caps across 11 GICS sectors, code-owned so the DB never depends on enrichment |
-| `src/ingest/engine.ts` | `IngestEngine.runIngest`: advisory lock, per-symbol transaction, run audit, best-effort metadata |
-| `src/ingest/upsert.ts` | `upsertInstrument` (partial-index-aware `onConflictDoUpdate`) and `upsertBars` (`ON CONFLICT (instrument_id, trade_date) DO UPDATE` from `excluded.*`) |
-| `src/ingest/types.ts` | `IngestParams`, `IngestResult`, `SymbolFailure`, `ConcurrentRunError`, `INGEST_SOURCE = "yahoo"`, `INGEST_LOCK_KEY = 727112233445` |
-| `src/cli/runCli.ts` | Shared CLI runner: parses `--years N` / `--years=N`, builds `YahooSource` + `IngestEngine`, prints a run summary, exits 1 on failure |
-| `src/cli/backfill.ts` | Entrypoint: `dotenv/config`, then `runCli({ runType: "backfill", defaultYears: 30 })` |
-| `src/cli/update.ts` | Entrypoint: `dotenv/config`, then `runCli({ runType: "update", defaultYears: 5 })` |
+| `src/universe.ts`            | `DEFAULT_UNIVERSE`: 49 frozen US large-caps across 11 GICS sectors, code-owned so the DB never depends on enrichment                                                                                                                                          |
+| `src/ingest/engine.ts`       | `IngestEngine.runIngest`: advisory lock, per-symbol transaction, run audit, best-effort metadata                                                                                                                                                              |
+| `src/ingest/upsert.ts`       | `upsertInstrument` (partial-index-aware `onConflictDoUpdate`) and `upsertBars` (`ON CONFLICT (instrument_id, trade_date) DO UPDATE` from `excluded.*`)                                                                                                        |
+| `src/ingest/types.ts`        | `IngestParams`, `IngestResult`, `SymbolFailure`, `ConcurrentRunError`, `INGEST_SOURCE = "yahoo"`, `INGEST_LOCK_KEY = 727112233445`                                                                                                                            |
+| `src/cli/runCli.ts`          | Shared CLI runner: parses `--years N` / `--years=N`, builds `YahooSource` + `IngestEngine`, prints a run summary, exits 1 on failure                                                                                                                          |
+| `src/cli/backfill.ts`        | Entrypoint: `dotenv/config`, then `runCli({ runType: "backfill", defaultYears: 30 })`                                                                                                                                                                         |
+| `src/cli/update.ts`          | Entrypoint: `dotenv/config`, then `runCli({ runType: "update", defaultYears: 5 })`                                                                                                                                                                            |
 
 ### Backend (`apps/backend`)
 
@@ -102,12 +102,12 @@ These decisions were hard-won corrections during the epic; treat them as contrac
 
 All routes live under the `/api` base path (mounted at `/api/market-data`). Public reads need no auth; `POST /ingest` requires a Supabase Bearer token. Wire convention: OHLC values are strings, `volume` is a number.
 
-| Method | Path | Auth | Request | Response | Status codes |
-|--------|------|------|---------|----------|--------------|
-| GET | `/api/market-data/universe` | none | none | `UniverseEntryWire[]`: 49 entries `{ symbol, name, sector }`, always from the code-owned `DEFAULT_UNIVERSE` | 200 |
-| GET | `/api/market-data/prices/:symbol` | none | optional `?start=YYYY-MM-DD&end=YYYY-MM-DD` (inclusive filters on `trade_date`) | `PriceBarWire[]` oldest-first: `{ tradeDate, open, high, low, close, adjClose, volume, source }` | 200; 404 with `{ error, hint: "run POST /api/market-data/ingest first" }` when the symbol is unknown or has no bars in the window |
-| GET | `/api/market-data/latest` | none | none | `LatestBarWire[]` ordered by symbol: `{ symbol, name, tradeDate, close, adjClose, volume }`; only instruments with at least one bar appear (inner join on `max(trade_date)`) | 200 |
-| POST | `/api/market-data/ingest` | Bearer token (Supabase JWT via `authMiddleware`) | optional JSON body `{ "years": <positive int> }`; empty body defaults to 1 year; `runType` is always `"manual"` | `IngestResult`: `{ runId, runType, symbolsRequested, symbolsSucceeded, recordsUpserted, failedSymbols: [{ symbol, error }] }` | 200; 400 malformed JSON (`"Invalid JSON body"`) or non-positive/non-integer `years` (`"years must be a positive integer"`); 401 missing or invalid token; 409 `ConcurrentRunError` (`"another ingestion run is in progress"`); 500 any other failure |
+| Method | Path                              | Auth                                             | Request                                                                                                         | Response                                                                                                                                                                     | Status codes                                                                                                                                                                                                                                         |
+| ------ | --------------------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/market-data/universe`       | none                                             | none                                                                                                            | `UniverseEntryWire[]`: 49 entries `{ symbol, name, sector }`, always from the code-owned `DEFAULT_UNIVERSE`                                                                  | 200                                                                                                                                                                                                                                                  |
+| GET    | `/api/market-data/prices/:symbol` | none                                             | optional `?start=YYYY-MM-DD&end=YYYY-MM-DD` (inclusive filters on `trade_date`)                                 | `PriceBarWire[]` oldest-first: `{ tradeDate, open, high, low, close, adjClose, volume, source }`                                                                             | 200; 404 with `{ error, hint: "run POST /api/market-data/ingest first" }` when the symbol is unknown or has no bars in the window                                                                                                                    |
+| GET    | `/api/market-data/latest`         | none                                             | none                                                                                                            | `LatestBarWire[]` ordered by symbol: `{ symbol, name, tradeDate, close, adjClose, volume }`; only instruments with at least one bar appear (inner join on `max(trade_date)`) | 200                                                                                                                                                                                                                                                  |
+| POST   | `/api/market-data/ingest`         | Bearer token (Supabase JWT via `authMiddleware`) | optional JSON body `{ "years": <positive int> }`; empty body defaults to 1 year; `runType` is always `"manual"` | `IngestResult`: `{ runId, runType, symbolsRequested, symbolsSucceeded, recordsUpserted, failedSymbols: [{ symbol, error }] }`                                                | 200; 400 malformed JSON (`"Invalid JSON body"`) or non-positive/non-integer `years` (`"years must be a positive integer"`); 401 missing or invalid token; 409 `ConcurrentRunError` (`"another ingestion run is in progress"`); 500 any other failure |
 
 Notes on the implementation (`apps/backend/src/routes/marketData.ts`):
 
@@ -264,17 +264,17 @@ Jev is a TypeSafe System One: one typed state plus typed questions in one parall
 
 ## Files changed
 
-| File | Action | Description |
-|------|--------|-------------|
-| `packages/database/src/schema/market_data.ts` | CREATE | `instruments`, `daily_prices`, `ingestion_runs` tables + partial unique index |
-| `packages/database/src/schema/relations.ts` | MODIFY | Relations for instruments / daily_prices |
-| `packages/database/src/index.ts` | MODIFY | Export the market-data schema |
-| `packages/database/drizzle/0001_regular_dracula.sql` | CREATE | Migration for the three tables |
-| `packages/market-data/` | CREATE | New package: types, PriceSource seam, YahooSource, universe, ingest engine, CLI |
-| `apps/backend/src/routes/marketData.ts` | CREATE | Four RPC routes under `/api/market-data` |
-| `apps/backend/src/index.ts` | MODIFY | Mount market-data routes, extend `AppType` |
-| `apps/backend/src/analysis/` | CREATE | Decision layer: types, deterministic provider, registry, barrel |
-| `apps/backend/src/env.ts` | MODIFY | `DECISION_PROVIDER` env var |
+| File                                                 | Action | Description                                                                     |
+| ---------------------------------------------------- | ------ | ------------------------------------------------------------------------------- |
+| `packages/database/src/schema/market_data.ts`        | CREATE | `instruments`, `daily_prices`, `ingestion_runs` tables + partial unique index   |
+| `packages/database/src/schema/relations.ts`          | MODIFY | Relations for instruments / daily_prices                                        |
+| `packages/database/src/index.ts`                     | MODIFY | Export the market-data schema                                                   |
+| `packages/database/drizzle/0001_regular_dracula.sql` | CREATE | Migration for the three tables                                                  |
+| `packages/market-data/`                              | CREATE | New package: types, PriceSource seam, YahooSource, universe, ingest engine, CLI |
+| `apps/backend/src/routes/marketData.ts`              | CREATE | Four RPC routes under `/api/market-data`                                        |
+| `apps/backend/src/index.ts`                          | MODIFY | Mount market-data routes, extend `AppType`                                      |
+| `apps/backend/src/analysis/`                         | CREATE | Decision layer: types, deterministic provider, registry, barrel                 |
+| `apps/backend/src/env.ts`                            | MODIFY | `DECISION_PROVIDER` env var                                                     |
 
 ## Dependencies
 

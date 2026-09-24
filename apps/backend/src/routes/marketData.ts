@@ -121,10 +121,7 @@ export async function fetchLatestBars(dbClient: DbClient): Promise<LatestBarWire
     .innerJoin(latest, eq(instruments.id, latest.instrumentId))
     .innerJoin(
       dailyPrices,
-      and(
-        eq(dailyPrices.instrumentId, instruments.id),
-        eq(dailyPrices.tradeDate, latest.maxDate),
-      ),
+      and(eq(dailyPrices.instrumentId, instruments.id), eq(dailyPrices.tradeDate, latest.maxDate)),
     )
     .orderBy(instruments.symbol);
 }

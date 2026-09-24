@@ -58,8 +58,7 @@ function volatility21d(px: number[]): number | null {
     rets.push(px[i] / px[i - 1] - 1);
   }
   const mean = rets.reduce((acc, v) => acc + v, 0) / rets.length;
-  const variance =
-    rets.reduce((acc, v) => acc + (v - mean) ** 2, 0) / (rets.length - 1);
+  const variance = rets.reduce((acc, v) => acc + (v - mean) ** 2, 0) / (rets.length - 1);
   return round(Math.sqrt(variance) * Math.sqrt(TRADING_DAYS_PER_YEAR) * 100, 2);
 }
 
@@ -124,10 +123,7 @@ export function generateQuestions(
 }
 
 export class DeterministicProvider implements DecisionProvider {
-  async analyze(
-    symbol: string,
-    opts?: { asOfTradeDate?: string },
-  ): Promise<AnalysisSnapshot> {
+  async analyze(symbol: string, opts?: { asOfTradeDate?: string }): Promise<AnalysisSnapshot> {
     const sym = symbol.trim().toUpperCase();
     const conditions = [eq(instruments.symbol, sym)];
     if (opts?.asOfTradeDate !== undefined) {
@@ -153,7 +149,11 @@ export class DeterministicProvider implements DecisionProvider {
       if (adjusted === null) continue;
       const px = Number(adjusted);
       if (!Number.isFinite(px)) continue;
-      bars.push({ tradeDate: row.tradeDate, px, close: row.close === null ? null : Number(row.close) });
+      bars.push({
+        tradeDate: row.tradeDate,
+        px,
+        close: row.close === null ? null : Number(row.close),
+      });
     }
     if (bars.length === 0) {
       const suffix = opts?.asOfTradeDate ? ` as of ${opts.asOfTradeDate}` : "";

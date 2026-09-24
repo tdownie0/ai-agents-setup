@@ -207,7 +207,8 @@ export function buildAgentDetail(
   const positionWires: PositionWire[] = positions.map((pos) => {
     const symbolBars = groupedBars.get(pos.symbol);
     const symbolBarsList = symbolBars?.bars ?? [];
-    const latest = symbolBarsList.length > 0 ? symbolBarsList[symbolBarsList.length - 1] : undefined;
+    const latest =
+      symbolBarsList.length > 0 ? symbolBarsList[symbolBarsList.length - 1] : undefined;
     const entryPrice = parseNumeric(pos.entryPrice);
     const shares = parseNumeric(pos.shares);
     const latestPrice = latest?.close ?? entryPrice;
@@ -232,13 +233,15 @@ export function buildAgentDetail(
     rationale: run.rationale,
     decisionJson: run.decisionJson,
     positions: positionWires,
-    equitySeries: series.map((p: EquityPoint): EquityPointWire => ({
-      tradeDate: p.tradeDate,
-      totalValue: p.totalValue,
-      returnPct: p.returnPct,
-      cash: p.cash,
-      holdingsValue: p.holdingsValue,
-    })),
+    equitySeries: series.map(
+      (p: EquityPoint): EquityPointWire => ({
+        tradeDate: p.tradeDate,
+        totalValue: p.totalValue,
+        returnPct: p.returnPct,
+        cash: p.cash,
+        holdingsValue: p.holdingsValue,
+      }),
+    ),
   };
 }
 
@@ -259,10 +262,7 @@ const portfolioApp = new Hono()
   .get("/agents/:id", async (c) => {
     const id = Number(c.req.param("id"));
     if (!Number.isInteger(id) || id <= 0) {
-      return c.json(
-        { error: "Invalid run id", hint: "run id must be a positive integer" },
-        400,
-      );
+      return c.json({ error: "Invalid run id", hint: "run id must be a positive integer" }, 400);
     }
     const run = await loadRunById(db, id);
     if (run === undefined || run.status !== "completed") {

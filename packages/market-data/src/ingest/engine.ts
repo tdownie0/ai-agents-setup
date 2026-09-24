@@ -33,9 +33,7 @@ import {
 
 /** Acquire the single-flight advisory lock; false when another run holds it. */
 async function tryAcquireLock(db: DbClient): Promise<boolean> {
-  const [row] = await db.execute(
-    sql`SELECT pg_try_advisory_lock(${INGEST_LOCK_KEY}) AS acquired`,
-  );
+  const [row] = await db.execute(sql`SELECT pg_try_advisory_lock(${INGEST_LOCK_KEY}) AS acquired`);
   return (row as { acquired?: boolean } | undefined)?.acquired === true;
 }
 

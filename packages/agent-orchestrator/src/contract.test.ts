@@ -55,10 +55,7 @@ function validEnvelope(overrides: Partial<DecisionEnvelope> = {}): DecisionEnvel
   };
 }
 
-function expectValidationError(
-  envelope: unknown,
-  expectedFragment: string,
-): void {
+function expectValidationError(envelope: unknown, expectedFragment: string): void {
   try {
     validateEnvelope(envelope, {
       universe: UNIVERSE,
@@ -170,7 +167,9 @@ describe("validateEnvelope — pick count boundaries", () => {
   });
 
   it("rejects a non-array picks field", () => {
-    const envelope = validEnvelope({ picks: "not-an-array" as unknown as DecisionEnvelope["picks"] });
+    const envelope = validEnvelope({
+      picks: "not-an-array" as unknown as DecisionEnvelope["picks"],
+    });
     expectValidationError(envelope, "picks must be an array");
   });
 });
@@ -216,7 +215,7 @@ describe("validateEnvelope — symbol membership", () => {
     const symbolsWithPrice = new Set(UNIVERSE.filter((s) => s !== "MSFT"));
     try {
       validateEnvelope(envelope, { universe: UNIVERSE, symbolsWithPrice });
-      expect.unreachable("expected validation to fail with \"no price data\"");
+      expect.unreachable('expected validation to fail with "no price data"');
     } catch (err) {
       expect(err).toBeInstanceOf(DecisionValidationError);
       expect((err as DecisionValidationError).message).toContain("no price data");
@@ -346,10 +345,7 @@ describe("validateEnvelope — envelope-level fields", () => {
 
   it("rejects a pick with a missing thesis", () => {
     const envelope = validEnvelope({
-      picks: [
-        ...validEnvelope().picks.slice(0, 4),
-        { symbol: "V", weight: 0.2, thesis: "" },
-      ],
+      picks: [...validEnvelope().picks.slice(0, 4), { symbol: "V", weight: 0.2, thesis: "" }],
     });
     expectValidationError(envelope, "thesis");
   });

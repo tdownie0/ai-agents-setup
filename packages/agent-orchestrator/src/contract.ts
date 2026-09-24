@@ -94,10 +94,7 @@ function isNonEmptyString(value: unknown): value is string {
  * Throws `DecisionValidationError` (with one message per issue) on any
  * violation. Returns the typed envelope on success.
  */
-export function validateEnvelope(
-  value: unknown,
-  opts: ValidateEnvelopeOptions,
-): DecisionEnvelope {
+export function validateEnvelope(value: unknown, opts: ValidateEnvelopeOptions): DecisionEnvelope {
   const issues: string[] = [];
 
   if (!isRecord(value)) {

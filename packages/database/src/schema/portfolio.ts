@@ -66,10 +66,7 @@ export const agentRuns = pgTable(
   (table) => [
     // One run per agent per round — a replica shares the base agentKey, so
     // consistency checks key off roundId + agentKey.
-    uniqueIndex("agent_runs_round_id_agent_key_unique_idx").on(
-      table.roundId,
-      table.agentKey,
-    ),
+    uniqueIndex("agent_runs_round_id_agent_key_unique_idx").on(table.roundId, table.agentKey),
   ],
 );
 
