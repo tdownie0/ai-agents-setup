@@ -15,6 +15,13 @@
       "when": 1790155168057,
       "tag": "0001_regular_dracula",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790258133120,
+      "tag": "0002_married_thanos",
+      "breakpoints": true
     }
   ]
 }

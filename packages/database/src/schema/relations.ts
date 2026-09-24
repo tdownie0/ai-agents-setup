@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 import { users } from "./users.js";
 import { notifications } from "./notifications.js";
 import { instruments, dailyPrices } from "./market_data.js";
+import { agentRuns, portfolioPositions } from "./portfolio.js";
 
 export const usersRelations = relations(users, ({ many }) => ({
   notifications: many(notifications),
@@ -22,5 +23,16 @@ export const dailyPricesRelations = relations(dailyPrices, ({ one }) => ({
   instrument: one(instruments, {
     fields: [dailyPrices.instrumentId],
     references: [instruments.id],
+  }),
+}));
+
+export const agentRunsRelations = relations(agentRuns, ({ many }) => ({
+  portfolioPositions: many(portfolioPositions),
+}));
+
+export const portfolioPositionsRelations = relations(portfolioPositions, ({ one }) => ({
+  agentRun: one(agentRuns, {
+    fields: [portfolioPositions.agentRunId],
+    references: [agentRuns.id],
   }),
 }));
