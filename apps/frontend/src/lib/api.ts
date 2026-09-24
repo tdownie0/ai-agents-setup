@@ -15,6 +15,11 @@ export const client = hc<AppType>("/");
 export type ApiUser = InferResponseType<typeof client.api.users.$get>[number];
 export type ApiNotification = InferResponseType<typeof client.api.notifications.$get>[number];
 
+export type ApiLeaderboardRow = InferResponseType<
+  typeof client.api.portfolio.leaderboard.$get
+>[number];
+export type ApiAgentDetail = InferResponseType<(typeof client.api.portfolio.agents)[":id"]["$get"]>;
+
 // Resolves the current Supabase session token into an Authorization header.
 // Returns an empty object when no session is present so public calls work.
 export const getAuthHeaders = async (): Promise<Record<string, string>> => {
