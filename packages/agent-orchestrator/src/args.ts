@@ -72,6 +72,11 @@ export function parseCliArgs(argv: readonly string[]): ParseCliResult {
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
+    if (arg === "--") {
+      // Bare "--" is the POSIX end-of-options marker; pnpm/tooling may
+      // forward it into the script argv. Ignore it.
+      continue;
+    }
     const eqIndex = arg.indexOf("=");
     const flag = eqIndex === -1 ? arg : arg.slice(0, eqIndex);
     const inline = eqIndex === -1 ? undefined : arg.slice(eqIndex + 1);

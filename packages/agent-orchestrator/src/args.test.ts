@@ -61,6 +61,11 @@ describe("parseCliArgs", () => {
     expect(() => parseCliArgs(["--capital", "100"])).toThrow(/--round/);
   });
 
+  it("ignores a bare '--' separator forwarded by pnpm", () => {
+    const opts = parseCliArgs(["--", "--round", "r1", "--agents", "dr-value"]);
+    expect(opts).toMatchObject({ round: "r1", agents: ["dr-value"] });
+  });
+
   it("throws on an unknown flag", () => {
     expect(() => parseCliArgs(["--round", "r1", "--bogus"])).toThrow(/unknown flag/);
   });
