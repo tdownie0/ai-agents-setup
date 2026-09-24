@@ -286,3 +286,154 @@ Jev is a TypeSafe System One: one typed state plus typed questions in one parall
 - Database specialist rules: `packages/database/AGENTS.md`
 - Backend specialist rules: `apps/backend/AGENTS.md`
 - Beads enforcement and swarm protocol: `.agents/beads-enforcement.md`
+
+---
+
+## 10. Portfolio Simulation + Multi-Agent Financial Analysts
+
+### Overview
+
+The Portfolio Simulation feature turns the market-data OHLCV universe into a forward paper-trading arena. A multi-agent orchestrator spawns six Ph.D-level analyst personas, each with a distinct research methodology, risk stance, and rebalance window. Each analyst reads a self-contained dataset, picks 5 to 10 investments, and emits a JSON decision envelope. The backend valuation engine fills those picks at decision-time close, derives a daily equity curve per run, and ranks the runs into a leaderboard. The frontend renders the leaderboard and per-agent drilldowns with a hand-rolled SVG equity chart.
+
+**Status**: COMPLETED
+**Date**: 2026-09-24
+**Feature Branch**: `feat-portfolio-sim`
+**Epic**: Portfolio Simulation + Multi-Agent Financial Analysts (beads task ez8, swarm epic `model_md-worktree-feat-portfolio-sim-dkq`)
+**Beads task**: ez8
+**Upstream dependency**: Market Data Pipeline (sections 1-8), which provides the 49-symbol OHLCV universe the analysts pick from.
+
+Phase 1 deliberately spends no Jev. The analyst subagents run headlessly via `opencode run --format json`, and the paid-model seam stays reserved for a future phase.
+
+---
+
+### 10.1 Summary
+
+Three layers make up the feature:
+
+1. **Orchestrator** (`packages/agent-orchestrator/`): a CLI (`pnpm agents:run`) that builds a self-contained analyst dataset from `daily_prices`, spawns varied-persona analyst subagents (no Jev spend), validates their decision envelopes against a frozen contract, and inserts them into the DB with entry fills.
+2. **Backend engine** (`apps/backend/src/portfolio/`): a pure derivation layer that computes each run's equity curve from positions plus `daily_prices`, ranks runs by total return, and serves two public RPC routes under `/api/portfolio`.
+3. **Frontend** (`apps/frontend/src/components/portfolio/`): a leaderboard of ranked analyst runs with drilldown into per-agent detail, positions, rationale, and an SVG equity chart.
+
+The near-term constraint mirrors the market-data phase: **Phase 1 deliberately excludes paying for Jev; the analyst subagents run headlessly via `opencode run --format json`.** A paid model client can later plug into the `DecisionProvider` seam or the orchestrator's persona spawn cost model.
+
+---
+
+### 10.2 Architecture
+
+```
+Analyst personas (6 Ph.D-level, varied prompts, no Jev spend)
+        │  opencode run --format json (headless subagent, cwd = worktree root)
+        ▼
+spawn.ts ── parse NDJSON stdout → extract JSON → validate envelope (contract.ts)
+        │  DecisionEnvelope { schemaVersion, roundId, agent, rationale, picks[5-10] }
+        ▼
+insert.ts ── one transaction: agent_runs row + portfolio_positions rows with entry fills
+        │  entryTradeDate = dataset asOfTradeDate · entryPrice = close that day
+        │  shares = initialCapital × targetWeight / entryPrice
+        ▼
+Postgres (Supabase-managed)  agent_runs · portfolio_positions
+        │
+        ▼
+PortfolioEngine (apps/backend/src/portfolio)  valuation.ts + ranking.ts
+        │  equity curve from positions + daily_prices (never stored)
+        │  leaderboard sorted DESC by totalReturnPct
+        ▼
+Hono RPC  /api/portfolio/*  (GET leaderboard, GET agents/:id)
+        │
+        ▼
+Frontend  PortfolioLeaderboard → PortfolioDetail → EquityChart (SVG, no chart deps)
+```
+
+#### Database schema (`packages/database/src/schema/portfolio.ts`, migration `0002_married_thanos.sql`)
+
+| Table                  | Purpose                                                                                                                          | Key constraints                                                                                                                                                                                                 |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent_runs`           | One analyst subagent's decision per simulation round.                                                                            | Serial PK; unique index `agent_runs_round_id_agent_key_unique_idx` on `(round_id, agent_key)`; `replicate_of` self-reference for consistency replicas; `window` typed `daily`/`weekly`/`monthly`; `status` typed `pending`/`completed`/`failed` (default `completed`) |
+| `portfolio_positions`  | One equal-weight pick per run, with the entry fill at decision-time close.                                                      | Serial PK; FK to `agent_runs.id` with `ON DELETE cascade`; unique index `portfolio_positions_agent_run_id_symbol_unique_idx` on `(agent_run_id, symbol)`; `shares` = `initialCapital × targetWeight / entryPrice` (fractional shares allowed) |
+
+`agent_runs` carries the run identity and decision: `id`, `agent_key`, `persona`, `strategy`, `window`, `replicate_of`, `round_id`, `initial_capital`, `rationale`, `decision_json`, `status`, and timestamps. The performance metrics `current_value`, `total_return_pct`, `sharpe`, `max_drawdown_pct`, and `as_of_trade_date` are derived by the backend ranking engine from the equity series; they are never stored. `portfolio_positions` stores the entry fill: `id`, `run_id`, `symbol`, `target_weight`, `shares`, `entry_trade_date`, `entry_price`. The marks `name`, `latest_trade_date`, `latest_price`, `value`, and `unrealized_pnl_pct` are computed in the route layer from `daily_prices`.
+
+Drizzle relations (`relations.ts`) wire `agent_runs → many portfolio_positions` and `portfolio_positions → one agent_runs`. The schema is exported from `packages/database/src/index.ts` alongside `users`, `notifications`, and the market-data tables.
+
+#### Backend engine (`apps/backend/src/portfolio/`)
+
+| Module        | Role                                                                                                                                                                                                                                                          |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`    | Wire types: `EquityPoint`, `RankingResult`, `REBALANCE_CADENCE` (daily=1, weekly=5, monthly=21), and `parseNumeric` (DB numeric strings parsed to JS numbers at the edge)                                                                                      |
+| `valuation.ts`| `computeEquitySeries`: shares = `initialCapital × targetWeight / entryPrice`; `entryTradeDate` = the latest `trade_date`; `entryPrice` = that day's close; rebalance to equal target weights every Nth trading day (daily=1, weekly=5, monthly=21); total value preserved by construction |
+| `ranking.ts`  | `computeRanking`: total-return-based ranking with Sharpe (mean/stdev × √252, rf=0) and max drawdown (negative %)                                                                                |
+| `index.ts`    | `PortfolioEngine` orchestrator: read-only query helpers (`loadRunsForLeaderboard`, `loadRunById`, `loadPositionsForRuns`, `loadBarsForRuns`). The engine never writes; the orchestrator owns ingest |
+
+Routes live in `apps/backend/src/routes/portfolio.ts`, mounted `.route("/portfolio", portfolioHandler)` in `apps/backend/src/index.ts`. The backend suite is 19/19 vitest tests passing, tsc clean.
+
+---
+
+### 10.3 API contract
+
+Both routes are public reads (no auth), consistent with the market-data reads. Wire convention: portfolio values are computed numbers, so they go out as JSON numbers (unlike raw OHLC bars, which stay strings). The contract is frozen by gate `contract-portfolio-api`.
+
+| Method | Path                          | Auth | Request                                        | Response                                                                                                                                                                                                                                                                                                                                 | Status codes                                                                                     |
+| ------ | ----------------------------- | ---- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| GET    | `/api/portfolio/leaderboard`  | none | optional `?round=<id>`; default latest round   | array sorted DESC by `totalReturnPct`: `[{ runId, agentKey, persona, strategy, window, replicateOf, roundId, initialCapital, currentValue, totalReturnPct, sharpe, maxDrawdownPct, asOfTradeDate, status }]`                                                                                                                             | 200 (empty array when no completed runs)                                                          |
+| GET    | `/api/portfolio/agents/:id`   | none | none                                           | `{ runId, agentKey, persona, strategy, window, replicateOf, roundId, initialCapital, currentValue, totalReturnPct, sharpe, maxDrawdownPct, asOfTradeDate, status, rationale, decisionJson, positions: [{ symbol, name, targetWeight, shares, entryTradeDate, entryPrice, latestTradeDate, latestPrice, value, unrealizedPnlPct }], equitySeries: [{ tradeDate, totalValue, returnPct, cash, holdingsValue }] }` | 200; 400 `{ error, hint }` bad id; 404 `{ error, hint }` missing or not completed                 |
+
+Notes on the implementation (`apps/backend/src/routes/portfolio.ts`):
+
+- The leaderboard only includes runs with `status = "completed"` and at least one position; the latest round is resolved by run `created_at`.
+- `:id` must be a positive integer; anything else returns 400. A run that does not exist or is not `completed` returns 404.
+- The equity series is derived on the fly from positions plus `daily_prices`; nothing is persisted per day.
+
+---
+
+### 10.4 Orchestrator (`packages/agent-orchestrator/`)
+
+| Module        | Role                                                                                                                                                                                                                                                          |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `personas.ts` | Six Ph.D-level analyst personas (Dr. Value, Dr. Momentum, Dr. Contrarian, Dr. Macro, Dr. Compounder, Dr. Technical), each with a distinct methodology, risk stance, and rebalance window; prompts written to diverge                                          |
+| `dataset.ts`  | Builds a self-contained `rounds/<roundId>/dataset.json` from `daily_prices`: per-symbol returns, volatility21d, RSI-14, SMAs, 52-week range, avg dollar volume. The analyst never touches the DB; dataset.json is the only truth                                  |
+| `contract.ts` | The agent-decision contract: `DecisionEnvelope` (schemaVersion 1, roundId, agent, rationale, picks[5-10]) with `validateEnvelope` as the single gate; anything that passes is insertable and valuatable                                                          |
+| `spawn.ts`    | Spawns each analyst headlessly via `opencode run --format json`, parses the NDJSON stdout stream, extracts the JSON envelope, validates it, and retries once with a correction hint on failure |
+| `insert.ts`   | Inserts one validated envelope in a transaction: one `agent_runs` row plus one `portfolio_positions` row per pick with entry fills; `DuplicateRunError` on an existing `(roundId, agentKey)`    |
+| `cli.ts` / `args.ts` | CLI entrypoint `pnpm agents:run -- --round <roundId>`; the only module that reads `process.env` / `process.argv`; pure arg parsing kept import-free for tests                                     |
+
+Flow: build dataset → spawn agents (parallel, capped at `--max-parallel 3`) → validate → insert each → print a summary table. A multi-agent round is tracked as a swarm: epic `model_md-worktree-feat-portfolio-sim-dkq` wraps beads task ez8. The orchestrator suite is 54/54 vitest tests passing, tsc clean. Gate `contract-agent-decision`.
+
+---
+
+### 10.5 Frontend (`apps/frontend/src/components/portfolio/`)
+
+| Component                  | Role                                                                                                                                                                                                                                                          |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PortfolioLeaderboard.tsx` | Ranked table (rank, agent, strategy, window, current value, total return, Sharpe, max drawdown, as-of); loading / empty / error+retry states; replica badge; row click drills into the run      |
+| `PortfolioDetail.tsx`      | Agent card with stats, rationale, positions table, EquityChart, back link; friendly 400/404 errors rendered from `{ error, hint }`                                                                                                                             |
+| `EquityChart.tsx`          | Hand-rolled SVG area/line chart, no chart dependencies; scales `returnPct` with a dashed zero line and gridlines                                                                                |
+| `format.ts`                | `formatCurrency`, `formatPct`, `formatWindow` helpers                                                                                                                                                                                                          |
+
+Wire types `ApiLeaderboardRow` and `ApiAgentDetail` are derived via `InferResponseType` in `apps/frontend/src/lib/api.ts`, the centralized Hono client (no raw fetch). `App.tsx` is session-gated with Portfolio/Users tab navigation (default Portfolio view) and lightweight `selectedRunId` routing; deliberately no react-router. Gate `ui-contract-portfolio`.
+
+---
+
+### 10.6 Verification
+
+- **Lifecycle**: `install`, `verify`, and `build` SUCCESS; workspace lint PASS; frontend `tsc` PASS.
+- **Format**: a 41-file repo-wide fmt churn was applied via lifecycle `format` (commit `e5a28d9`); all checks green at epic close.
+- **Test counts**: backend portfolio engine 19/19 vitest tests; orchestrator 54/54 vitest tests.
+- **Commits**: `98766b6` (schema), `70dc47e` (backend), `e862c11` (orchestrator), `0841f48` (frontend), `e5a28d9` (format).
+
+---
+
+### 10.7 Beads & Gates
+
+- **Epic**: `model_md-worktree-feat-portfolio-sim-ez8` (beads task ez8; the multi-agent round swarm epic `model_md-worktree-feat-portfolio-sim-dkq` wraps it).
+- **Gates**:
+  - `schema-portfolio`: DB schema for `agent_runs` / `portfolio_positions` (migration `0002_married_thanos.sql`)
+  - `contract-portfolio-api`: frozen API contracts for `/api/portfolio/*`
+  - `contract-agent-decision`: the `DecisionEnvelope` handoff between orchestrator and backend
+  - `ui-contract-portfolio`: frontend leaderboard / detail / chart contract
+
+---
+
+### 10.8 Future work (explicitly out of phase 1)
+
+- A paid model client can plug into the `DecisionProvider` seam (see the Market Data section) or the orchestrator's persona spawn cost model.
+- No Jev spend in phase 1 by design; the analyst subagents run headlessly via `opencode run --format json`.
