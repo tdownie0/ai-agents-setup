@@ -5,6 +5,7 @@ import * as users from "./schema/users.js";
 import * as notifications from "./schema/notifications.js";
 import * as marketData from "./schema/market_data.js";
 import * as portfolio from "./schema/portfolio.js";
+import * as roundJobs from "./schema/roundJobs.js";
 import * as relations from "./schema/relations.js";
 
 export const schema = {
@@ -12,6 +13,7 @@ export const schema = {
   ...notifications,
   ...marketData,
   ...portfolio,
+  ...roundJobs,
   ...relations,
 };
 
@@ -27,4 +29,5 @@ export * from "./schema/users.js";
 export * from "./schema/notifications.js";
 export * from "./schema/market_data.js";
 export * from "./schema/portfolio.js";
+export * from "./schema/roundJobs.js";
 export * from "./schema/relations.js";

@@ -20,6 +20,9 @@ infra/bin/mcp-gateway-setup/catalog.json
 infra/bin/mcp-gateway-setup/local-mcp.yaml
 services.json
 
+# Generated round datasets (backend ROUNDS_DIR output, rebuilt per round)
+/rounds/
+
 
 # Beads / Dolt files (added by bd init)
 .dolt/

@@ -3,6 +3,7 @@ import { users } from "./users.js";
 import { notifications } from "./notifications.js";
 import { instruments, dailyPrices } from "./market_data.js";
 import { agentRuns, portfolioPositions } from "./portfolio.js";
+import { roundAgentProgress, roundJobs } from "./roundJobs.js";
 
 export const usersRelations = relations(users, ({ many }) => ({
   notifications: many(notifications),
@@ -33,6 +34,21 @@ export const agentRunsRelations = relations(agentRuns, ({ many }) => ({
 export const portfolioPositionsRelations = relations(portfolioPositions, ({ one }) => ({
   agentRun: one(agentRuns, {
     fields: [portfolioPositions.agentRunId],
+    references: [agentRuns.id],
+  }),
+}));
+
+export const roundJobsRelations = relations(roundJobs, ({ many }) => ({
+  agents: many(roundAgentProgress),
+}));
+
+export const roundAgentProgressRelations = relations(roundAgentProgress, ({ one }) => ({
+  round: one(roundJobs, {
+    fields: [roundAgentProgress.roundId],
+    references: [roundJobs.roundId],
+  }),
+  run: one(agentRuns, {
+    fields: [roundAgentProgress.runId],
     references: [agentRuns.id],
   }),
 }));

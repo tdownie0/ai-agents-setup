@@ -1,11 +1,18 @@
 /**
- * Pure-function tests for the portfolio-orchestrator MCP server.
+ * Unit tests for the portfolio-orchestrator MCP server.
  *
  * `src/index.ts` is intentionally NOT imported (it connects the stdio
  * transport at module scope and requires runtime env). Everything tested
- * here is a parameter-driven module: config, agent resolution, the job
- * registry + pool, the backend client (stubbed fetch), and the docker-exec
- * spawner (injected exec).
+ * here is a parameter-driven module: config, agent resolution, the bounded
+ * pool, the backend client (stubbed fetch), the docker-exec spawner (injected
+ * exec), the durable round store, and the round runner (injected store +
+ * spawner).
+ *
+ * The runner/store tests are the regression net for the original failure: the
+ * docker MCP gateway runs this server as a throwaway container per tool call,
+ * so unawaited work died mid-round and in-memory state was unreachable from the
+ * next call. Progress must therefore be persisted through the store, and
+ * `start_agent_round` must await the pool.
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -17,7 +24,15 @@ import {
 } from "../src/agents.js";
 import { createBackendClient, BackendError } from "../src/backendClient.js";
 import { loadConfig, parsePositiveInt, ConfigError } from "../src/config.js";
-import { JobRegistry, runPool } from "../src/jobs.js";
+import { runPool } from "../src/jobs.js";
+import {
+  createRoundStore,
+  deriveFinalStatus,
+  RoundAlreadyLaunchedError,
+  RoundJobMissingError,
+} from "../src/roundStore.js";
+import { runAgents, type DatasetWire } from "../src/runner.js";
+import type { OrchestratorConfig } from "../src/config.js";
 import {
   buildAgentStateDirs,
   buildDockerExecArgs,
@@ -25,6 +40,12 @@ import {
   type ExecImpl,
   type DockerExecResult,
 } from "../src/spawnViaDocker.js";
+
+const fakeResponse = (status: number, payload: unknown): Response =>
+  new Response(JSON.stringify(payload), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 
 const VALID_ENVELOPE = {
   schemaVersion: 1,
@@ -156,78 +177,266 @@ describe("paths and round id guards", () => {
   });
 });
 
-describe("JobRegistry", () => {
-  it("tracks a round from launch to done", () => {
-    const registry = new JobRegistry();
-    const job = registry.start("w1");
-    expect(job.status).toBe("launching");
-    expect(registry.has("w1")).toBe(true);
-    expect(registry.get("missing")).toBeUndefined();
-
-    registry.setJobInfo("w1", {
-      asOfTradeDate: "2026-09-22",
-      datasetPath: "/app/worktrees/slug/rounds/w1/dataset.json",
-    });
-    const jobs: AgentJob[] = [
-      { personaKey: "dr-value", agentKey: "dr-value" },
-      { personaKey: "dr-momentum", agentKey: "dr-momentum" },
-    ];
-    registry.setAgents("w1", jobs);
-    expect(registry.get("w1")?.agents.map((agent) => agent.status)).toEqual([
-      "pending",
-      "pending",
-    ]);
-
-    registry.setStatus("w1", "running");
-    registry.updateAgent("w1", "dr-value", {
-      status: "inserted",
-      runId: 7,
-      picks: 5,
-      attempts: 1,
-    });
-    registry.updateAgent("w1", "dr-momentum", { status: "inserted", runId: 8, picks: 6 });
-    registry.finalize("w1");
-
-    const finished = registry.get("w1");
-    expect(finished?.status).toBe("done");
-    expect(finished?.completedAt).toBeDefined();
-    expect(finished?.agents[0].runId).toBe(7);
+describe("deriveFinalStatus", () => {
+  it("is done only when every agent inserted", () => {
+    expect(deriveFinalStatus([{ status: "inserted" }, { status: "inserted" }])).toBe("done");
   });
 
-  it("finalizes partial when some agents fail", () => {
-    const registry = new JobRegistry();
-    registry.start("w2");
-    registry.setAgents("w2", [
-      { personaKey: "dr-value", agentKey: "dr-value" },
-      { personaKey: "dr-momentum", agentKey: "dr-momentum" },
-    ]);
-    registry.updateAgent("w2", "dr-value", { status: "inserted" });
-    registry.updateAgent("w2", "dr-momentum", { status: "failed", error: "boom" });
-    registry.finalize("w2");
-    expect(registry.get("w2")?.status).toBe("partial");
+  it("is partial on a mix of inserted and failed", () => {
+    expect(deriveFinalStatus([{ status: "inserted" }, { status: "failed" }])).toBe("partial");
   });
 
-  it("finalizes error when all agents fail", () => {
-    const registry = new JobRegistry();
-    registry.start("w3");
-    registry.setAgents("w3", [
-      { personaKey: "dr-value", agentKey: "dr-value" },
-      { personaKey: "dr-momentum", agentKey: "dr-momentum" },
-    ]);
-    registry.updateAgent("w3", "dr-value", { status: "failed", error: "boom" });
-    registry.updateAgent("w3", "dr-momentum", { status: "failed", error: "boom" });
-    registry.finalize("w3");
-    expect(registry.get("w3")?.status).toBe("error");
+  it("is error when every agent failed", () => {
+    expect(deriveFinalStatus([{ status: "failed" }, { status: "failed" }])).toBe("error");
   });
 
-  it("ignores patches for unknown rounds and agents", () => {
-    const registry = new JobRegistry();
-    expect(() => registry.updateAgent("nope", "dr-value", { status: "failed" })).not.toThrow();
-    registry.start("w4");
-    expect(() => registry.updateAgent("w4", "nope", { status: "failed" })).not.toThrow();
+  it("is error when an agent never ran", () => {
+    expect(deriveFinalStatus([{ status: "inserted" }, { status: "pending" }])).toBe("partial");
+    expect(deriveFinalStatus([])).toBe("error");
   });
 });
 
+describe("createRoundStore", () => {
+  const base = "http://backend:3000";
+
+  const makeClient = (handler: (url: string, init?: RequestInit) => Response | Promise<Response>) =>
+    createBackendClient(base, (async (url: RequestInfo | URL, init?: RequestInit) =>
+      handler(String(url), init)) as unknown as typeof fetch);
+
+  it("POSTs the launch payload to the round job endpoint", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    const store = createRoundStore(
+      makeClient((url, init) => {
+        calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+        return fakeResponse(201, { roundId: "w1", job: null, agents: [] });
+      }),
+    );
+
+    await store.startRound({
+      roundId: "w1",
+      agents: [{ agentKey: "dr-value", personaKey: "dr-value" }],
+      maxParallel: 3,
+      capital: 100000,
+      asOfTradeDate: "2026-09-25",
+      datasetPath: "/app/worktrees/slug/rounds/w1/dataset.json",
+    });
+
+    expect(calls[0]?.url).toBe("http://backend:3000/api/portfolio/rounds/w1/job");
+    expect(calls[0]?.body).toEqual({
+      agents: [{ agentKey: "dr-value", personaKey: "dr-value" }],
+      maxParallel: 3,
+      capital: 100000,
+      asOfTradeDate: "2026-09-25",
+      datasetPath: "/app/worktrees/slug/rounds/w1/dataset.json",
+      takeover: false,
+    });
+  });
+
+  it("maps a 409 launch rejection to RoundAlreadyLaunchedError with the job", async () => {
+    const store = createRoundStore(
+      makeClient(() =>
+        fakeResponse(409, { error: "round \"w1\" was already launched", job: { status: "running" } }),
+      ),
+    );
+
+    await expect(
+      store.startRound({
+        roundId: "w1",
+        agents: [{ agentKey: "dr-value", personaKey: "dr-value" }],
+        maxParallel: 3,
+        capital: 100000,
+      }),
+    ).rejects.toBeInstanceOf(RoundAlreadyLaunchedError);
+  });
+
+  it("PUTs agent progress to the per-agent endpoint", async () => {
+    const seen: { url: string; body: unknown }[] = [];
+    const store = createRoundStore(
+      makeClient((url, init) => {
+        seen.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+        return fakeResponse(200, { agent: { agentKey: "dr-value", status: "inserted" } });
+      }),
+    );
+
+    await store.setAgentProgress("w1", "dr-value", { status: "inserted", runId: 7, picks: 5 });
+
+    expect(seen[0]?.url).toBe(
+      "http://backend:3000/api/portfolio/rounds/w1/job/agents/dr-value",
+    );
+    expect(seen[0]?.body).toMatchObject({ status: "inserted", runId: 7, picks: 5 });
+  });
+
+  it("maps a 404 status transition to RoundJobMissingError", async () => {
+    const store = createRoundStore(makeClient(() => fakeResponse(404, { error: "no job" })));
+    await expect(store.setRoundStatus("nope", "running")).rejects.toBeInstanceOf(
+      RoundJobMissingError,
+    );
+  });
+});
+
+describe("runAgents (durable progress)", () => {
+  const config: OrchestratorConfig = {
+    backendUrl: "http://backend:3000",
+    worktreeSlug: "model_md-worktree-feat-portfolio-sim",
+    agentContainer: "opencode_agent",
+    maxParallel: 2,
+    capital: 100000,
+    timeoutMs: 1000,
+  };
+
+  const dataset: DatasetWire = {
+    schemaVersion: 1,
+    roundId: "w1",
+    asOfTradeDate: "2026-09-25",
+    generatedAt: "2026-09-25T18:30:00.000Z",
+    universe: [
+      { symbol: "AAPL", hasData: true, latestClose: 100 },
+      { symbol: "MSFT", hasData: true, latestClose: 200 },
+    ],
+  };
+
+  const makeStore = () => {
+    const statuses = new Map<string, string>();
+    const roundStatuses: string[] = [];
+    const store = {
+      async startRound() {
+        return { roundId: "w1", job: null, agents: [] };
+      },
+      async getRound() {
+        return {
+          roundId: "w1",
+          job: null,
+          agents: [...statuses.entries()].map(([agentKey, status]) => ({
+            agentKey,
+            personaKey: agentKey,
+            status: status as never,
+            runId: null,
+            picks: null,
+            attempts: null,
+            error: null,
+            startedAt: null,
+            completedAt: null,
+            updatedAt: "",
+          })),
+        };
+      },
+      async setRoundStatus(_roundId: string, status: string) {
+        roundStatuses.push(status);
+        return {} as never;
+      },
+      async setAgentProgress(_roundId: string, agentKey: string, patch: { status: string }) {
+        statuses.set(agentKey, patch.status);
+        return {} as never;
+      },
+    };
+    return { store, statuses, roundStatuses };
+  };
+
+  const jobs: AgentJob[] = [
+    { personaKey: "dr-value", agentKey: "dr-value" },
+    { personaKey: "dr-momentum", agentKey: "dr-momentum" },
+  ];
+
+  const envelope = (agentKey: string) => ({
+    schemaVersion: 1,
+    roundId: "w1",
+    asOfTradeDate: "2026-09-25",
+    agent: { agentKey, persona: agentKey, strategy: "value", window: "weekly" },
+    picks: [{ symbol: "AAPL", targetWeight: 1 }],
+  });
+
+  it("persists running, inserted, and a final done round status", async () => {
+    const { store, statuses, roundStatuses } = makeStore();
+    const backend = {
+      async post() {
+        return { ok: true, agentRunId: 11, positionsInserted: 1 };
+      },
+    } as never;
+
+    await runAgents("w1", jobs, dataset, {
+      store: store as never,
+      backend,
+      config,
+      spawn: (async ({ agentKey }: { agentKey: string }) => ({
+        envelope: envelope(agentKey),
+        rawOutput: "{}",
+        attempts: 1,
+      })) as never,
+    });
+
+    expect(statuses.get("dr-value")).toBe("inserted");
+    expect(statuses.get("dr-momentum")).toBe("inserted");
+    expect(roundStatuses).toEqual(["running", "done"]);
+  });
+
+  it("records a failed agent and finalizes the round as partial", async () => {
+    const { store, statuses, roundStatuses } = makeStore();
+    const backend = { async post() { return { ok: true, agentRunId: 12, positionsInserted: 1 }; } } as never;
+
+    await runAgents("w1", jobs, dataset, {
+      store: store as never,
+      backend,
+      config,
+      spawn: (async ({ agentKey }: { agentKey: string }) => {
+        if (agentKey === "dr-momentum") throw new Error("analyst timed out");
+        return { envelope: envelope(agentKey), rawOutput: "{}", attempts: 2 };
+      }) as never,
+    });
+
+    expect(statuses.get("dr-value")).toBe("inserted");
+    expect(statuses.get("dr-momentum")).toBe("failed");
+    expect(roundStatuses).toEqual(["running", "partial"]);
+  });
+
+  it("does not abort the round when a progress write fails", async () => {
+    const statuses = new Map<string, string>();
+    const roundStatuses: string[] = [];
+    const store = {
+      async getRound() {
+        return {
+          roundId: "w1",
+          job: null,
+          agents: [...statuses.entries()].map(([agentKey, status]) => ({
+            agentKey,
+            personaKey: agentKey,
+            status: status as never,
+            runId: null,
+            picks: null,
+            attempts: null,
+            error: null,
+            startedAt: null,
+            completedAt: null,
+            updatedAt: "",
+          })),
+        };
+      },
+      async setRoundStatus(_r: string, status: string) {
+        roundStatuses.push(status);
+        return {} as never;
+      },
+      async setAgentProgress(_r: string, agentKey: string, patch: { status: string }) {
+        if (patch.status === "running") throw new Error("progress write failed");
+        statuses.set(agentKey, patch.status);
+        return {} as never;
+      },
+    };
+    const backend = { async post() { return { ok: true, agentRunId: 13, positionsInserted: 1 }; } } as never;
+
+    await runAgents("w1", jobs, dataset, {
+      store: store as never,
+      backend,
+      config,
+      spawn: (async ({ agentKey }: { agentKey: string }) => ({
+        envelope: envelope(agentKey),
+        rawOutput: "{}",
+        attempts: 1,
+      })) as never,
+    });
+
+    expect(statuses.get("dr-value")).toBe("inserted");
+    expect(roundStatuses).toEqual(["running", "done"]);
+  });
+});
 describe("runPool", () => {
   it("runs every item with the concurrency capped at the limit", async () => {
     const items = Array.from({ length: 10 }, (_, i) => i);

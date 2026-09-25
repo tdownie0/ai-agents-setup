@@ -5,13 +5,13 @@ RUN corepack enable
 WORKDIR /app
 
 # Layer 1: Dependencies (Cached unless lockfile changes)
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig*.json ./
 COPY packages/database/package.json ./packages/database/
 COPY packages/market-data/package.json ./packages/market-data/
 COPY packages/agent-orchestrator/package.json ./packages/agent-orchestrator/
 COPY apps/mcp-servers/mcp-portfolio-orchestrator/package.json ./apps/mcp-servers/mcp-portfolio-orchestrator/
 
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --ignore-scripts
 
 # Layer 2: Source Code
 COPY packages/database ./packages/database

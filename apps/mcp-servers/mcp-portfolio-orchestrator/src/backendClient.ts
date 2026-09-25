@@ -18,6 +18,8 @@ export class BackendError extends Error {
 export interface BackendClient {
   get<T>(path: string): Promise<T>;
   post<T>(path: string, body?: unknown): Promise<T>;
+  put<T>(path: string, body?: unknown): Promise<T>;
+  patch<T>(path: string, body?: unknown): Promise<T>;
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -36,7 +38,7 @@ export function createBackendClient(
   fetchImpl: typeof fetch = fetch,
 ): BackendClient {
   const request = async <T>(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "PUT" | "PATCH",
     path: string,
     body?: unknown,
   ): Promise<T> => {
@@ -78,5 +80,7 @@ export function createBackendClient(
   return {
     get: (path) => request("GET", path),
     post: (path, body) => request("POST", path, body),
+    put: (path, body) => request("PUT", path, body),
+    patch: (path, body) => request("PATCH", path, body),
   };
 }
