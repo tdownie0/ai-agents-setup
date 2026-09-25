@@ -63,6 +63,45 @@ registry:
       - name: get_user_stats
         description: "Returns the total count of users and recent signups from the database."
 
+  portfolio-orchestrator:
+    title: "Portfolio Round Orchestrator"
+    description: "MCP for launching analyst rounds: checks dataset readiness, spawns persona subagents via docker exec opencode run, monitors round jobs, and delivers the round envelope to the backend run API"
+    type: server
+    dateAdded: "2026-09-25T00:00:00Z"
+    image: portfolio-orchestrator:latest
+    metadata:
+      category: portfolio
+      tags:
+        - typescript
+        - mcp
+        - portfolio
+    networks:
+      - supabase_network
+    env:
+      - name: PORTFOLIO_BACKEND_URL
+        value: "http://feat-portfolio-sim-backend:3000"
+      - name: WORKTREE_SLUG
+        value: "model_md-worktree-feat-portfolio-sim"
+      - name: AGENT_CONTAINER
+        value: "opencode_agent"
+      - name: DOCKER_MCP_TRANSPORT
+        value: "stdio"
+      - name: DOCKER_HOST
+        value: "tcp://mcp-socket-proxy:2375"
+      - name: MAX_PARALLEL
+        value: "3"
+      - name: INITIAL_CAPITAL
+        value: "100000"
+      - name: AGENT_TIMEOUT_MS
+        value: "600000"
+    tools:
+      - name: round_dataset_status
+        description: "Queries the backend for the current round dataset (asOfTradeDate, universe, dataReady)."
+      - name: start_agent_round
+        description: "Reads the round dataset, spawns analyst subagents, collects their envelopes, and inserts them into the backend run API."
+      - name: get_round_status
+        description: "Returns the current job status of a running round, including per-agent progress and inserted run ids."
+
   git-orchestrator:
     title: "Git Worktree Orchestrator"
     description: "Atomic management of isolated feature environments and git worktrees"

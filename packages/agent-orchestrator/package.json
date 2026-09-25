@@ -14,7 +14,8 @@
   "scripts": {
     "agents:run": "tsx src/cli.ts",
     "test": "vitest run",
-    "build": "tsc --build"
+    "build": "tsc --build",
+    "prepare": "pnpm run build"
   },
   "dependencies": {
     "@model_md/database": "workspace:*",

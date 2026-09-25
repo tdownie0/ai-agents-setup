@@ -13,6 +13,7 @@
   },
   "scripts": {
     "build": "tsc --build",
+    "prepare": "pnpm run build",
     "dev": "tsc --watch",
     "test": "vitest run",
     "market-data:backfill": "tsx src/cli/backfill.ts",

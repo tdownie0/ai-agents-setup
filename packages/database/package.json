@@ -17,6 +17,7 @@
   },
   "scripts": {
     "build": "tsc --build",
+    "prepare": "pnpm run build",
     "dev": "tsc --watch",
     "test": "vitest run",
     "seed": "tsx ./src/seed.ts",
