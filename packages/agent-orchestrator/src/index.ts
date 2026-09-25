@@ -42,6 +42,7 @@ export {
   buildAnalystPrompt,
   buildSpawnArgs,
   extractJsonFromText,
+  formatFailureHint,
   parseAnalystOutput,
   spawnAnalyst,
   type BuildAnalystPromptOptions,

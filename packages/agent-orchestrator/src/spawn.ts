@@ -365,7 +365,7 @@ export async function spawnAnalyst(opts: SpawnAnalystOptions): Promise<SpawnAnal
 }
 
 /** Human-readable correction hint fed back to the analyst on retry. */
-function formatFailureHint(err: unknown): string {
+export function formatFailureHint(err: unknown): string {
   if (err instanceof DecisionValidationError) {
     return `Your previous output failed validation:\n${err.issues.map((i) => `- ${i}`).join("\n")}\nRe-read the schema and re-emit a fully valid envelope.`;
   }

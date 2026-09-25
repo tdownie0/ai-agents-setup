@@ -1,0 +1,23 @@
+{
+  "name": "@model_md/mcp-portfolio-orchestrator",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/index.js",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "test": "vitest run tests/orchestrator.test.ts"
+  },
+  "dependencies": {
+    "@model_md/agent-orchestrator": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.3",
+    "esbuild": "^0.27.3",
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0"
+  }
+}
