@@ -76,7 +76,11 @@ registry:
         - mcp
         - portfolio
     networks:
+      # Must reach BOTH: supabase_network → the feature backend container
+      # (feat-portfolio-sim-backend:3000) AND dev-network → mcp-socket-proxy
+      # (spawned-server's DOCKER_HOST for `docker exec opencode_agent`).
       - supabase_network
+      - dev-network
     env:
       - name: PORTFOLIO_BACKEND_URL
         value: "http://feat-portfolio-sim-backend:3000"

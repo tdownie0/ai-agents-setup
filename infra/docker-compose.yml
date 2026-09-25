@@ -162,7 +162,7 @@ services:
       - --transport=streaming
       - --port=8811
       - --catalog=/root/.docker/mcp/catalogs/local-mcp.yaml
-      - --servers=ast-explorer,supabase-manager,git-orchestrator
+      - --servers=ast-explorer,supabase-manager,git-orchestrator,portfolio-orchestrator
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8811/health"]
       interval: 30s

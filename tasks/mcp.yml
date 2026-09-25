@@ -19,12 +19,19 @@ tasks:
     cmds:
       - docker build --target mcp-server -t git-orchestrator:latest -f apps/mcp-servers/mcp-git-orchestrator/Dockerfile . {{.CLI_ARGS}}
 
+  build-portfolio-orchestrator:
+    desc: Build portfolio-orchestrator from root
+    dir: .
+    cmds:
+      - docker build -t portfolio-orchestrator:latest -f apps/mcp-servers/mcp-portfolio-orchestrator/Dockerfile . {{.CLI_ARGS}}
+
   build-servers:
     desc: Build all MCP server images
     cmds:
       - task: build-ast
       - task: build-db
       - task: build-git-orchestrator
+      - task: build-portfolio-orchestrator
 
   setup:
     desc: "Generate local MCP configuration files"
