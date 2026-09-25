@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.19.9",
+    "@model_md/agent-orchestrator": "workspace:*",
     "@model_md/database": "workspace:*",
     "@model_md/market-data": "workspace:*",
     "@supabase/supabase-js": "^2.98.0",

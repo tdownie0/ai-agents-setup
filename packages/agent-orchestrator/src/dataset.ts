@@ -313,3 +313,40 @@ export async function buildDataset(opts: BuildDatasetOptions): Promise<BuildData
     },
   };
 }
+
+/**
+ * The entry-fill context derived from a built dataset: every symbol's close
+ * on the decision date (`asOfTradeDate`) — the entry price used at insert —
+ * plus the universes envelope validation runs against.
+ *
+ * This is the SINGLE derivation of entry-fill semantics (documented in
+ * contract.ts). The CLI, the backend rounds API, and the MCP server all
+ * consume this instead of re-deriving prices from the dataset.
+ */
+export interface EntryContext {
+  /** The dataset decision date — every position's `entryTradeDate`. */
+  asOfTradeDate: string;
+  /** symbol → close on the decision date (the `entryPrice`). */
+  entryPrices: Readonly<Record<string, number>>;
+  /** Symbols with at least one price bar as of the decision date. */
+  symbolsWithPrice: ReadonlySet<string>;
+  /** All valid symbols in the universe. */
+  universe: readonly string[];
+}
+
+export function extractEntryContext(dataset: AnalystDataset): EntryContext {
+  const entryPrices: Record<string, number> = {};
+  const symbolsWithPrice = new Set<string>();
+  for (const entry of dataset.universe) {
+    if (entry.hasData && entry.latestClose !== null && Number.isFinite(entry.latestClose)) {
+      entryPrices[entry.symbol] = entry.latestClose;
+      symbolsWithPrice.add(entry.symbol);
+    }
+  }
+  return {
+    asOfTradeDate: dataset.asOfTradeDate,
+    entryPrices,
+    symbolsWithPrice,
+    universe: dataset.universe.map((u) => u.symbol),
+  };
+}

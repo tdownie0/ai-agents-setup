@@ -7,6 +7,7 @@ import notificationsHandler from "./routes/notifications.js";
 import authHandler from "./routes/auth.js";
 import marketDataHandler from "./routes/marketData.js";
 import portfolioHandler from "./routes/portfolio.js";
+import roundsHandler from "./routes/rounds.js";
 
 const app = new Hono().basePath("/api");
 
@@ -20,7 +21,8 @@ const routes = app
   .route("/notifications", notificationsHandler)
   .route("/auth", authHandler)
   .route("/market-data", marketDataHandler)
-  .route("/portfolio", portfolioHandler);
+  .route("/portfolio", portfolioHandler)
+  .route("/portfolio", roundsHandler);
 
 // Export Type for Hono RPC (Frontend Type Safety)
 export type AppType = typeof routes;

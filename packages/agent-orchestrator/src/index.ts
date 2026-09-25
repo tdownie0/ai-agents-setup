@@ -12,10 +12,12 @@ export * from "./personas.js";
 export {
   buildDataset,
   DATASET_SCHEMA_VERSION,
+  extractEntryContext,
   type AnalystDataset,
   type AnalystSymbolMetrics,
   type BuildDatasetOptions,
   type BuildDatasetResult,
+  type EntryContext,
 } from "./dataset.js";
 export {
   DECISION_SCHEMA_VERSION,

@@ -13,7 +13,7 @@
 
 import "dotenv/config";
 import { resolve } from "node:path";
-import { buildDataset } from "./dataset.js";
+import { buildDataset, extractEntryContext } from "./dataset.js";
 import { insertRun } from "./insert.js";
 import { getPersona, PERSONAS } from "./personas.js";
 import { spawnAnalyst } from "./spawn.js";
@@ -134,14 +134,7 @@ async function main(): Promise<void> {
   );
 
   // Entry fills: each symbol's close on the decision date.
-  const entryPrices: Record<string, number> = {};
-  const symbolsWithPrice = new Set<string>();
-  for (const entry of dataset.universe) {
-    if (entry.hasData && entry.latestClose !== null) {
-      entryPrices[entry.symbol] = entry.latestClose;
-      symbolsWithPrice.add(entry.symbol);
-    }
-  }
+  const { entryPrices, symbolsWithPrice } = extractEntryContext(dataset);
 
   const jobs = resolveJobs(opts);
   console.log(`[orchestrator] spawning ${jobs.length} analyst(s)...`);
