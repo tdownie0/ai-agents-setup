@@ -24,6 +24,7 @@ import {
 } from "@model_md/agent-orchestrator";
 import type {
   AnalystPersona,
+  AnalystWindow,
   DecisionEnvelope,
   SpawnAnalystResult,
   ValidateEnvelopeOptions,
@@ -31,6 +32,8 @@ import type {
 
 export interface SpawnViaDockerOptions extends ValidateEnvelopeOptions {
   persona: AnalystPersona;
+  /** The rebalance window this run is assigned; injected into the prompt. */
+  window: AnalystWindow;
   agentKey: string;
   roundId: string;
   /** Dataset path AS VISIBLE INSIDE the agent container. */
@@ -168,6 +171,7 @@ export async function spawnAnalystWithExec(
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const prompt = buildAnalystPrompt({
       persona: opts.persona,
+      window: opts.window,
       agentKey: opts.agentKey,
       roundId: opts.roundId,
       datasetPath: opts.datasetPath,
@@ -210,6 +214,7 @@ export async function spawnAnalystWithExec(
       const envelope = validateEnvelope(parsed, {
         universe: opts.universe,
         symbolsWithPrice: opts.symbolsWithPrice,
+        expectedWindow: opts.window,
       });
       return { envelope, rawOutput: result.stdout, attempts: attempt };
     } catch (err) {

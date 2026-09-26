@@ -14,6 +14,8 @@ describe("parseCliArgs", () => {
       "250000",
       "--agents",
       "dr-value,dr-momentum",
+      "--window",
+      "monthly,weekly",
       "--out",
       "./data",
       "--max-parallel",
@@ -23,6 +25,7 @@ describe("parseCliArgs", () => {
       round: "round-2026-09-24",
       capital: 250000,
       agents: ["dr-value", "dr-momentum"],
+      window: ["monthly", "weekly"],
       out: "./data",
       maxParallel: 5,
       replicates: 3,
@@ -35,10 +38,30 @@ describe("parseCliArgs", () => {
       round: "r1",
       capital: 100000,
       agents: "all",
+      window: "all",
       out: "./rounds",
       maxParallel: 3,
       replicates: 3,
     });
+  });
+
+  it("treats --window all as the every-window sentinel", () => {
+    expect(parseCliArgs(["--round", "r1", "--window", "all"])).toMatchObject({ window: "all" });
+  });
+
+  it("trims and drops empty entries in --window", () => {
+    const opts = parseCliArgs(["--round", "r1", "--window", " daily , , monthly "]);
+    expect(opts).toMatchObject({ window: ["daily", "monthly"] });
+  });
+
+  it("throws on an empty --window list", () => {
+    expect(() => parseCliArgs(["--round", "r1", "--window", ""])).toThrow(
+      /at least one window/,
+    );
+  });
+
+  it("throws on a missing value for --window", () => {
+    expect(() => parseCliArgs(["--round", "r1", "--window"])).toThrow(/missing value for --window/);
   });
 
   it("supports --flag=value syntax", () => {

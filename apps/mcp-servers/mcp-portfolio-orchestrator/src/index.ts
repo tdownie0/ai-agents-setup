@@ -29,7 +29,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { AGENT_KEYS, datasetPathFor, isValidRoundId, resolveAgents } from "./agents.js";
+import { ANALYST_WINDOWS } from "@model_md/agent-orchestrator";
+import {
+  AGENT_KEYS,
+  datasetPathFor,
+  isValidRoundId,
+  parseWindows,
+  resolveAgents,
+} from "./agents.js";
 import { createBackendClient } from "./backendClient.js";
 import { loadConfig } from "./config.js";
 import type { OrchestratorConfig } from "./config.js";
@@ -83,7 +90,7 @@ server.registerTool(
   "start_agent_round",
   {
     description:
-      "Start a portfolio-simulation analyst round: build the dataset for roundId, record the round durably, spawn the selected analyst personas (docker exec opencode_agent with XDG-isolated state/cache), validate each decision envelope against the dataset, and insert the runs with entry fills via the feature backend. Blocks until every agent finishes (typically several minutes; the per-agent cap is AGENT_TIMEOUT_MS). Progress is persisted throughout, so get_round_status can be called from another process while this call is still running, and the round stays recoverable if this call's connection drops.",
+      "Start a portfolio-simulation analyst round: build the dataset for roundId, record the round durably, spawn the selected analyst personas on every selected rebalance window (docker exec opencode_agent with XDG-isolated state/cache), validate each decision envelope against the dataset, and insert the runs with entry fills via the feature backend. The default roster is the full persona x window cross product (6 personas x 3 windows = 18 runs), so each run's agentKey is `<personaKey>--<window>`. Blocks until every agent finishes (typically several minutes per wave; the per-agent cap is AGENT_TIMEOUT_MS). Progress is persisted throughout, so get_round_status can be called from another process while this call is still running, and the round stays recoverable if this call's connection drops.",
     inputSchema: z.object({
       roundId: z
         .string()
@@ -95,7 +102,13 @@ server.registerTool(
         .string()
         .optional()
         .describe(
-          `Comma-separated persona keys, or "all". Default "all" (${AGENT_KEYS.join(", ")}).`,
+          `Comma-separated persona keys, or "all". Default "all" (${AGENT_KEYS.join(", ")}). Every selected persona runs on every selected window.`,
+        ),
+      windows: z
+        .string()
+        .optional()
+        .describe(
+          `Comma-separated rebalance windows, or "all". Default "all" (${ANALYST_WINDOWS.join(", ")}).`,
         ),
       maxParallel: z
         .number()
@@ -116,7 +129,7 @@ server.registerTool(
         ),
     }),
   },
-  async ({ roundId, agents, maxParallel, capital, takeover }) => {
+  async ({ roundId, agents, windows, maxParallel, capital, takeover }) => {
     if (!isValidRoundId(roundId)) {
       return toolText({
         ok: false,
@@ -128,7 +141,7 @@ server.registerTool(
 
     let jobs;
     try {
-      jobs = resolveAgents(agents);
+      jobs = resolveAgents(agents, parseWindows(windows));
     } catch (err) {
       return toolText({
         ok: false,
@@ -199,6 +212,7 @@ server.registerTool(
 
     const state: RoundStateWire = await store.getRound(roundId);
     const inserted = state.agents.filter((agent) => agent.status === "inserted");
+    const windowByAgentKey = new Map(jobs.map((job) => [job.agentKey, job.window]));
     return toolText({
       ok: true,
       roundId,
@@ -208,6 +222,7 @@ server.registerTool(
       agents: state.agents.map((agent) => ({
         agentKey: agent.agentKey,
         personaKey: agent.personaKey,
+        window: windowByAgentKey.get(agent.agentKey) ?? null,
         status: agent.status,
         runId: agent.runId,
         picks: agent.picks,

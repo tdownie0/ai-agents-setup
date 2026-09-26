@@ -36,10 +36,10 @@ export {
 } from "./contract.js";
 export {
   DEFAULT_AGENT_TIMEOUT_MS,
-  ENVELOPE_EXAMPLE_JSON,
   ENVELOPE_SCHEMA_JSON,
   SpawnAnalystError,
   buildAnalystPrompt,
+  buildEnvelopeExample,
   buildSpawnArgs,
   extractJsonFromText,
   formatFailureHint,

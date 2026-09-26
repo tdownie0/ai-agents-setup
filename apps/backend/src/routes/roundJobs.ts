@@ -17,7 +17,7 @@
  * rejected even when the round is re-polled from a different container.
  */
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { db, isTerminalRoundJobStatus, roundAgentProgress, roundJobs } from "@model_md/database";
 import type {
@@ -342,7 +342,8 @@ const roundJobsApp = new Hono()
     const agents = await db
       .select()
       .from(roundAgentProgress)
-      .where(eq(roundAgentProgress.roundId, roundId));
+      .where(eq(roundAgentProgress.roundId, roundId))
+      .orderBy(asc(roundAgentProgress.agentKey));
     return c.json({ ok: true, job: toRoundJobWire(job), agents: agents.map(toRoundAgentProgressWire) }, 201);
   })
 
@@ -360,7 +361,8 @@ const roundJobsApp = new Hono()
     const agents = await db
       .select()
       .from(roundAgentProgress)
-      .where(eq(roundAgentProgress.roundId, roundId));
+      .where(eq(roundAgentProgress.roundId, roundId))
+      .orderBy(asc(roundAgentProgress.agentKey));
     return c.json({ roundId, job: toRoundJobWire(job), agents: agents.map(toRoundAgentProgressWire) });
   })
 

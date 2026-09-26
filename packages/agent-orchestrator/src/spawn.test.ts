@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { getPersona } from "./personas.js";
+import { getPersona, WINDOW_CADENCE } from "./personas.js";
 import {
   buildAnalystPrompt,
   buildSpawnArgs,
@@ -31,40 +31,63 @@ describe("buildAnalystPrompt", () => {
     const persona = getPersona("dr-value");
     const prompt = buildAnalystPrompt({
       persona,
-      agentKey: "dr-value",
+      window: "monthly",
+      agentKey: "dr-value--monthly",
       roundId: "round-1",
       datasetPath: "/rounds/round-1/dataset.json",
       asOfTradeDate: "2026-09-24",
       initialCapital: 100000,
     });
 
-    expect(prompt).toContain(persona.phdSystemPrompt);
+    expect(prompt).toContain(persona.phdSystemPrompt.replace(/\{\{cadence\}\}/g, WINDOW_CADENCE.monthly));
     expect(prompt).toContain("You are analyzing data as of 2026-09-24");
     expect(prompt).toContain("/rounds/round-1/dataset.json");
     expect(prompt).toContain("Output ONLY a single JSON object");
-    expect(prompt).toContain('agentKey="dr-value"');
+    expect(prompt).toContain('agentKey="dr-value--monthly"');
     expect(prompt).toContain('roundId="round-1"');
     expect(prompt).toContain("initialCapital=100000");
     expect(prompt).toContain("Pick 5–10 symbols");
   });
 
+  it("substitutes the assigned window cadence and pins agent.window in the example", () => {
+    for (const window of ["daily", "weekly", "monthly"] as const) {
+      const prompt = buildAnalystPrompt({
+        persona: getPersona("dr-value"),
+        window,
+        agentKey: `dr-value--${window}`,
+        roundId: "round-1",
+        datasetPath: "/rounds/round-1/dataset.json",
+        asOfTradeDate: "2026-09-24",
+        initialCapital: 100000,
+      });
+
+      expect(prompt).toContain(WINDOW_CADENCE[window]);
+      expect(prompt).not.toContain("{{cadence}}");
+      expect(prompt).toContain(`Your assigned rebalance window is "${window}"`);
+      expect(prompt).toContain(`agent.window to exactly "${window}"`);
+      expect(prompt).toContain(`"window": "${window}"`);
+    }
+  });
+
   it("annotates a replica run with replicateOf", () => {
     const prompt = buildAnalystPrompt({
       persona: getPersona("dr-value"),
-      agentKey: "dr-value#rep1",
+      window: "monthly",
+      agentKey: "dr-value--monthly#rep1",
       roundId: "round-1",
       datasetPath: "/rounds/round-1/dataset.json",
       asOfTradeDate: "2026-09-24",
       initialCapital: 100000,
-      replicateOf: "dr-value",
+      replicateOf: "dr-value--monthly",
     });
-    expect(prompt).toContain('consistency replica of "dr-value"');
+    expect(prompt).toContain('consistency replica of "dr-value--monthly"');
   });
 
   it("appends the correction hint on retry", () => {
     const prompt = buildAnalystPrompt({
       persona: getPersona("dr-value"),
-      agentKey: "dr-value",
+      window: "daily",
+      agentKey: "dr-value--daily",
       roundId: "round-1",
       datasetPath: "/rounds/round-1/dataset.json",
       asOfTradeDate: "2026-09-24",

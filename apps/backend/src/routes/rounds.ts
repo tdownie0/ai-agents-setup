@@ -28,9 +28,12 @@ import {
   DecisionValidationError,
   DuplicateRunError,
   extractEntryContext,
+  getPersona,
   insertRun,
   MissingEntryPriceError,
+  personaKeyFromAgentKey,
   validateEnvelope,
+  windowFromAgentKey,
 } from "@model_md/agent-orchestrator";
 import type { AnalystDataset, DecisionEnvelope } from "@model_md/agent-orchestrator";
 
@@ -296,11 +299,39 @@ const roundsApp = new Hono()
       return c.json({ error: messageOf(err) }, 400);
     }
 
+    const encodedWindow = windowFromAgentKey(envelope.agent.agentKey);
+    if (encodedWindow !== undefined && encodedWindow !== envelope.agent.window) {
+      return c.json(
+        {
+          error: `envelope.agent.window "${envelope.agent.window}" contradicts the window encoded in agentKey "${envelope.agent.agentKey}" ("${encodedWindow}")`,
+          issues: [
+            `agent.window must match the window encoded in agentKey: expected "${encodedWindow}", got ${JSON.stringify(envelope.agent.window)}`,
+          ],
+        },
+        400,
+      );
+    }
+
+    const personaKey = personaKeyFromAgentKey(envelope.agent.agentKey);
+    if (personaKey === undefined) {
+      return c.json(
+        {
+          error: `agentKey "${envelope.agent.agentKey}" does not name a known analyst persona`,
+          hint: 'agentKey must be "<personaKey>--<window>" using a personaKey from the catalog and one of daily|weekly|monthly',
+          issues: ["agentKey must begin with a catalog persona key"],
+        },
+        400,
+      );
+    }
+    const persona = getPersona(personaKey);
+
     try {
       const inserted = await insertRun({
         envelope,
         entryPrices: ctx.entryPrices,
         asOfTradeDate: ctx.asOfTradeDate,
+        expectedPersona: persona.displayName,
+        expectedStrategy: persona.strategy,
       });
       return c.json({ ok: true, ...inserted }, 201);
     } catch (err) {

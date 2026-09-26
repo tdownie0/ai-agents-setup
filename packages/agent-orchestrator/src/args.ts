@@ -13,9 +13,11 @@ export interface CliOptions {
   capital: number;
   /** Persona keys to run, or "all" for every persona. Default "all". */
   agents: readonly string[] | "all";
+  /** Rebalance windows to run, or "all" for every window. Default "all". */
+  window: readonly string[] | "all";
   /** Output directory for datasets. Default "./rounds". */
   out: string;
-  /** Max simultaneous analyst subagents. Default 3. */
+  /** Max simultaneous analyst subagents. Default 6. */
   maxParallel: number;
   /** When set, run `replicates` consistency copies of this persona. */
   replicateOf?: string;
@@ -54,6 +56,7 @@ export function parseCliArgs(argv: readonly string[]): ParseCliResult {
     round: "",
     capital: 100000,
     agents: "all",
+    window: "all",
     out: "./rounds",
     maxParallel: 3,
     replicates: 3,
@@ -99,6 +102,20 @@ export function parseCliArgs(argv: readonly string[]): ParseCliResult {
                 .filter((k) => k.length > 0);
         if (opts.agents !== "all" && opts.agents.length === 0) {
           throw new CliArgError("--agents requires at least one persona key or 'all'");
+        }
+        break;
+      }
+      case "--window": {
+        const raw = valueOf(flag, inline);
+        opts.window =
+          raw === "all"
+            ? "all"
+            : raw
+                .split(",")
+                .map((w) => w.trim())
+                .filter((w) => w.length > 0);
+        if (opts.window !== "all" && opts.window.length === 0) {
+          throw new CliArgError("--window requires at least one window or 'all'");
         }
         break;
       }

@@ -18,12 +18,15 @@ import {
   type DecisionEnvelope,
   type ValidateEnvelopeOptions,
 } from "./contract.js";
-import type { AnalystPersona } from "./personas.js";
+import { WINDOW_CADENCE } from "./personas.js";
+import type { AnalystPersona, AnalystWindow } from "./personas.js";
 
 export const DEFAULT_AGENT_TIMEOUT_MS = 10 * 60 * 1000;
 
 export interface SpawnAnalystOptions extends ValidateEnvelopeOptions {
   persona: AnalystPersona;
+  /** The rebalance window this run is assigned; injected into the prompt. */
+  window: AnalystWindow;
   agentKey: string;
   roundId: string;
   datasetPath: string;
@@ -82,59 +85,69 @@ export const ENVELOPE_SCHEMA_JSON: string = JSON.stringify(
   2,
 );
 
-/** A valid example envelope shown to the analyst. */
-export const ENVELOPE_EXAMPLE_JSON: string = JSON.stringify(
-  {
-    schemaVersion: 1,
-    roundId: "round-2026-09-24",
-    agent: {
-      agentKey: "dr-value",
-      persona: "Dr. Value",
-      strategy: "deep-value",
-      window: "monthly",
-      initialCapital: 100000,
+/** Example envelope built from the caller's real identity, never a static one. */
+export function buildEnvelopeExample(opts: {
+  agentKey: string;
+  persona: string;
+  strategy: string;
+  window: AnalystWindow;
+  roundId: string;
+  initialCapital: number;
+}): string {
+  return JSON.stringify(
+    {
+      schemaVersion: 1,
+      roundId: opts.roundId,
+      agent: {
+        agentKey: opts.agentKey,
+        persona: opts.persona,
+        strategy: opts.strategy,
+        window: opts.window,
+        initialCapital: opts.initialCapital,
+      },
+      rationale:
+        "Market breadth is stretched; I am buying high-quality franchises trading at deep discounts to their 52-week highs with stabilising momentum.",
+      picks: [
+        {
+          symbol: "KO",
+          weight: 0.2,
+          thesis:
+            "Trades 28% below its 52-week high with RSI-14 at 31; 252d return negative but 63d improving — classic oversold quality franchise.",
+        },
+        {
+          symbol: "PG",
+          weight: 0.2,
+          thesis:
+            "Defensive staple 22% off its high; volatility21d in the bottom quartile; mean-reversion candidate with a durable moat.",
+        },
+        {
+          symbol: "JNJ",
+          weight: 0.2,
+          thesis:
+            "Health Care leader 18% off high, sma50AboveSma200 false but 21d return turning positive — early stabilisation.",
+        },
+        {
+          symbol: "XOM",
+          weight: 0.2,
+          thesis:
+            "Energy major 15% off high with positive 63d momentum; hard-asset value with a dividend backstop.",
+        },
+        {
+          symbol: "CAT",
+          weight: 0.2,
+          thesis:
+            "Industrials bellwether 25% off high; RSI-14 at 28 signals seller exhaustion after a sharp 5d drawdown.",
+        },
+      ],
     },
-    rationale:
-      "Market breadth is stretched; I am buying high-quality franchises trading at deep discounts to their 52-week highs with stabilising momentum.",
-    picks: [
-      {
-        symbol: "KO",
-        weight: 0.2,
-        thesis:
-          "Trades 28% below its 52-week high with RSI-14 at 31; 252d return negative but 63d improving — classic oversold quality franchise.",
-      },
-      {
-        symbol: "PG",
-        weight: 0.2,
-        thesis:
-          "Defensive staple 22% off its high; volatility21d in the bottom quartile; mean-reversion candidate with a durable moat.",
-      },
-      {
-        symbol: "JNJ",
-        weight: 0.2,
-        thesis:
-          "Health Care leader 18% off high, sma50AboveSma200 false but 21d return turning positive — early stabilisation.",
-      },
-      {
-        symbol: "XOM",
-        weight: 0.2,
-        thesis:
-          "Energy major 15% off high with positive 63d momentum; hard-asset value with a dividend backstop.",
-      },
-      {
-        symbol: "CAT",
-        weight: 0.2,
-        thesis:
-          "Industrials bellwether 25% off high; RSI-14 at 28 signals seller exhaustion after a sharp 5d drawdown.",
-      },
-    ],
-  },
-  null,
-  2,
-);
+    null,
+    2,
+  );
+}
 
 export interface BuildAnalystPromptOptions {
   persona: AnalystPersona;
+  window: AnalystWindow;
   agentKey: string;
   roundId: string;
   datasetPath: string;
@@ -144,6 +157,8 @@ export interface BuildAnalystPromptOptions {
   /** Appended as a correction hint on the retry attempt. */
   correctionHint?: string;
 }
+
+const CADENCE_TOKEN = "{{cadence}}";
 
 /** Build the full prompt handed to the headless analyst subagent. */
 export function buildAnalystPrompt(opts: BuildAnalystPromptOptions): string {
@@ -157,8 +172,12 @@ export function buildAnalystPrompt(opts: BuildAnalystPromptOptions): string {
       ? `\n\nCORRECTION FROM THE PREVIOUS ATTEMPT:\n${opts.correctionHint}\nFix the output accordingly and output ONLY the corrected JSON object.`
       : "";
 
+  const mandate = opts.persona.phdSystemPrompt
+    .split(CADENCE_TOKEN)
+    .join(WINDOW_CADENCE[opts.window]);
+
   return [
-    opts.persona.phdSystemPrompt,
+    mandate,
     "",
     "---",
     "DATASET",
@@ -169,6 +188,7 @@ export function buildAnalystPrompt(opts: BuildAnalystPromptOptions): string {
     "Only consider symbols where hasData is true. Pick 5–10 symbols. Equal-weight or your own weighting allowed; weights MUST sum to 1.0 (±0.01).",
     "",
     `Your identity for this run: agentKey="${opts.agentKey}", roundId="${opts.roundId}", initialCapital=${opts.initialCapital}.${replicateLine}`,
+    `Your assigned rebalance window is "${opts.window}". This is the only window you are running — the cadence described in your mandate above applies. You MUST set agent.window to exactly "${opts.window}" in your envelope; any other value is rejected.`,
     "",
     "---",
     "OUTPUT FORMAT (STRICT)",
@@ -176,7 +196,14 @@ export function buildAnalystPrompt(opts: BuildAnalystPromptOptions): string {
     ENVELOPE_SCHEMA_JSON,
     "",
     "Example of a valid envelope:",
-    ENVELOPE_EXAMPLE_JSON,
+    buildEnvelopeExample({
+      agentKey: opts.agentKey,
+      persona: opts.persona.displayName,
+      strategy: opts.persona.strategy,
+      window: opts.window,
+      roundId: opts.roundId,
+      initialCapital: opts.initialCapital,
+    }),
     correction,
   ].join("\n");
 }
@@ -323,6 +350,7 @@ export async function spawnAnalyst(opts: SpawnAnalystOptions): Promise<SpawnAnal
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const prompt = buildAnalystPrompt({
       persona: opts.persona,
+      window: opts.window,
       agentKey: opts.agentKey,
       roundId: opts.roundId,
       datasetPath: opts.datasetPath,
@@ -342,6 +370,7 @@ export async function spawnAnalyst(opts: SpawnAnalystOptions): Promise<SpawnAnal
       const envelope = validateEnvelope(parsed, {
         universe: opts.universe,
         symbolsWithPrice: opts.symbolsWithPrice,
+        expectedWindow: opts.window,
       });
       return { envelope, rawOutput: stdout, attempts: attempt };
     } catch (err) {

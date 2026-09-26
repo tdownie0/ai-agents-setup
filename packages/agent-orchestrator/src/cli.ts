@@ -3,8 +3,8 @@
  *
  * Usage:
  *   pnpm agents:run -- --round <roundId> [--capital 100000] [--agents all]
- *     [--out ./rounds] [--max-parallel 3]
- *     [--replicate-of <agentKey> --replicates 3]
+ *     [--window all] [--out ./rounds] [--max-parallel 6]
+ *     [--replicate-of <agentKey> --window <window> --replicates 3]
  *
  * This is the ONLY module that reads `process.env` (DATABASE_URL via
  * `dotenv/config`, mirroring the market-data CLI pattern) and `process.argv`.
@@ -15,7 +15,8 @@ import "dotenv/config";
 import { resolve } from "node:path";
 import { buildDataset, extractEntryContext } from "./dataset.js";
 import { insertRun } from "./insert.js";
-import { getPersona, PERSONAS } from "./personas.js";
+import { agentKeyFor, ANALYST_WINDOWS, getPersona, PERSONAS } from "./personas.js";
+import type { AnalystWindow } from "./personas.js";
 import { spawnAnalyst } from "./spawn.js";
 import { CliArgError, parseCliArgs, type CliOptions } from "./args.js";
 
@@ -30,10 +31,16 @@ Options:
   --capital <n>            Starting capital per analyst. Default 100000.
   --agents <keys|all>      Comma-separated persona keys, or "all". Default all.
                            Available: ${PERSONAS.map((p) => p.key).join(", ")}
+  --window <keys|all>      Comma-separated rebalance windows, or "all". Default all.
+                           Available: ${ANALYST_WINDOWS.join(", ")}
+                           Every selected persona runs on every selected window
+                           (agentKey "<persona>--<window>"), so the default roster
+                           is ${PERSONAS.length} personas x ${ANALYST_WINDOWS.length} windows = ${PERSONAS.length * ANALYST_WINDOWS.length} runs.
   --out <dir>              Dataset output dir. Default ./rounds.
-  --max-parallel <n>       Max simultaneous analyst subagents. Default 3.
-  --replicate-of <key>     Run <replicates> consistency copies of this persona
-                           (agentKey "<key>#rep<i>", replicateOf=<key>).
+  --max-parallel <n>       Max simultaneous analyst subagents. Default 6.
+  --replicate-of <key>     Run <replicates> consistency copies of this persona on a
+                           single --window (agentKey "<key>--<window>#rep<i>").
+                           Requires an explicit --window.
   --replicates <n>         Copies when --replicate-of is set. Default 3.
   --help                   Show this help and exit.
 
@@ -43,6 +50,7 @@ each -> print summary table.`;
 interface AgentJob {
   personaKey: string;
   agentKey: string;
+  window: AnalystWindow;
   replicateOf?: string;
 }
 
@@ -54,28 +62,57 @@ interface JobResult {
   error?: string;
 }
 
+function resolveWindows(opts: CliOptions): AnalystWindow[] {
+  if (opts.window === "all") return [...ANALYST_WINDOWS];
+  return opts.window.map((raw) => {
+    const match = ANALYST_WINDOWS.find((w) => w === raw);
+    if (match === undefined) {
+      throw new CliArgError(
+        `invalid value for --window: "${raw}" (expected one of ${ANALYST_WINDOWS.join(", ")})`,
+      );
+    }
+    return match;
+  });
+}
+
 /** Resolve the agent job list from CLI options. */
 function resolveJobs(opts: CliOptions): AgentJob[] {
+  if (opts.replicateOf !== undefined && opts.window === "all") {
+    throw new CliArgError(
+      "--replicate-of requires an explicit --window: consistency copies spanning several windows are not comparable",
+    );
+  }
+
+  const windows = resolveWindows(opts);
+  const personaKeys = opts.agents === "all" ? PERSONAS.map((p) => p.key) : [...opts.agents];
+  for (const key of personaKeys) {
+    getPersona(key); // throws on unknown key
+  }
+
   if (opts.replicateOf !== undefined) {
     const base = getPersona(opts.replicateOf);
     const jobs: AgentJob[] = [];
-    for (let i = 1; i <= opts.replicates; i += 1) {
-      jobs.push({
-        personaKey: base.key,
-        agentKey: `${base.key}#rep${i}`,
-        replicateOf: base.key,
-      });
+    for (const window of windows) {
+      const baseKey = agentKeyFor(base.key, window);
+      for (let i = 1; i <= opts.replicates; i += 1) {
+        jobs.push({
+          personaKey: base.key,
+          agentKey: `${baseKey}#rep${i}`,
+          window,
+          replicateOf: baseKey,
+        });
+      }
     }
     return jobs;
   }
 
-  if (opts.agents === "all") {
-    return PERSONAS.map((p) => ({ personaKey: p.key, agentKey: p.key }));
-  }
-  return opts.agents.map((key) => {
-    getPersona(key); // throws on unknown key
-    return { personaKey: key, agentKey: key };
-  });
+  return personaKeys.flatMap((personaKey) =>
+    windows.map((window) => ({
+      personaKey,
+      agentKey: agentKeyFor(personaKey, window),
+      window,
+    })),
+  );
 }
 
 /** Run `fn` over `items` with at most `limit` concurrent executions. */
@@ -120,6 +157,7 @@ async function main(): Promise<void> {
   console.log(
     `[orchestrator] round=${opts.round} capital=${opts.capital} ` +
       `agents=${opts.agents === "all" ? "all" : opts.agents.join(",")} ` +
+      `windows=${opts.window === "all" ? "all" : opts.window.join(",")} ` +
       `max-parallel=${opts.maxParallel} out=${outDir}`,
   );
 
@@ -147,6 +185,7 @@ async function main(): Promise<void> {
     try {
       const spawned = await spawnAnalyst({
         persona,
+        window: job.window,
         agentKey: job.agentKey,
         roundId: opts.round,
         datasetPath: summary.datasetPath,
@@ -162,6 +201,8 @@ async function main(): Promise<void> {
         envelope: spawned.envelope,
         entryPrices,
         asOfTradeDate: summary.asOfTradeDate,
+        expectedPersona: persona.displayName,
+        expectedStrategy: persona.strategy,
         startedAt,
       });
 
@@ -185,14 +226,14 @@ async function main(): Promise<void> {
   // 3. Summary table.
   console.log("\n=== Analyst Round Summary ===");
   console.log(
-    `${"agentKey".padEnd(22)} ${"persona".padEnd(16)} ${"window".padEnd(9)} ` +
+    `${"agentKey".padEnd(24)} ${"persona".padEnd(16)} ${"window".padEnd(9)} ` +
       `${"picks".padEnd(6)} ${"insertedId".padEnd(11)} status`,
   );
   for (const r of results) {
     const persona = getPersona(r.job.personaKey);
     console.log(
-      `${r.job.agentKey.padEnd(22)} ${persona.displayName.padEnd(16)} ` +
-        `${persona.window.padEnd(9)} ${String(r.picks ?? "-").padEnd(6)} ` +
+      `${r.job.agentKey.padEnd(24)} ${persona.displayName.padEnd(16)} ` +
+        `${r.job.window.padEnd(9)} ${String(r.picks ?? "-").padEnd(6)} ` +
         `${String(r.insertedId ?? "-").padEnd(11)} ${r.ok ? "ok" : "ERROR"}`,
     );
     if (!r.ok) {

@@ -19,6 +19,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   datasetPathFor,
   isValidRoundId,
+  parseWindows,
   resolveAgents,
   type AgentJob,
 } from "../src/agents.js";
@@ -51,7 +52,7 @@ const VALID_ENVELOPE = {
   schemaVersion: 1,
   roundId: "w1",
   agent: {
-    agentKey: "dr-value",
+    agentKey: "dr-value--monthly",
     persona: "Dr. Value",
     strategy: "deep-value",
     window: "monthly",
@@ -133,31 +134,81 @@ describe("loadConfig", () => {
 });
 
 describe("resolveAgents", () => {
-  it("resolves undefined to all personas", () => {
-    expect(resolveAgents(undefined)).toHaveLength(6);
+  it("resolves undefined to the full persona x window cross product", () => {
+    expect(resolveAgents(undefined)).toHaveLength(18);
   });
 
-  it('resolves "all" and blanks to all personas', () => {
-    expect(resolveAgents("all")).toHaveLength(6);
-    expect(resolveAgents("")).toHaveLength(6);
-    expect(resolveAgents("   ")).toHaveLength(6);
+  it('resolves "all" and blanks to the full cross product', () => {
+    expect(resolveAgents("all")).toHaveLength(18);
+    expect(resolveAgents("")).toHaveLength(18);
+    expect(resolveAgents("   ")).toHaveLength(18);
   });
 
-  it("resolves a comma-separated list", () => {
+  it("resolves a comma-separated list across every window", () => {
     const jobs: AgentJob[] = resolveAgents("dr-value, dr-momentum");
     expect(jobs).toEqual([
-      { personaKey: "dr-value", agentKey: "dr-value" },
-      { personaKey: "dr-momentum", agentKey: "dr-momentum" },
+      { personaKey: "dr-value", agentKey: "dr-value--daily", window: "daily" },
+      { personaKey: "dr-value", agentKey: "dr-value--weekly", window: "weekly" },
+      { personaKey: "dr-value", agentKey: "dr-value--monthly", window: "monthly" },
+      { personaKey: "dr-momentum", agentKey: "dr-momentum--daily", window: "daily" },
+      { personaKey: "dr-momentum", agentKey: "dr-momentum--weekly", window: "weekly" },
+      { personaKey: "dr-momentum", agentKey: "dr-momentum--monthly", window: "monthly" },
     ]);
   });
 
   it("resolves an array of keys", () => {
     const jobs: AgentJob[] = resolveAgents(["dr-macro", "dr-technical"]);
-    expect(jobs.map((job) => job.agentKey)).toEqual(["dr-macro", "dr-technical"]);
+    expect(jobs.map((job) => job.agentKey)).toEqual([
+      "dr-macro--daily",
+      "dr-macro--weekly",
+      "dr-macro--monthly",
+      "dr-technical--daily",
+      "dr-technical--weekly",
+      "dr-technical--monthly",
+    ]);
+  });
+
+  it("restricts the roster to the requested windows", () => {
+    expect(resolveAgents("dr-value", ["monthly"])).toEqual([
+      { personaKey: "dr-value", agentKey: "dr-value--monthly", window: "monthly" },
+    ]);
+  });
+
+  it("keeps canonical cadence order regardless of input order", () => {
+    expect(resolveAgents("dr-value", ["monthly", "daily"]).map((job) => job.window)).toEqual([
+      "daily",
+      "monthly",
+    ]);
+  });
+
+  it("produces a unique agentKey for every persona-window pair", () => {
+    const keys = resolveAgents(undefined).map((job) => job.agentKey);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("rejects an unknown window", () => {
+    expect(() => resolveAgents("dr-value", ["yearly" as never])).toThrow(/Unknown window/);
   });
 
   it("throws with the available keys on an unknown persona", () => {
     expect(() => resolveAgents("ghost-picker")).toThrow();
+  });
+});
+
+describe("parseWindows", () => {
+  it("maps undefined, blank, and 'all' to undefined (every window)", () => {
+    expect(parseWindows(undefined)).toBeUndefined();
+    expect(parseWindows("")).toBeUndefined();
+    expect(parseWindows("  ")).toBeUndefined();
+    expect(parseWindows("all")).toBeUndefined();
+  });
+
+  it("splits and trims a comma-separated list", () => {
+    expect(parseWindows(" daily , monthly ")).toEqual(["daily", "monthly"]);
+  });
+
+  it("passes an array through with blanks dropped", () => {
+    expect(parseWindows(["daily", " ", "weekly"])).toEqual(["daily", "weekly"]);
   });
 });
 
@@ -333,8 +384,8 @@ describe("runAgents (durable progress)", () => {
   };
 
   const jobs: AgentJob[] = [
-    { personaKey: "dr-value", agentKey: "dr-value" },
-    { personaKey: "dr-momentum", agentKey: "dr-momentum" },
+    { personaKey: "dr-value", agentKey: "dr-value", window: "weekly" },
+    { personaKey: "dr-momentum", agentKey: "dr-momentum", window: "weekly" },
   ];
 
   const envelope = (agentKey: string) => ({
@@ -558,14 +609,14 @@ describe("docker exec spawner", () => {
       key: "dr-value",
       displayName: "Dr. Value",
       strategy: "deep-value",
-      window: "monthly",
       phdSystemPrompt: "You are a value analyst.",
     };
   }
 
   const baseOptions = {
     persona: fakePersona(),
-    agentKey: "dr-value",
+    window: "monthly" as const,
+    agentKey: "dr-value--monthly",
     roundId: "w1",
     datasetPath: "/app/worktrees/slug/rounds/w1/dataset.json",
     asOfTradeDate: "2026-09-22",
@@ -623,6 +674,6 @@ describe("docker exec spawner", () => {
     const fenced = "```json\n" + JSON.stringify(VALID_ENVELOPE) + "\n```";
     const exec: ExecImpl = async () => ({ stdout: ndjson(fenced), stderr: "", code: 0 });
     const result = await spawnAnalystWithExec(baseOptions, exec);
-    expect(result.envelope.agent.agentKey).toBe("dr-value");
+    expect(result.envelope.agent.agentKey).toBe("dr-value--monthly");
   });
 });

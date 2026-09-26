@@ -114,6 +114,7 @@ async function runOneAgent(
     const persona = getPersona(job.personaKey);
     const spawned = await spawn({
       persona,
+      window: job.window,
       agentKey: job.agentKey,
       roundId,
       datasetPath,

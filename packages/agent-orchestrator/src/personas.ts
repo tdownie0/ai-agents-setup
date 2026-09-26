@@ -2,28 +2,57 @@
  * Analyst persona catalog for the portfolio-simulation orchestrator.
  *
  * Each persona is a deliberately opinionated Ph.D-level mandate: a distinct
- * research methodology, a distinct risk stance, and a distinct rebalance
- * window. The prompts are written to DIVERGE — six analysts looking at the
- * same dataset.json must be able to reach different conclusions, which is
- * exactly what a leaderboard of forward paper-traded portfolios needs.
+ * research methodology and a distinct risk stance. The prompts are written to
+ * DIVERGE — six methodologies looking at the same dataset.json must be able to
+ * reach different conclusions, which is exactly what a leaderboard of forward
+ * paper-traded portfolios needs.
+ *
+ * The rebalance window is NOT a persona trait — it is a round dimension, so
+ * every persona runs on every window and strategy can be compared against
+ * cadence. A persona's methodology is invariant; only its trading rhythm
+ * changes. Never hard-code a frequency in the prose: a prompt that says
+ * "weekly" while the envelope says "daily" is a silent data-quality bug. Use
+ * the `{{cadence}}` token instead.
  *
  * The `phdSystemPrompt` is the full system prompt handed to the headless
  * `opencode run` subagent. It references the dataset file by path and the
  * decision envelope schema by name (see `src/contract.ts`).
  */
 
-export type AnalystWindow = "daily" | "weekly" | "monthly";
+import { DECISION_WINDOWS } from "./contract.js";
+
+export type AnalystWindow = (typeof DECISION_WINDOWS)[number];
+
+/** Every window a round may assign, in ascending cadence order. */
+export const ANALYST_WINDOWS: readonly AnalystWindow[] = DECISION_WINDOWS;
+
+/**
+ * Per-window trading-rhythm directive substituted for the `{{cadence}}` token
+ * in every `phdSystemPrompt`. The intervals mirror the backend's
+ * `REBALANCE_CADENCE` (daily 1 / weekly 5 / monthly 21 trading days), so the
+ * analyst's stated behaviour matches how its book will actually be marked.
+ */
+export const WINDOW_CADENCE: Readonly<Record<AnalystWindow, string>> = Object.freeze({
+  daily:
+    "DAILY cadence — you rebalance every trading day (1-trading-day interval). You may add and drop names freely, and a position that stops working is cut without ceremony.",
+  weekly:
+    "WEEKLY cadence — you rebalance every 5 trading days. You reassess on a weekly rhythm, tolerate a few days of noise before acting, and patience between reviews is part of the edge.",
+  monthly:
+    "MONTHLY cadence — you rebalance every 21 trading days. You make few high-conviction moves, tolerate substantial drawdown before intervening, and treat overtrading as a tax you refuse to pay.",
+});
 
 export interface AnalystPersona {
   /** Stable kebab-case key, e.g. "dr-value". Used as the agentKey base. */
   key: string;
   /** Human-readable display name for the leaderboard. */
   displayName: string;
-  /** Short strategy label persisted to `agent_runs.strategy`. */
+  /** Short strategy label persisted to `agent_runs.strategy`. Invariant across windows. */
   strategy: string;
-  /** Rebalance window — one of the `portfolioWindows` values. */
-  window: AnalystWindow;
-  /** The full Ph.D-level system prompt for this analyst. */
+  /**
+   * The full Ph.D-level system prompt for this analyst. May contain the
+   * `{{cadence}}` token, which the prompt builder replaces with the round's
+   * assigned window directive.
+   */
   phdSystemPrompt: string;
 }
 
@@ -32,7 +61,6 @@ export const PERSONAS: readonly AnalystPersona[] = Object.freeze([
     key: "dr-value",
     displayName: "Dr. Value",
     strategy: "deep-value",
-    window: "monthly",
     phdSystemPrompt: `You are Dr. Value, a Ph.D. in Financial Economics with 25 years as a deep-value portfolio manager. Your entire career has been built on buying durable businesses at prices that embed excessive pessimism, then waiting for mean reversion of the multiple.
 
 RESEARCH METHODOLOGY
@@ -42,6 +70,7 @@ RESEARCH METHODOLOGY
 - Volatility is your friend when it is the by-product of fear, not of structural decline. Prefer volatility21d below the cross-sectional median unless the drawdown is extreme.
 
 RISK STANCE
+- {{cadence}}
 - Maximum 10 positions, concentrated in your highest-conviction ideas. You would rather own 6 great bargains than 10 mediocre ones.
 - Position sizing: weight your picks by conviction — deeper discount, higher weight. Never equal-weight; your edge is ranking cheapness.
 - Hard rule: never pick a symbol with positive 252d return above +20% — that is no longer a value trade.
@@ -64,7 +93,6 @@ Output ONLY a single JSON object matching the decision envelope schema exactly (
     key: "dr-momentum",
     displayName: "Dr. Momentum",
     strategy: "trend-momentum",
-    window: "daily",
     phdSystemPrompt: `You are Dr. Momentum, a Ph.D. in Behavioral Finance who has run a systematic trend-following book for 20 years. You believe prices are the only honest information and that relative strength persists because of investor under-reaction and herding.
 
 RESEARCH METHODOLOGY
@@ -75,7 +103,7 @@ RESEARCH METHODOLOGY
 - Liquidity matters: prefer avgDollarVolume in the top half of the universe so your paper fills are realistic.
 
 RISK STANCE
-- Daily rebalance window: you re-evaluate every trading day, so you can be aggressive on entry but you cut losers fast.
+- {{cadence}} You can be aggressive on entry, but you cut losers fast.
 - 8–10 positions, roughly equal weight with a slight tilt to the top-3 momentum ranks. Diversification is your risk control because single-name momentum can gap.
 - Hard rule: if a held name's sma50AboveSma200 flips to false, it is out — no exceptions, no averaging down.
 
@@ -97,7 +125,6 @@ Output ONLY a single JSON object matching the decision envelope schema exactly (
     key: "dr-contrarian",
     displayName: "Dr. Contrarian",
     strategy: "mean-reversion",
-    window: "weekly",
     phdSystemPrompt: `You are Dr. Contrarian, a Ph.D. in Quantitative Finance who has spent 22 years fading the crowd. Your edge is that short-horizon sentiment overshoots fundamentals, and you harvest the snap-back. You are the mirror image of the momentum analyst.
 
 RESEARCH METHODOLOGY
@@ -108,7 +135,7 @@ RESEARCH METHODOLOGY
 - Avoid value traps: if returns252d is deeply negative AND returns63d is still getting worse, the market may be right — stand aside.
 
 RISK STANCE
-- Weekly rebalance: you give mean reversion a week to work, then reassess. Patience is part of the edge.
+- {{cadence}} You give mean reversion time to work, then reassess. Patience is part of the edge.
 - 6–9 positions, equal weight. You deliberately do not concentrate because single-name mean reversion can fail violently.
 - Hard rule: never catch a falling knife below the 52-week low — if latestClose is within 2% of low52w, skip it.
 
@@ -131,7 +158,6 @@ Output ONLY a single JSON object matching the decision envelope schema exactly (
     key: "dr-macro",
     displayName: "Dr. Macro",
     strategy: "macro-quality",
-    window: "monthly",
     phdSystemPrompt: `You are Dr. Macro, a Ph.D. in Macroeconomics who has run a top-down global allocation desk for 24 years. You start from the macro regime and let it pick the sectors; you then select the highest-quality franchise within each favoured sector. You never buy a stock first and ask macro questions later.
 
 RESEARCH METHODOLOGY
@@ -141,7 +167,7 @@ RESEARCH METHODOLOGY
 - Avoid the lowest-quality tail: names with negative 252d return AND volatility21d above the cross-sectional median are structurally impaired — skip them regardless of sector.
 
 RISK STANCE
-- Monthly rebalance: you make few, high-conviction moves and let the macro regime compound. Overtrading is a tax.
+- {{cadence}} You make few, high-conviction moves and let the macro regime compound.
 - 7–10 positions, sector-diversified: no more than 3 names from any single sector. Weights tilt toward your highest-conviction macro bet.
 - Hard rule: your portfolio must contain at least 2 defensive names and at least 2 cyclical names at all times — you are never fully one-sided.
 
@@ -162,7 +188,6 @@ Output ONLY a single JSON object matching the decision envelope schema exactly (
     key: "dr-compounder",
     displayName: "Dr. Compounder",
     strategy: "quality-growth",
-    window: "weekly",
     phdSystemPrompt: `You are Dr. Compounder, a Ph.D. in Corporate Finance who has spent 21 years running a concentrated quality-growth fund. You buy exceptional businesses with durable competitive advantages and let the earnings compound; you are allergic to turnaround stories and commodity cyclicals.
 
 RESEARCH METHODOLOGY
@@ -172,7 +197,7 @@ RESEARCH METHODOLOGY
 - Franchise quality by sector: Information Technology, Health Care, Consumer Staples, Communication Services, and select Financials (V, MA) house the widest-moat compounders. Avoid Energy and Materials — commodity price-takers are not compounders.
 
 RISK STANCE
-- Weekly rebalance: you review every week but you are slow to sell — you sell only on thesis breakage (trend structure failure), not on noise.
+- {{cadence}} You are slow to sell — you sell only on thesis breakage (trend structure failure), not on noise.
 - 5–8 positions, conviction-weighted. You are comfortable being concentrated because the businesses are high-quality.
 - Hard rule: if sma50AboveSma200 flips false OR returns21d turns deeply negative (< -10%), the compounding thesis is broken — exit.
 
@@ -194,7 +219,6 @@ Output ONLY a single JSON object matching the decision envelope schema exactly (
     key: "dr-technical",
     displayName: "Dr. Technical",
     strategy: "technicals-only",
-    window: "daily",
     phdSystemPrompt: `You are Dr. Technical, a Ph.D. in Applied Mathematics who has traded pure price/volume systems for 19 years. You have no opinion about fundamentals, sectors, or narratives — the chart is the entire information set, and the dataset gives you everything you need to read it.
 
 RESEARCH METHODOLOGY
@@ -206,7 +230,7 @@ RESEARCH METHODOLOGY
 - The 52-week geometry is your risk map: offHigh52wPct between -20% and 0% keeps you in the upper half of the range; a name below -30% off its high is in a broken structure regardless of the moving averages.
 
 RISK STANCE
-- Daily rebalance: you are the most active analyst — you re-rank the universe every day and hold only the top of the technical stack.
+- {{cadence}} You hold only the top of the technical stack.
 - 8–10 positions, volatility-scaled weights: weight_i ∝ (1 / volatility21d_i), then normalized to sum to 1.0. This is your only weighting scheme.
 - Hard rules: no name with sma50AboveSma200 false; no name with RSI-14 above 85; no name with offHigh52wPct below -30%.
 
@@ -238,4 +262,56 @@ export function getPersona(key: string): AnalystPersona {
     );
   }
   return persona;
+}
+
+/**
+ * Separator between persona key and window in a composite agent key. `#` is
+ * already reserved by the CLI's `--replicate-of` suffix (`<base>#rep<i>`), so
+ * window identity uses `--`.
+ */
+export const AGENT_KEY_SEPARATOR = "--";
+
+/**
+ * Composite agent key for one (persona, window) pair, e.g. `dr-value--daily`.
+ *
+ * The window must be part of the key: `agent_runs` and `round_agent_progress`
+ * both carry a UNIQUE index on `(round_id, agent_key)`, and the launch path
+ * upserts progress rows on that same pair. Keying by persona alone collapses
+ * every window of a persona onto one row and silently drops runs.
+ */
+export function agentKeyFor(personaKey: string, window: AnalystWindow): string {
+  return `${personaKey}${AGENT_KEY_SEPARATOR}${window}`;
+}
+
+/**
+ * Inverse of `agentKeyFor`: the window encoded in a composite agent key, or
+ * undefined if the key carries no window (e.g. a bare CLI replica key).
+ */
+export function windowFromAgentKey(agentKey: string): AnalystWindow | undefined {
+  const base = agentKey.split("#")[0];
+  const idx = base.lastIndexOf(AGENT_KEY_SEPARATOR);
+  if (idx === -1) return undefined;
+  const suffix = base.slice(idx + AGENT_KEY_SEPARATOR.length);
+  return ANALYST_WINDOWS.includes(suffix as AnalystWindow)
+    ? (suffix as AnalystWindow)
+    : undefined;
+}
+
+/**
+ * The catalog persona encoded in an agent key, or undefined when the key does
+ * not resolve to a known persona.
+ *
+ * Strips the window segment and any `#rep<i>` replica suffix, so
+ * `dr-value--daily` and `dr-value--monthly#rep2` both yield `dr-value`. Unlike
+ * `windowFromAgentKey` this also asserts catalog membership, which is what
+ * makes it safe to use as the authority for `agent_runs.persona` and
+ * `agent_runs.strategy`: a key naming a persona that does not exist is rejected
+ * rather than persisted with whatever label the model supplied.
+ */
+export function personaKeyFromAgentKey(agentKey: string): string | undefined {
+  const base = (agentKey.split("#")[0] ?? "").trim();
+  if (base.length === 0) return undefined;
+  const idx = base.lastIndexOf(AGENT_KEY_SEPARATOR);
+  const candidate = idx === -1 ? base : base.slice(0, idx);
+  return PERSONA_BY_KEY.has(candidate) ? candidate : undefined;
 }

@@ -63,6 +63,14 @@ export interface ValidateEnvelopeOptions {
   universe: readonly string[];
   /** Symbols that have at least one price bar as of the decision date. */
   symbolsWithPrice: ReadonlySet<string>;
+  /**
+   * The window the round assigned to this agent. When set, an envelope whose
+   * `agent.window` differs is rejected: membership in DECISION_WINDOWS is not
+   * enough, because a persona run on several windows would otherwise be free to
+   * report whichever cadence it likes and the round would no longer be a clean
+   * strategy x window cross product.
+   */
+  expectedWindow?: DecisionWindow;
 }
 
 /** Typed validation failure — `issues` carries one message per violation. */
@@ -128,9 +136,14 @@ export function validateEnvelope(value: unknown, opts: ValidateEnvelopeOptions):
     if (!isNonEmptyString(agent.strategy)) {
       issues.push("agent.strategy must be a non-empty string");
     }
-    if (!DECISION_WINDOWS.includes(agent.window as DecisionWindow)) {
+    const windowIsValid = DECISION_WINDOWS.includes(agent.window as DecisionWindow);
+    if (!windowIsValid) {
       issues.push(
         `agent.window must be one of ${DECISION_WINDOWS.join("|")}, got ${JSON.stringify(agent.window)}`,
+      );
+    } else if (opts.expectedWindow !== undefined && agent.window !== opts.expectedWindow) {
+      issues.push(
+        `agent.window must be "${opts.expectedWindow}" (the window assigned to this run), got ${JSON.stringify(agent.window)}`,
       );
     }
     if (!isFiniteNumber(agent.initialCapital) || agent.initialCapital <= 0) {

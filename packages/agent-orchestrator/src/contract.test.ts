@@ -55,11 +55,16 @@ function validEnvelope(overrides: Partial<DecisionEnvelope> = {}): DecisionEnvel
   };
 }
 
-function expectValidationError(envelope: unknown, expectedFragment: string): void {
+function expectValidationError(
+  envelope: unknown,
+  expectedFragment: string,
+  expectedWindow?: "daily" | "weekly" | "monthly",
+): void {
   try {
     validateEnvelope(envelope, {
       universe: UNIVERSE,
       symbolsWithPrice: SYMBOLS_WITH_PRICE,
+      ...(expectedWindow === undefined ? {} : { expectedWindow }),
     });
     expect.unreachable(`expected validation to fail with "${expectedFragment}"`);
   } catch (err) {
@@ -291,6 +296,21 @@ describe("validateEnvelope — agent fields", () => {
       agent: { ...validEnvelope().agent, window: "yearly" as never },
     });
     expectValidationError(envelope, "window must be one of daily|weekly|monthly");
+  });
+
+  it("accepts an envelope whose window matches the round's expectedWindow", () => {
+    const envelope = validEnvelope();
+    const result = validateEnvelope(envelope, {
+      universe: UNIVERSE,
+      symbolsWithPrice: SYMBOLS_WITH_PRICE,
+      expectedWindow: "monthly",
+    });
+    expect(result).toEqual(envelope);
+  });
+
+  it("rejects a window that contradicts the round's expectedWindow", () => {
+    const envelope = validEnvelope();
+    expectValidationError(envelope, 'window must be "daily"', "daily");
   });
 
   it("rejects an agentKey with uppercase letters", () => {

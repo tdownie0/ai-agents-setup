@@ -9,6 +9,13 @@
  *   - `entryPrice` = that symbol's close on asOfTradeDate,
  *   - `shares` = (initialCapital × targetWeight) / entryPrice (6dp).
  *
+ * `persona` and `strategy` are written from the catalog (see
+ * `InsertRunOptions`), never from `envelope.agent`: the model's own strings are
+ * preserved verbatim in `decisionJson` for audit, but they are free text and
+ * would otherwise fragment the leaderboard's grouping keys. `window` stays
+ * model-supplied because it is already pinned by `expectedWindow` during spawn
+ * and cross-checked against the window encoded in `agentKey` on ingest.
+ *
  * Unique (roundId, agentKey): an existing run errors clearly — no silent
  * overwrite.
  */
@@ -23,6 +30,19 @@ export interface InsertRunOptions {
   entryPrices: Readonly<Record<string, number>>;
   /** The dataset asOfTradeDate — the entry trade date for every position. */
   asOfTradeDate: string;
+  /**
+   * Catalog display name, persisted to `agent_runs.persona`. Authoritative:
+   * the value the model self-reports in `envelope.agent.persona` is free text
+   * and would fragment the leaderboard.
+   */
+  expectedPersona: string;
+  /**
+   * Catalog strategy label, persisted to `agent_runs.strategy`. Authoritative
+   * for the same reason — an LLM asked to echo a label will paraphrase it
+   * ("macro-regime-quality-tilt" for `macro-quality`), which silently splits one
+   * persona across several strategy buckets in the leaderboard.
+   */
+  expectedStrategy: string;
   /** When the analyst run started. Defaults to now. */
   startedAt?: Date;
 }
@@ -87,8 +107,8 @@ export async function insertRun(opts: InsertRunOptions): Promise<InsertRunResult
         .values({
           roundId,
           agentKey: agent.agentKey,
-          persona: agent.persona,
-          strategy: agent.strategy,
+          persona: opts.expectedPersona,
+          strategy: opts.expectedStrategy,
           window: agent.window,
           initialCapital: agent.initialCapital.toFixed(2),
           status: "completed",
