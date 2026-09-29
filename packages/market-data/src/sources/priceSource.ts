@@ -19,13 +19,14 @@ export interface PriceSource {
   /**
    * Fetch daily OHLCV bars for `symbol`, oldest-first, deduped by trade date.
    *
-   * `years` selects the trailing window; when omitted the adapter fetches the
-   * full retained series. Whole-history fetches are ONE call per symbol —
-   * Yahoo's chart endpoint returns the full range in a single request, which
-   * the ingest engine relies on for its idempotent full-window re-fetch
-   * policy (upsert self-heals adjusted-close restatements).
+   * `from`/`to` bound the trailing window (both optional: `to` defaults to
+   * now, `from` to the adapter's full-history default). Range fetches are ONE
+   * call per symbol — Yahoo's chart endpoint returns the whole range in a
+   * single request, which the ingest engine relies on for its idempotent
+   * full-window re-fetch policy (upsert self-heals adjusted-close
+   * restatements).
    */
-  fetchDailyBars(symbol: string, opts?: { years?: number }): Promise<PriceBar[]>;
+  fetchDailyBars(symbol: string, opts?: { from?: Date; to?: Date }): Promise<PriceBar[]>;
 
   /**
    * Best-effort instrument metadata. Implementations MUST never throw: on any

@@ -12,44 +12,24 @@ import type { RunType } from "@model_md/database";
 import { IngestEngine } from "../ingest/engine.js";
 import { YahooSource } from "../sources/yahooSource.js";
 import { DEFAULT_UNIVERSE } from "../universe.js";
+import { resolveWindow } from "./window.js";
 
 export interface RunCliOptions {
   runType: RunType;
   defaultYears: number;
 }
 
-function parseYearsValue(raw: string): number {
-  const parsed = Number.parseInt(raw, 10);
-  if (Number.isNaN(parsed) || parsed <= 0) {
-    throw new Error(`invalid --years value: "${raw}"`);
-  }
-  return parsed;
-}
-
-/** Parse `--years N` or `--years=N`; falls back to the script default. */
-function parseYearsArg(argv: readonly string[], fallback: number): number {
-  for (const arg of argv) {
-    if (arg.startsWith("--years=")) {
-      return parseYearsValue(arg.slice("--years=".length));
-    }
-  }
-  const flagIndex = argv.indexOf("--years");
-  if (flagIndex !== -1 && flagIndex + 1 < argv.length) {
-    return parseYearsValue(argv[flagIndex + 1]);
-  }
-  return fallback;
-}
-
 export async function runCli(opts: RunCliOptions): Promise<void> {
   try {
-    const years = parseYearsArg(process.argv.slice(2), opts.defaultYears);
+    const { from, to } = resolveWindow(process.argv.slice(2), opts.defaultYears);
     const source = new YahooSource();
     const engine = new IngestEngine();
 
     const result = await engine.runIngest({
       source,
       universe: DEFAULT_UNIVERSE,
-      years,
+      from,
+      to,
       runType: opts.runType,
       db,
     });

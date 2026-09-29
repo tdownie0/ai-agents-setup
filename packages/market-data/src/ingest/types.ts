@@ -42,8 +42,10 @@ export interface IngestParams {
   universe: readonly UniverseEntry[];
   /** Optional subset of universe symbols to ingest (uppercase tickers). */
   symbolFilter?: string[];
-  /** Trailing window in years; omitted → the adapter's default window. */
-  years?: number;
+  /** Trailing window start; omitted → the adapter's default window. */
+  from?: Date;
+  /** Trailing window end (inclusive); omitted → now. */
+  to?: Date;
   /** Audit classification: "backfill" | "update" | "manual". */
   runType: RunType;
   /** Drizzle client for `instruments` / `daily_prices` / `ingestion_runs`. */

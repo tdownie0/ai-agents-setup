@@ -7,9 +7,9 @@
  * - `IngestEngine.runIngest` runs against a fake `DbClient` (insert/update/
  *   execute/transaction all captured in-memory) and a fake `PriceSource`.
  *
- * CLI arg parsing (`src/cli/runCli.ts`) is deliberately NOT tested: `runCli`
- * reads `process.argv`/`process.exit` and is not part of the package's
- * exported surface for this task.
+ * CLI window flag parsing lives in `src/cli/window.ts` and is covered by
+ * `src/cli/window.test.ts`; the `runCli` entrypoint itself stays untested
+ * because it reads `process.argv`/`process.exit` and opens a DB connection.
  */
 
 import { describe, it, expect, vi } from "vitest";
@@ -363,11 +363,14 @@ describe("IngestEngine.runIngest", () => {
     const { db: fakeDb, captured } = createFakeDb({ runInsertId: 42 });
     const source = createSource({ barsPerSymbol: 2 });
     const engine = new IngestEngine();
+    const from = new Date("2021-01-01T00:00:00Z");
+    const to = new Date("2026-01-01T00:00:00Z");
 
     const result = await engine.runIngest({
       source,
       universe: UNIVERSE,
-      years: 5,
+      from,
+      to,
       runType: "backfill",
       db: fakeDb,
     });
@@ -395,9 +398,9 @@ describe("IngestEngine.runIngest", () => {
       error: null,
     });
 
-    // Fetching: 3 symbols, years window forwarded, enrichment attempted.
+    // Fetching: 3 symbols, window forwarded, enrichment attempted.
     expect(source.fetchDailyBars).toHaveBeenCalledTimes(3);
-    expect(source.fetchDailyBars).toHaveBeenCalledWith("AAA", { years: 5 });
+    expect(source.fetchDailyBars).toHaveBeenCalledWith("AAA", { from, to });
     expect(source.fetchInstrumentMeta).toHaveBeenCalledTimes(3);
 
     // ONE transaction per symbol + ONE finalization transaction.

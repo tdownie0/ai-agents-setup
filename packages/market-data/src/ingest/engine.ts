@@ -110,7 +110,7 @@ async function finalizeRun(db: DbClient, runId: number, final: RunFinalization):
 export class IngestEngine {
   async runIngest(params: IngestParams): Promise<IngestResult> {
     const { source, universe, runType, db } = params;
-    const years = params.years;
+    const { from, to } = params;
     const symbols = resolveSymbols(universe, params.symbolFilter);
 
     const acquired = await tryAcquireLock(db);
@@ -137,7 +137,7 @@ export class IngestEngine {
         try {
           const bars = await source.fetchDailyBars(
             entry.symbol,
-            years === undefined ? undefined : { years },
+            from === undefined && to === undefined ? undefined : { from, to },
           );
           const meta = await fetchMetaBestEffort(source, entry.symbol);
           await db.transaction(async (tx) => {

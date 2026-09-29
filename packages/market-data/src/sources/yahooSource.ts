@@ -14,7 +14,7 @@ import type { PriceSource } from "./priceSource.js";
  * Config is injected via the constructor — this module NEVER reads `process.env`.
  */
 
-/** Default trailing window (years) when `fetchDailyBars` omits `years`. */
+/** Default trailing window (years) applied when `fetchDailyBars` omits `from`. */
 const DEFAULT_HISTORY_YEARS = 30;
 
 /** Formats a Date as YYYY-MM-DD in the America/New_York session calendar. */
@@ -157,7 +157,7 @@ class ConcurrencyLimiter {
 
 /** Constructor options for `YahooSource` (extends the shared knobs). */
 export interface YahooSourceOptions extends PriceSourceOptions {
-  /** Default history window in years when `fetchDailyBars` omits `years`. */
+  /** Default history window in years used when `fetchDailyBars` omits `from`. */
   defaultYears?: number;
 }
 
@@ -182,12 +182,13 @@ export class YahooSource implements PriceSource {
     this.defaultYears = options.defaultYears ?? DEFAULT_HISTORY_YEARS;
   }
 
-  async fetchDailyBars(symbol: string, opts?: { years?: number }): Promise<PriceBar[]> {
+  async fetchDailyBars(symbol: string, opts?: { from?: Date; to?: Date }): Promise<PriceBar[]> {
     const normalized = normalizeSymbol(symbol);
-    const years = opts?.years ?? this.defaultYears;
-    const period2 = new Date();
-    const period1 = new Date(period2);
-    period1.setFullYear(period1.getFullYear() - years);
+    const period2 = opts?.to ?? new Date();
+    const period1 = opts?.from ?? new Date(period2.getTime());
+    if (opts?.from === undefined) {
+      period1.setFullYear(period1.getFullYear() - this.defaultYears);
+    }
 
     const result: ChartResultArray = await this.limiter.run(() =>
       this.withRetry(normalized, async () => {
