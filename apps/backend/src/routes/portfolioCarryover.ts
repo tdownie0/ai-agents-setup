@@ -1,5 +1,7 @@
 /**
- * Carryover read routes (beads task 800.4, W4).
+ * Carryover routes (beads task 800.4, W4).
+ *
+ *   POST /portfolio/simulations
  *
  * Five reads over the materialized books, all `c.json` and all scoped by
  * `simId`:
@@ -25,11 +27,17 @@
 
 import { Hono } from "hono";
 import { db } from "@model_md/database";
-import type { AgentPortfolioState, PortfolioEquityDaily, PortfolioWindow } from "@model_md/database";
+import type {
+  AgentPortfolioState,
+  PortfolioEquityDaily,
+  PortfolioWindow,
+} from "@model_md/database";
 import { computeRanking } from "../portfolio/ranking.js";
 import type { StreamKey } from "../portfolio/carryoverPlan.js";
 import { streamAgentKey } from "../portfolio/carryoverStore.js";
 import {
+  createSimulation,
+  isRecord,
   loadEquityByState,
   loadLotsByState,
   loadPersonaLabels,
@@ -174,9 +182,7 @@ export function parseStreamParams(
 
 /** Parse the leaderboard `mode` query param; absent means `overall`. */
 export function parseLeaderboardMode(raw: string | undefined): LeaderboardMode {
-  return LEADERBOARD_MODES.includes(raw as LeaderboardMode)
-    ? (raw as LeaderboardMode)
-    : "overall";
+  return LEADERBOARD_MODES.includes(raw as LeaderboardMode) ? (raw as LeaderboardMode) : "overall";
 }
 
 /** Cached curve rows → engine points, with return measured against the chain basis. */
@@ -277,7 +283,82 @@ export function buildLeaderboardGroups(
     }));
 }
 
+export interface CreateSimulationBody {
+  simId: string;
+  label: string | null;
+  initialCapital: number;
+}
+
+/**
+ * Validate a `POST /simulations` body. Throws a message suitable for a 400.
+ *
+ * `initialCapital` defaults to 100000 to match the column default, so the
+ * common case is `{"simId": "sim-baseline"}`.
+ */
+export function parseCreateSimulationBody(value: unknown): CreateSimulationBody {
+  if (!isRecord(value)) {
+    throw new Error("request body must be a JSON object");
+  }
+  const rawSimId = value.simId;
+  if (typeof rawSimId !== "string" || !SIM_ID_PATTERN.test(rawSimId.trim())) {
+    throw new Error("body.simId must match /^sim-[a-z0-9][a-z0-9-]{0,46}$/");
+  }
+  if (value.label !== undefined && value.label !== null && typeof value.label !== "string") {
+    throw new Error("body.label must be a string when present");
+  }
+  const initialCapital = value.initialCapital ?? 100000;
+  if (
+    typeof initialCapital !== "number" ||
+    !Number.isFinite(initialCapital) ||
+    initialCapital <= 0
+  ) {
+    throw new Error("body.initialCapital must be a positive number");
+  }
+  const label =
+    typeof value.label === "string" && value.label.trim().length > 0 ? value.label.trim() : null;
+  return { simId: rawSimId.trim(), label, initialCapital };
+}
+
 const portfolioCarryoverApp = new Hono()
+  .post("/simulations", async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+
+    let body: CreateSimulationBody;
+    try {
+      body = parseCreateSimulationBody(raw);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+    }
+
+    const row = await createSimulation(db, body);
+    if (row === undefined) {
+      return c.json(
+        {
+          error: `simulation "${body.simId}" already exists`,
+          hint: "A simId is permanent once booked. Reuse the existing simulation or choose a new one.",
+        },
+        409,
+      );
+    }
+
+    return c.json(
+      {
+        simId: row.simId,
+        label: row.label,
+        initialCapital: parseNumeric(row.initialCapital),
+        createdAt: row.createdAt.toISOString(),
+        streamCount: 0,
+        lastRoundSeq: null,
+      } satisfies SimulationWire,
+      201,
+    );
+  })
+
   .get("/simulations", async (c) => {
     const rows = await loadSimulations(db);
     const summaries = await Promise.all(
@@ -304,8 +385,14 @@ const portfolioCarryoverApp = new Hono()
     if ("error" in parsed) return c.json(parsed.error, 400);
     const states = await loadStreamStates(db, parsed.simId);
     const [equity, lots, labels] = await Promise.all([
-      loadEquityByState(db, states.map((state) => state.id)),
-      loadLotsByState(db, states.map((state) => state.id)),
+      loadEquityByState(
+        db,
+        states.map((state) => state.id),
+      ),
+      loadLotsByState(
+        db,
+        states.map((state) => state.id),
+      ),
       loadPersonaLabels(db, parsed.simId),
     ]);
     return c.json(
@@ -402,7 +489,10 @@ const portfolioCarryoverApp = new Hono()
 
     const states = await loadStreamStates(db, parsed.simId);
     const [equity, labels] = await Promise.all([
-      loadEquityByState(db, states.map((state) => state.id)),
+      loadEquityByState(
+        db,
+        states.map((state) => state.id),
+      ),
       loadPersonaLabels(db, parsed.simId),
     ]);
     const rows = states.map((state) => toStreamSummary(state, equity.get(state.id) ?? [], labels));

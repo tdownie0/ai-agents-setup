@@ -197,7 +197,11 @@ export async function loadBarsBySymbol(
   const map = new Map<string, EngineBar[]>();
   if (symbols.length === 0) return map;
   const rows = await client
-    .select({ symbol: instruments.symbol, tradeDate: dailyPrices.tradeDate, close: dailyPrices.close })
+    .select({
+      symbol: instruments.symbol,
+      tradeDate: dailyPrices.tradeDate,
+      close: dailyPrices.close,
+    })
     .from(dailyPrices)
     .innerJoin(instruments, eq(dailyPrices.instrumentId, instruments.id))
     .where(inArray(instruments.symbol, [...symbols]))
@@ -302,10 +306,7 @@ export async function loadStreamKeys(
 }
 
 /** The next chain position for a simulation: one past the highest recorded. */
-export async function loadNextRoundSeq(
-  client: Queryable,
-  simulationId: string,
-): Promise<number> {
+export async function loadNextRoundSeq(client: Queryable, simulationId: string): Promise<number> {
   const [row] = await client
     .select({ seq: max(roundJobs.roundSeq) })
     .from(roundJobs)
@@ -315,7 +316,37 @@ export async function loadNextRoundSeq(
 
 /** Every simulation, oldest first, so the handle list is stable across calls. */
 export async function loadSimulations(client: Queryable) {
-  return client.select().from(simulations).orderBy(asc(simulations.createdAt), asc(simulations.simId));
+  return client
+    .select()
+    .from(simulations)
+    .orderBy(asc(simulations.createdAt), asc(simulations.simId));
+}
+
+/**
+ * Create one simulation — the scope every chained round hangs off.
+ *
+ * `initialCapital` is the CHAIN BASIS, not a per-round budget: it seeds
+ * `agent_portfolio_state.initial_capital` and is the denominator of every
+ * round's `returnPct`, so it is fixed for the life of the chain.
+ *
+ * Returns `undefined` when `simId` is already taken, so the route can answer
+ * 409 rather than let `onConflictDoNothing` swallow the collision as a silent
+ * success on a handle the caller does not own.
+ */
+export async function createSimulation(
+  client: Queryable,
+  input: { simId: string; label: string | null; initialCapital: number },
+) {
+  const [row] = await client
+    .insert(simulations)
+    .values({
+      simId: input.simId,
+      label: input.label,
+      initialCapital: input.initialCapital.toFixed(2),
+    })
+    .onConflictDoNothing({ target: simulations.simId })
+    .returning();
+  return row;
 }
 
 /** One materialized book per stream in a simulation, in (persona, window) order. */
@@ -394,7 +425,11 @@ export async function loadPersonaLabels(
   simulationId: string,
 ): Promise<Map<string, { persona: string; strategy: string }>> {
   const rows = await client
-    .select({ agentKey: agentRuns.agentKey, persona: agentRuns.persona, strategy: agentRuns.strategy })
+    .select({
+      agentKey: agentRuns.agentKey,
+      persona: agentRuns.persona,
+      strategy: agentRuns.strategy,
+    })
     .from(agentRuns)
     .where(eq(agentRuns.simulationId, simulationId))
     .orderBy(asc(agentRuns.persona));
@@ -446,9 +481,7 @@ export async function applyStreamPlan(
       await client
         .delete(portfolioPositionLots)
         .where(eq(portfolioPositionLots.stateId, current.id));
-      await client
-        .delete(portfolioEquityDaily)
-        .where(eq(portfolioEquityDaily.stateId, current.id));
+      await client.delete(portfolioEquityDaily).where(eq(portfolioEquityDaily.stateId, current.id));
     }
   }
 
@@ -591,7 +624,12 @@ export interface InsertRunAndFoldInput {
   /** Entry fills: symbol → close on `asOfTradeDate`, buys only. */
   entryPrices: Readonly<Record<string, number>>;
   /** Symbol → `portfolioValue × targetWeight / close`, for `portfolio_positions`. */
-  positions: readonly { symbol: string; targetWeight: number; shares: number; thesis: string | null }[];
+  positions: readonly {
+    symbol: string;
+    targetWeight: number;
+    shares: number;
+    thesis: string | null;
+  }[];
   /** The `agent_runs` row to insert. */
   run: {
     roundId: string;
@@ -758,7 +796,7 @@ export async function replaceRoundInTx(
  * envelope parsing (history only — the live path is typed)
  * ------------------------------------------------------------------ */
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
