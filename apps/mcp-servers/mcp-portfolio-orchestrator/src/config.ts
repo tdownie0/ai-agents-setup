@@ -7,7 +7,7 @@
  *   WORKTREE_SLUG          required — worktree dir name inside the
  *                          opencode_agent container (/app/worktrees/<slug>)
  *   AGENT_CONTAINER        default "opencode_agent"
- *   MAX_PARALLEL           default 6
+ *   MAX_PARALLEL           default 3
  *   INITIAL_CAPITAL        default 100000
  *   AGENT_TIMEOUT_MS       default 10 minutes
  *   DOCKER_HOST            optional — passthrough for `docker exec`
