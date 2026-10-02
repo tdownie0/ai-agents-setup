@@ -26,6 +26,7 @@ import type {
   AnalystPersona,
   AnalystWindow,
   DecisionEnvelope,
+  DecisionHolding,
   SpawnAnalystResult,
   ValidateEnvelopeOptions,
 } from "@model_md/agent-orchestrator";
@@ -39,7 +40,25 @@ export interface SpawnViaDockerOptions extends ValidateEnvelopeOptions {
   /** Dataset path AS VISIBLE INSIDE the agent container. */
   datasetPath: string;
   asOfTradeDate: string;
-  initialCapital: number;
+  /**
+   * Total value the target weights apply to (cash + open positions at
+   * asOfTradeDate). Not `initialCapital`: from round 2 on the weights apply to
+   * a marked-up book, so the capital the stream started with is a different
+   * number. Mirrors `SpawnAnalystOptions` in the orchestrator library.
+   */
+  portfolioValue: number;
+  /** The stream's carried book. Empty on a stream's first round. */
+  holdings?: readonly DecisionHolding[];
+  /**
+   * Chain position and cash split for the prompt. Omitting these makes
+   * `buildAnalystPrompt` fall back to `roundSeq=1`, which the booking
+   * cross-check on the run insert then rejects for any chained round past the
+   * first — so they must come from the launch booking, never be assumed.
+   */
+  roundSeq?: number;
+  priorRoundId?: string | null;
+  cash?: number;
+  holdingsValue?: number;
   replicateOf?: string;
   /** The AI CLI container holding the opencode binary (default opencode_agent). */
   agentContainer: string;
@@ -127,7 +146,11 @@ export function runDockerExec(
       child.kill("SIGKILL");
       settle(() =>
         rejectPromise(
-          new SpawnAnalystError(`docker exec timed out after ${Math.round(timeoutMs / 1000)}s`, 1, stderr),
+          new SpawnAnalystError(
+            `docker exec timed out after ${Math.round(timeoutMs / 1000)}s`,
+            1,
+            stderr,
+          ),
         ),
       );
     }, timeoutMs);
@@ -136,7 +159,11 @@ export function runDockerExec(
       clearTimeout(timer);
       settle(() =>
         rejectPromise(
-          new SpawnAnalystError(`Failed to spawn "docker": ${err.message}. Is the docker CLI available?`, 1, ""),
+          new SpawnAnalystError(
+            `Failed to spawn "docker": ${err.message}. Is the docker CLI available?`,
+            1,
+            "",
+          ),
         ),
       );
     });
@@ -176,7 +203,12 @@ export async function spawnAnalystWithExec(
       roundId: opts.roundId,
       datasetPath: opts.datasetPath,
       asOfTradeDate: opts.asOfTradeDate,
-      initialCapital: opts.initialCapital,
+      portfolioValue: opts.portfolioValue,
+      holdings: opts.holdings,
+      roundSeq: opts.roundSeq,
+      priorRoundId: opts.priorRoundId,
+      cash: opts.cash,
+      holdingsValue: opts.holdingsValue,
       replicateOf: opts.replicateOf,
       correctionHint:
         attempt > 1 && lastFailure !== null ? formatFailureHint(lastFailure) : undefined,
@@ -214,6 +246,7 @@ export async function spawnAnalystWithExec(
       const envelope = validateEnvelope(parsed, {
         universe: opts.universe,
         symbolsWithPrice: opts.symbolsWithPrice,
+        heldSymbols: opts.heldSymbols,
         expectedWindow: opts.window,
       });
       return { envelope, rawOutput: result.stdout, attempts: attempt };
@@ -237,7 +270,9 @@ export async function spawnAnalystWithExec(
   );
 }
 
-export async function spawnAnalystViaDocker(opts: SpawnViaDockerOptions): Promise<SpawnAnalystResult> {
+export async function spawnAnalystViaDocker(
+  opts: SpawnViaDockerOptions,
+): Promise<SpawnAnalystResult> {
   return spawnAnalystWithExec(opts, runDockerExec);
 }
 

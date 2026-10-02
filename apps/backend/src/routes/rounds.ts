@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { countDistinct, desc, eq, max } from "drizzle-orm";
 import { Hono } from "hono";
 import { agentRuns, dailyPrices, db } from "@model_md/database";
-import type { AgentRun } from "@model_md/database";
+import type { AgentRun, PortfolioWindow } from "@model_md/database";
 import { DEFAULT_UNIVERSE } from "@model_md/market-data";
 import type { DbClient } from "@model_md/market-data";
 import {
@@ -30,12 +30,27 @@ import {
   extractEntryContext,
   getPersona,
   insertRun,
+  loadRoundBooking,
   MissingEntryPriceError,
   personaKeyFromAgentKey,
   validateEnvelope,
   windowFromAgentKey,
 } from "@model_md/agent-orchestrator";
-import type { AnalystDataset, DecisionEnvelope } from "@model_md/agent-orchestrator";
+import type {
+  AnalystDataset,
+  DecisionEnvelope,
+  RoundBooking,
+} from "@model_md/agent-orchestrator";
+import {
+  DuplicateStreamRunError,
+  insertRunAndFold,
+  loadHeldSymbols,
+  loadSimulation,
+  parseEnvelopeTargets,
+  parseEnvelopeTheses,
+  personaKeyOf,
+} from "../portfolio/carryoverStore.js";
+import { BackdatedRoundError, type StreamKey } from "../portfolio/carryoverPlan.js";
 
 /** Dataset dir names must never escape the rounds root. */
 export const ROUND_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/;
@@ -58,6 +73,46 @@ export function parseRoundId(raw: unknown): string {
     );
   }
   return roundId;
+}
+
+/**
+ * How a round was booked, and therefore which insert path its runs must take.
+ *
+ * `null` means the round is rejected: a run cannot be attributed to a chain
+ * position the `round_jobs` row does not vouch for.
+ */
+export type BookingClass =
+  | { kind: "chained"; simulationId: string; roundSeq: number; asOfTradeDate: string }
+  | { kind: "legacy"; roundSeq: number }
+  | { kind: "unbooked" }
+  | { kind: "undated"; simulationId: string; roundSeq: number };
+
+/**
+ * Classify a round from its booking row.
+ *
+ * A booking with no `simulationId` is a pre-carryover round: it sits outside
+ * every chain, so its run is recorded by `insertRun` and advances no state. A
+ * chained round must be folded in the same transaction as its insert — the run
+ * and the state advance cannot be split, or the chain silently skips a round
+ * while the duplicate-run guard blocks every retry.
+ *
+ * Both rejections are cases where the schema cannot supply an authoritative
+ * value: `agent_runs.round_id` has no FK to `round_jobs`, so defaulting the
+ * chain position would let two rounds share one, and folding without a decide
+ * date has no mark to value the portfolio against.
+ */
+export function classifyBooking(booking: RoundBooking | null): BookingClass {
+  if (booking === null) return { kind: "unbooked" };
+  if (booking.simulationId === null) return { kind: "legacy", roundSeq: booking.roundSeq };
+  if (booking.asOfTradeDate === null) {
+    return { kind: "undated", simulationId: booking.simulationId, roundSeq: booking.roundSeq };
+  }
+  return {
+    kind: "chained",
+    simulationId: booking.simulationId,
+    roundSeq: booking.roundSeq,
+    asOfTradeDate: booking.asOfTradeDate,
+  };
 }
 
 export function resolveRoundsDir(env: NodeJS.ProcessEnv = process.env): string {
@@ -141,6 +196,30 @@ export function parseRunInsertBody(value: unknown): { envelope: unknown } {
     throw new Error("body.envelope is required — the decision envelope from one analyst subagent");
   }
   return { envelope: value.envelope };
+}
+
+/**
+ * The stream a raw envelope addresses, or `null` when it names none (a legacy
+ * v1 envelope with no simulation). Used only to load that stream's held symbols
+ * for validation.
+ */
+export function readStreamHint(raw: unknown): StreamKey | null {
+  if (!isRecord(raw)) return null;
+  const simulationId = raw["simulationId"];
+  const agent = isRecord(raw["agent"]) ? raw["agent"] : null;
+  const agentKey = agent?.["agentKey"];
+  const window = agent?.["window"];
+  if (
+    typeof simulationId !== "string" ||
+    simulationId.length === 0 ||
+    typeof agentKey !== "string" ||
+    typeof window !== "string"
+  ) {
+    return null;
+  }
+  const marker = agentKey.lastIndexOf("--");
+  if (marker <= 0) return null;
+  return { simulationId, personaKey: agentKey.slice(0, marker), window: window as PortfolioWindow };
 }
 
 export interface RunStatusWire {
@@ -275,6 +354,29 @@ const roundsApp = new Hono()
       );
     }
 
+    // The booking row is the only authority on which chain position a run may be
+    // written under, so it is read before validation — the expectations below are
+    // derived from it, never from the envelope the caller supplied.
+    const booking = classifyBooking(await loadRoundBooking(roundId));
+    if (booking.kind === "unbooked") {
+      return c.json(
+        {
+          error: `round "${roundId}" has no round_jobs booking, so no run can be attributed to a chain position`,
+          hint: `POST /api/portfolio/rounds/${roundId}/job to launch the round before inserting runs`,
+        },
+        409,
+      );
+    }
+    if (booking.kind === "undated") {
+      return c.json(
+        {
+          error: `round "${roundId}" is chained to simulation "${booking.simulationId}" but has no round_jobs.as_of_trade_date, so the fold has no mark to value the portfolio against`,
+          hint: "Re-launch the round with an asOfTradeDate, or recreate it with takeover=true.",
+        },
+        409,
+      );
+    }
+
     let dataset: AnalystDataset;
     try {
       dataset = await loadDatasetForRound(resolveRoundsDir(), roundId);
@@ -286,11 +388,29 @@ const roundsApp = new Hono()
     }
 
     const ctx = extractEntryContext(dataset);
+    // Envelope v2 treats the payload as a COMPLETE target book, so validation
+    // needs the symbols this stream already holds. The stream identity is read
+    // off the raw body purely to load that set; the values themselves are still
+    // checked by validateEnvelope (simulationId/roundSeq anti-drift, window
+    // pinning), so trusting them for a filtered read grants nothing.
+    const streamHint = readStreamHint(rawEnvelope);
+    // A chained round's simulation comes from the booking, not the body: the
+    // held set must be the one the fold will actually advance, and the envelope's
+    // copy is unvalidated until validateEnvelope runs below.
+    const heldKey =
+      streamHint !== null && booking.kind === "chained"
+        ? { ...streamHint, simulationId: booking.simulationId }
+        : streamHint;
+    const heldSymbols =
+      heldKey === null ? new Set<string>() : await loadHeldSymbols(db, heldKey);
     let envelope: DecisionEnvelope;
     try {
       envelope = validateEnvelope(body.envelope, {
         universe: ctx.universe,
         symbolsWithPrice: ctx.symbolsWithPrice,
+        heldSymbols,
+        ...(booking.kind === "chained" ? { expectedSimulationId: booking.simulationId } : {}),
+        expectedRoundSeq: booking.roundSeq,
       });
     } catch (err) {
       if (err instanceof DecisionValidationError) {
@@ -325,18 +445,113 @@ const roundsApp = new Hono()
     }
     const persona = getPersona(personaKey);
 
+    if (booking.kind === "legacy") {
+      try {
+        const inserted = await insertRun({
+          envelope,
+          entryPrices: ctx.entryPrices,
+          asOfTradeDate: ctx.asOfTradeDate,
+          expectedPersona: persona.displayName,
+          expectedStrategy: persona.strategy,
+          roundSeq: booking.roundSeq,
+          simulationId: null,
+        });
+        return c.json({ ok: true, ...inserted }, 201);
+      } catch (err) {
+        if (err instanceof DuplicateRunError) {
+          return c.json({ error: err.message, roundId, agentKey: envelope.agent.agentKey }, 409);
+        }
+        if (err instanceof MissingEntryPriceError) {
+          return c.json({ error: err.message }, 422);
+        }
+        return c.json({ error: messageOf(err) }, 500);
+      }
+    }
+
+    // A chained round: the run row and the state advance commit together, or the
+    // chain silently skips a round while the duplicate guard blocks every retry.
     try {
-      const inserted = await insertRun({
-        envelope,
+      // The fold stamps entry fills with the booking's decide date but prices them
+      // from the dataset, so the two must agree or every fill is silently mispriced.
+      if (ctx.asOfTradeDate !== booking.asOfTradeDate) {
+        return c.json(
+          {
+            error: `round "${roundId}" is booked to decide on ${booking.asOfTradeDate}, but its dataset is priced as of ${ctx.asOfTradeDate}`,
+            hint: `Rebuild the dataset for ${booking.asOfTradeDate} (POST /api/portfolio/rounds/${roundId}/dataset) before inserting runs.`,
+          },
+          409,
+        );
+      }
+
+      const simulation = await loadSimulation(db, booking.simulationId);
+      if (simulation === undefined) {
+        return c.json(
+          {
+            error: `round "${roundId}" is booked to simulation "${booking.simulationId}", which no longer exists`,
+            hint: "Re-launch the round with takeover=true against a live simulation.",
+          },
+          409,
+        );
+      }
+
+      // insertRunAndFold defaults a missing entry price to zero, which would book
+      // a fill at no cost; the legacy path rejects that, so guard it here too.
+      const positions = envelope.positions
+        .filter((position) => position.targetWeight > 0)
+        .map((position) => {
+          const entryPrice = ctx.entryPrices[position.symbol];
+          if (entryPrice === undefined || !Number.isFinite(entryPrice) || entryPrice <= 0) {
+            throw new MissingEntryPriceError(position.symbol, booking.asOfTradeDate);
+          }
+          return {
+            symbol: position.symbol,
+            targetWeight: position.targetWeight,
+            shares: (envelope.agent.portfolioValue * position.targetWeight) / entryPrice,
+            thesis: position.thesis,
+          };
+        });
+
+      const inserted = await insertRunAndFold(db, {
+        simulationId: booking.simulationId,
+        roundSeq: booking.roundSeq,
+        basisCapital: Number(simulation.initialCapital),
+        targets: parseEnvelopeTargets(envelope),
+        theses: parseEnvelopeTheses(envelope),
         entryPrices: ctx.entryPrices,
-        asOfTradeDate: ctx.asOfTradeDate,
-        expectedPersona: persona.displayName,
-        expectedStrategy: persona.strategy,
+        positions,
+        run: {
+          roundId,
+          agentKey: envelope.agent.agentKey,
+          persona: persona.displayName,
+          strategy: persona.strategy,
+          window: envelope.agent.window,
+          portfolioValue: envelope.agent.portfolioValue,
+          rationale: envelope.rationale,
+          decisionJson: envelope,
+          replicateOf: envelope.agent.replicateOf ?? null,
+          startedAt: new Date(),
+        },
       });
-      return c.json({ ok: true, ...inserted }, 201);
+      return c.json(
+        { ok: true, agentRunId: inserted.agentRunId, positionsInserted: inserted.positionsInserted, state: inserted.state },
+        201,
+      );
     } catch (err) {
-      if (err instanceof DuplicateRunError) {
+      if (err instanceof DuplicateStreamRunError) {
         return c.json({ error: err.message, roundId, agentKey: envelope.agent.agentKey }, 409);
+      }
+      if (err instanceof BackdatedRoundError) {
+        return c.json(
+          {
+            error: err.message,
+            roundSeq: err.roundSeq,
+            streamSeq: err.streamSeq,
+            issues: [
+              "the carryover fold is forward-only — a round cannot be applied at or before the stream's last applied round_seq",
+            ],
+          },
+          409,
+        );
       }
       if (err instanceof MissingEntryPriceError) {
         return c.json({ error: err.message }, 422);

@@ -1,10 +1,14 @@
 import { useId } from "react";
 import { cn } from "@/lib/utils";
-import type { ApiAgentDetail } from "@/lib/api";
 import { formatPct } from "./format";
 
+interface EquityPoint {
+  tradeDate: string;
+  returnPct: number;
+}
+
 interface EquityChartProps {
-  series: ApiAgentDetail["equitySeries"];
+  series: readonly EquityPoint[];
   className?: string;
 }
 

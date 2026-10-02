@@ -7,6 +7,7 @@ import notificationsHandler from "./routes/notifications.js";
 import authHandler from "./routes/auth.js";
 import marketDataHandler from "./routes/marketData.js";
 import portfolioHandler from "./routes/portfolio.js";
+import portfolioCarryoverHandler from "./routes/portfolioCarryover.js";
 import roundsHandler from "./routes/rounds.js";
 import roundJobsHandler from "./routes/roundJobs.js";
 
@@ -23,6 +24,7 @@ const routes = app
   .route("/auth", authHandler)
   .route("/market-data", marketDataHandler)
   .route("/portfolio", portfolioHandler)
+  .route("/portfolio", portfolioCarryoverHandler)
   .route("/portfolio", roundsHandler)
   .route("/portfolio", roundJobsHandler);
 

@@ -37,13 +37,14 @@ import {
   parseWindows,
   resolveAgents,
 } from "./agents.js";
-import { createBackendClient } from "./backendClient.js";
+import { createBackendClient, BackendError, isRecord } from "./backendClient.js";
+import { createBookLoader } from "./bookLoader.js";
 import { loadConfig } from "./config.js";
 import type { OrchestratorConfig } from "./config.js";
 import { createRoundStore, RoundAlreadyLaunchedError } from "./roundStore.js";
 import type { RoundStateWire } from "./roundStore.js";
 import { runAgents } from "./runner.js";
-import type { DatasetWire } from "./runner.js";
+import type { DatasetWire, RoundBooking } from "./runner.js";
 
 const config = loadConfig(process.env);
 const backend = createBackendClient(config.backendUrl);
@@ -64,8 +65,39 @@ function toolText(payload: unknown): { content: [{ type: "text"; text: string }]
   return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
 }
 
+/**
+ * Next step for each carryover rerun code. The backend already supplies a `hint`,
+ * but these say what to CHANGE, which is the question a caller actually has when a
+ * launch is refused.
+ */
+const RERUN_ACTIONS: Readonly<Record<string, string>> = {
+  SAME_TRADE_DATE:
+    "That trade date already has a round still running. Wait for it via get_round_status, or re-launch with takeover=true to reset that round.",
+  ROUND_ALREADY_COMPLETE:
+    "That trade date's round is already finished. Use replace=true to deliberately discard its decisions and re-decide, or launch a later trade date.",
+  STALE_TRADE_DATE:
+    "There is no newer price data than the stream's last mark, so a round would decide on a date it has already passed. Ingest market data for a later date, then relaunch.",
+  OUT_OF_SEQUENCE:
+    "The requested date is at or before the stream's last applied round_seq, and the fold is forward-only. Launch a later date, or use replace=true to re-decide that date deliberately.",
+  UNKNOWN_SIMULATION: "Create the simulation before launching a round into it.",
+};
+
 function toolError(err: unknown): { content: [{ type: "text"; text: string }] } {
   const message = err instanceof Error ? err.message : String(err);
+  if (err instanceof BackendError && err.status === 409 && isRecord(err.payload)) {
+    const code = typeof err.payload.code === "string" ? err.payload.code : null;
+    const action = code !== null ? RERUN_ACTIONS[code] : undefined;
+    if (code !== null) {
+      return toolText({
+        ok: false,
+        code,
+        error: typeof err.payload.error === "string" ? err.payload.error : message,
+        hint: typeof err.payload.hint === "string" ? err.payload.hint : null,
+        nextStep: action ?? null,
+        detail: err.payload.detail ?? null,
+      });
+    }
+  }
   return toolText({ ok: false, error: message });
 }
 
@@ -96,7 +128,7 @@ server.registerTool(
         .string()
         .min(1)
         .describe(
-          'Simulation round id — also the dataset dir name. Letters, digits, dots, dashes, underscores; no slashes (path traversal is rejected).',
+          "Simulation round id — also the dataset dir name. Letters, digits, dots, dashes, underscores; no slashes (path traversal is rejected).",
         ),
       agents: z
         .string()
@@ -127,9 +159,22 @@ server.registerTool(
         .describe(
           "Re-launch a round that already has a job row, resetting every agent to pending. Without this, launching an already-launched round is rejected with 409.",
         ),
+      replace: z
+        .boolean()
+        .optional()
+        .describe(
+          "Intentionally re-decide a terminal round on the same trade date (discard its decisions) while keeping the chain. Requires takeover semantics in the backend for the same-day rerun; use only when explicitly requested.",
+        ),
+      simulationId: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Carryover simulation id this round folds into. Without it the round is standalone (roundSeq 1, no chain). With it each persona x window stream carries its own book forward, so this must be a simulation created via POST /api/portfolio/simulations.",
+        ),
     }),
   },
-  async ({ roundId, agents, windows, maxParallel, capital, takeover }) => {
+  async ({ roundId, agents, windows, maxParallel, capital, takeover, replace, simulationId }) => {
     if (!isValidRoundId(roundId)) {
       return toolText({
         ok: false,
@@ -179,8 +224,9 @@ server.registerTool(
 
     const datasetPath = datasetPathFor(cfg.worktreeSlug, roundId);
 
+    let booking: RoundBooking;
     try {
-      await store.startRound({
+      const launched = await store.startRound({
         roundId,
         agents: jobs.map((job) => ({ agentKey: job.agentKey, personaKey: job.personaKey })),
         maxParallel: cfg.maxParallel,
@@ -188,7 +234,21 @@ server.registerTool(
         asOfTradeDate: dataset.asOfTradeDate,
         datasetPath,
         takeover,
+        replace,
+        ...(simulationId !== undefined ? { simulationId } : {}),
       });
+      // Read the admitted position back off the response rather than assuming
+      // it: the launch gate may have resolved a different seq than requested.
+      const job = launched.job;
+      if (job === null) {
+        return toolText({
+          ok: false,
+          roundId,
+          error: "launch response carried no job row, so the admitted round_seq is unknown",
+          hint: "Refusing to guess a chain position. Inspect the round with get_round_status.",
+        });
+      }
+      booking = { simulationId: job.simulationId, roundSeq: job.roundSeq };
     } catch (err) {
       if (err instanceof RoundAlreadyLaunchedError) {
         return toolText({
@@ -203,7 +263,24 @@ server.registerTool(
     }
 
     try {
-      await runAgents(roundId, jobs, dataset, { store, backend, config: cfg });
+      const latestCloseBySymbol = new Map(
+        dataset.universe.flatMap((entry) =>
+          entry.hasData && entry.latestClose !== null
+            ? [[entry.symbol, entry.latestClose] as const]
+            : [],
+        ),
+      );
+      const bookFor =
+        simulationId === undefined
+          ? undefined
+          : createBookLoader({
+              backend,
+              simulationId,
+              capital: cfg.capital,
+              latestCloseBySymbol,
+              asOfTradeDate: dataset.asOfTradeDate,
+            });
+      await runAgents(roundId, jobs, dataset, { store, backend, config: cfg, bookFor, booking });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await store.setRoundStatus(roundId, "error", message).catch(() => undefined);

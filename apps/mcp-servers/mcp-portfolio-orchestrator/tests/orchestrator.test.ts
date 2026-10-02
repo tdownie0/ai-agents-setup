@@ -3,7 +3,8 @@
  *
  * `src/index.ts` is intentionally NOT imported (it connects the stdio
  * transport at module scope and requires runtime env). Everything tested
- * here is a parameter-driven module: config, agent resolution, the bounded
+ * here is a parameter-driven module: config,
+      booking: BOOKING, agent resolution, the bounded
  * pool, the backend client (stubbed fetch), the docker-exec spawner (injected
  * exec), the durable round store, and the round runner (injected store +
  * spawner).
@@ -16,6 +17,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
+import type { DecisionHolding } from "@model_md/agent-orchestrator";
 import {
   datasetPathFor,
   isValidRoundId,
@@ -34,12 +36,14 @@ import {
 } from "../src/roundStore.js";
 import { runAgents, type DatasetWire } from "../src/runner.js";
 import type { OrchestratorConfig } from "../src/config.js";
+import { streamBook } from "../src/streamBook.js";
+import { createBookLoader } from "../src/bookLoader.js";
 import {
   buildAgentStateDirs,
   buildDockerExecArgs,
   spawnAnalystWithExec,
   type ExecImpl,
-  type DockerExecResult,
+  type SpawnViaDockerOptions,
 } from "../src/spawnViaDocker.js";
 
 const fakeResponse = (status: number, payload: unknown): Response =>
@@ -49,27 +53,46 @@ const fakeResponse = (status: number, payload: unknown): Response =>
   });
 
 const VALID_ENVELOPE = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   roundId: "w1",
+  simulationId: "sim-w1",
+  roundSeq: 1,
   agent: {
     agentKey: "dr-value--monthly",
     persona: "Dr. Value",
     strategy: "deep-value",
     window: "monthly",
-    initialCapital: 100000,
+    portfolioValue: 100000,
+    cash: 100000,
+    holdingsValue: 0,
+    priorRoundId: null,
+    roundSeq: 1,
   },
   rationale: "Tests need a valid envelope.",
-  picks: [
-    { symbol: "AAPL", weight: 0.2, thesis: "Quality franchise." },
-    { symbol: "MSFT", weight: 0.2, thesis: "Cloud strength." },
-    { symbol: "KO", weight: 0.2, thesis: "Defensive staple." },
-    { symbol: "PG", weight: 0.2, thesis: "Consumer defensive." },
-    { symbol: "JNJ", weight: 0.2, thesis: "Healthcare leader." },
+  positions: [
+    { symbol: "AAPL", targetWeight: 0.2, thesis: "Quality franchise." },
+    { symbol: "MSFT", targetWeight: 0.2, thesis: "Cloud strength." },
+    { symbol: "KO", targetWeight: 0.2, thesis: "Defensive staple." },
+    { symbol: "PG", targetWeight: 0.2, thesis: "Consumer defensive." },
+    { symbol: "JNJ", targetWeight: 0.2, thesis: "Healthcare leader." },
   ],
 };
 
 const UNIVERSE = ["AAPL", "MSFT", "KO", "PG", "JNJ", "TSLA", "XOM"] as const;
 const SYMBOLS_WITH_PRICE = new Set<string>(["AAPL", "MSFT", "KO", "PG", "JNJ", "TSLA", "XOM"]);
+/** A stream that has not been folded yet really does hold nothing. */
+const NO_HOLDINGS = new Set<string>();
+/** One carried line, marked so cash 85840 + 14160 = 100000 total. */
+const CARRIED_HOLDING: DecisionHolding = {
+  symbol: "JNJ",
+  shares: 120,
+  costBasis: 110,
+  lastPrice: 118,
+  marketValue: 14160,
+  weight: 0.1416,
+  holdingDays: 30,
+  unrealizedPnlPct: 7.27,
+};
 
 describe("parsePositiveInt", () => {
   it("falls back on undefined and blank", () => {
@@ -280,13 +303,14 @@ describe("createRoundStore", () => {
       asOfTradeDate: "2026-09-25",
       datasetPath: "/app/worktrees/slug/rounds/w1/dataset.json",
       takeover: false,
+      replace: false,
     });
   });
 
   it("maps a 409 launch rejection to RoundAlreadyLaunchedError with the job", async () => {
     const store = createRoundStore(
       makeClient(() =>
-        fakeResponse(409, { error: "round \"w1\" was already launched", job: { status: "running" } }),
+        fakeResponse(409, { error: 'round "w1" was already launched', job: { status: "running" } }),
       ),
     );
 
@@ -311,9 +335,7 @@ describe("createRoundStore", () => {
 
     await store.setAgentProgress("w1", "dr-value", { status: "inserted", runId: 7, picks: 5 });
 
-    expect(seen[0]?.url).toBe(
-      "http://backend:3000/api/portfolio/rounds/w1/job/agents/dr-value",
-    );
+    expect(seen[0]?.url).toBe("http://backend:3000/api/portfolio/rounds/w1/job/agents/dr-value");
     expect(seen[0]?.body).toMatchObject({ status: "inserted", runId: 7, picks: 5 });
   });
 
@@ -346,9 +368,12 @@ describe("runAgents (durable progress)", () => {
     ],
   };
 
+  const BOOKING = { simulationId: "sim-1", roundSeq: 1 };
+
   const makeStore = () => {
     const statuses = new Map<string, string>();
     const roundStatuses: string[] = [];
+    const patches: { agentKey: string; patch: Record<string, unknown> }[] = [];
     const store = {
       async startRound() {
         return { roundId: "w1", job: null, agents: [] };
@@ -375,12 +400,13 @@ describe("runAgents (durable progress)", () => {
         roundStatuses.push(status);
         return {} as never;
       },
-      async setAgentProgress(_roundId: string, agentKey: string, patch: { status: string }) {
-        statuses.set(agentKey, patch.status);
+      async setAgentProgress(_roundId: string, agentKey: string, patch: Record<string, unknown>) {
+        statuses.set(agentKey, String(patch.status));
+        patches.push({ agentKey, patch });
         return {} as never;
       },
     };
-    return { store, statuses, roundStatuses };
+    return { store, statuses, roundStatuses, patches };
   };
 
   const jobs: AgentJob[] = [
@@ -388,12 +414,138 @@ describe("runAgents (durable progress)", () => {
     { personaKey: "dr-momentum", agentKey: "dr-momentum", window: "weekly" },
   ];
 
+  const OPENING_BOOK_SIZE = 5;
   const envelope = (agentKey: string) => ({
-    schemaVersion: 1,
+    schemaVersion: 2,
     roundId: "w1",
-    asOfTradeDate: "2026-09-25",
-    agent: { agentKey, persona: agentKey, strategy: "value", window: "weekly" },
-    picks: [{ symbol: "AAPL", targetWeight: 1 }],
+    simulationId: "sim-w1",
+    roundSeq: 1,
+    agent: {
+      agentKey,
+      persona: agentKey,
+      strategy: "value",
+      window: "weekly",
+      portfolioValue: 100000,
+      cash: 100000,
+      holdingsValue: 0,
+      priorRoundId: null,
+      roundSeq: 1,
+    },
+    rationale: "Opening book for the stream.",
+    positions: ["AAPL", "MSFT", "KO", "PG", "JNJ"].map((symbol) => ({
+      symbol,
+      targetWeight: 0.2,
+      thesis: `Opening line in ${symbol}.`,
+    })),
+  });
+
+  it("records the envelope's position count on the inserted progress row", async () => {
+    const { store, patches } = makeStore();
+    const backend = {
+      async post() {
+        return { ok: true, agentRunId: 21, positionsInserted: OPENING_BOOK_SIZE };
+      },
+    } as never;
+
+    await runAgents("w1", jobs, dataset, {
+      store: store as never,
+      backend,
+      config,
+      booking: BOOKING,
+      spawn: (async ({ agentKey }: { agentKey: string }) => ({
+        envelope: envelope(agentKey),
+        rawOutput: "{}",
+        attempts: 1,
+      })) as never,
+    });
+
+    const inserted = patches.filter((entry) => entry.patch.status === "inserted");
+    expect(inserted).toHaveLength(2);
+    expect(inserted.map((entry) => entry.patch.picks)).toEqual([
+      OPENING_BOOK_SIZE,
+      OPENING_BOOK_SIZE,
+    ]);
+  });
+
+  it("supplies the stream's carried book to the spawner", async () => {
+    const { store } = makeStore();
+    const backend = {
+      async post() {
+        return { ok: true, agentRunId: 22, positionsInserted: 1 };
+      },
+    } as never;
+    const seen: { heldSymbols: ReadonlySet<string>; portfolioValue: number }[] = [];
+
+    await runAgents("w1", [jobs[0]], dataset, {
+      store: store as never,
+      backend,
+      config,
+      booking: BOOKING,
+      bookFor: () => streamBook([CARRIED_HOLDING], 85840),
+      spawn: (async (opts: {
+        agentKey: string;
+        heldSymbols: ReadonlySet<string>;
+        portfolioValue: number;
+      }) => {
+        seen.push({ heldSymbols: opts.heldSymbols, portfolioValue: opts.portfolioValue });
+        return { envelope: envelope(opts.agentKey), rawOutput: "{}", attempts: 1 };
+      }) as never,
+    });
+
+    expect(seen).toHaveLength(1);
+    expect([...seen[0].heldSymbols]).toEqual(["JNJ"]);
+    expect(seen[0].portfolioValue).toBe(100000);
+  });
+
+  it("states the booking's chain position and the cash split in the spawn options", async () => {
+    const { store } = makeStore();
+    const backend = {
+      async post() {
+        return { ok: true, agentRunId: 23, positionsInserted: 1 };
+      },
+    } as never;
+    const seen: {
+      roundSeq: number;
+      priorRoundId: string | null;
+      cash: number;
+      holdingsValue: number;
+      portfolioValue: number;
+    }[] = [];
+
+    await runAgents("w1", [jobs[0]], dataset, {
+      store: store as never,
+      backend,
+      config,
+      booking: { simulationId: "sim-1", roundSeq: 7 },
+      bookFor: () => streamBook([CARRIED_HOLDING], 85840, "w6"),
+      spawn: (async (opts: {
+        agentKey: string;
+        roundSeq: number;
+        priorRoundId: string | null;
+        cash: number;
+        holdingsValue: number;
+        portfolioValue: number;
+      }) => {
+        seen.push({
+          roundSeq: opts.roundSeq,
+          priorRoundId: opts.priorRoundId,
+          cash: opts.cash,
+          holdingsValue: opts.holdingsValue,
+          portfolioValue: opts.portfolioValue,
+        });
+        return { envelope: envelope(opts.agentKey), rawOutput: "{}", attempts: 1 };
+      }) as never,
+    });
+
+    expect(seen).toEqual([
+      {
+        roundSeq: 7,
+        priorRoundId: "w6",
+        cash: 85840,
+        holdingsValue: 120 * 118,
+        portfolioValue: 85840 + 120 * 118,
+      },
+    ]);
   });
 
   it("persists running, inserted, and a final done round status", async () => {
@@ -408,6 +560,7 @@ describe("runAgents (durable progress)", () => {
       store: store as never,
       backend,
       config,
+      booking: BOOKING,
       spawn: (async ({ agentKey }: { agentKey: string }) => ({
         envelope: envelope(agentKey),
         rawOutput: "{}",
@@ -422,12 +575,17 @@ describe("runAgents (durable progress)", () => {
 
   it("records a failed agent and finalizes the round as partial", async () => {
     const { store, statuses, roundStatuses } = makeStore();
-    const backend = { async post() { return { ok: true, agentRunId: 12, positionsInserted: 1 }; } } as never;
+    const backend = {
+      async post() {
+        return { ok: true, agentRunId: 12, positionsInserted: 1 };
+      },
+    } as never;
 
     await runAgents("w1", jobs, dataset, {
       store: store as never,
       backend,
       config,
+      booking: BOOKING,
       spawn: (async ({ agentKey }: { agentKey: string }) => {
         if (agentKey === "dr-momentum") throw new Error("analyst timed out");
         return { envelope: envelope(agentKey), rawOutput: "{}", attempts: 2 };
@@ -471,12 +629,17 @@ describe("runAgents (durable progress)", () => {
         return {} as never;
       },
     };
-    const backend = { async post() { return { ok: true, agentRunId: 13, positionsInserted: 1 }; } } as never;
+    const backend = {
+      async post() {
+        return { ok: true, agentRunId: 13, positionsInserted: 1 };
+      },
+    } as never;
 
     await runAgents("w1", jobs, dataset, {
       store: store as never,
       backend,
       config,
+      booking: BOOKING,
       spawn: (async ({ agentKey }: { agentKey: string }) => ({
         envelope: envelope(agentKey),
         rawOutput: "{}",
@@ -550,7 +713,7 @@ describe("createBackendClient", () => {
 
   it("throws BackendError with the backend's error message on non-2xx", async () => {
     const fetchImpl = vi.fn(async () =>
-      fakeResponse(409, { error: "Agent run already exists for round \"w1\"" }),
+      fakeResponse(409, { error: 'Agent run already exists for round "w1"' }),
     );
     const client = createBackendClient("http://backend:3000", fetchImpl);
     await expect(client.post("/api/portfolio/runs", { envelope: {} })).rejects.toMatchObject({
@@ -613,21 +776,22 @@ describe("docker exec spawner", () => {
     };
   }
 
-  const baseOptions = {
+  const baseOptions: SpawnViaDockerOptions = {
     persona: fakePersona(),
-    window: "monthly" as const,
+    window: "monthly",
     agentKey: "dr-value--monthly",
     roundId: "w1",
     datasetPath: "/app/worktrees/slug/rounds/w1/dataset.json",
     asOfTradeDate: "2026-09-22",
-    initialCapital: 100000,
+    portfolioValue: 100000,
     agentContainer: "opencode_agent",
     workdir: "/app/worktrees/slug",
     universe: [...UNIVERSE],
     symbolsWithPrice: SYMBOLS_WITH_PRICE,
+    heldSymbols: NO_HOLDINGS,
   };
 
-  const okExec: ExecImpl = async (args) => ({
+  const okExec: ExecImpl = async () => ({
     stdout: ndjson(JSON.stringify(VALID_ENVELOPE)),
     stderr: "",
     code: 0,
@@ -637,17 +801,69 @@ describe("docker exec spawner", () => {
     const result = await spawnAnalystWithExec(baseOptions, okExec);
     expect(result.attempts).toBe(1);
     expect(result.envelope.roundId).toBe("w1");
-    expect(result.envelope.picks).toHaveLength(5);
+    expect(result.envelope.positions).toHaveLength(5);
+  });
+
+  it("renders the carried book and the real portfolio value into the prompt", async () => {
+    const calls: string[][] = [];
+    const exec: ExecImpl = async (args) => {
+      calls.push([...args]);
+      return { stdout: ndjson(JSON.stringify(VALID_ENVELOPE)), stderr: "", code: 0 };
+    };
+    const book = streamBook([CARRIED_HOLDING], 85840);
+
+    await spawnAnalystWithExec(
+      { ...baseOptions, portfolioValue: book.portfolioValue, holdings: book.holdings },
+      exec,
+    );
+
+    const prompt = calls[0][calls[0].length - 1];
+    expect(prompt).toContain("portfolioValue=100000");
+    expect(prompt).toContain(
+      "JNJ | 120.000000 | $110.0000 | $118.0000 | $14160.00 | 14.16% | 30d | +7.27%",
+    );
+    expect(prompt).toContain("cash=85840.00");
+  });
+
+  it("rejects a sell of a symbol the stream does not hold", async () => {
+    const exec: ExecImpl = async () => ({
+      stdout: ndjson(
+        JSON.stringify({
+          ...VALID_ENVELOPE,
+          positions: [
+            ...VALID_ENVELOPE.positions,
+            { symbol: "TSLA", targetWeight: 0, thesis: "Exit entirely." },
+          ],
+        }),
+      ),
+      stderr: "",
+      code: 0,
+    });
+
+    await expect(
+      spawnAnalystWithExec({ ...baseOptions, heldSymbols: new Set(["AAPL"]) }, exec),
+    ).rejects.toThrow(/not in heldSymbols/);
+  });
+
+  it("rejects an envelope that omits a held symbol", async () => {
+    await expect(
+      spawnAnalystWithExec({ ...baseOptions, heldSymbols: new Set(["XOM"]) }, okExec),
+    ).rejects.toThrow(/held symbols omitted/);
   });
 
   it("retries once with a correction hint after an invalid envelope", async () => {
     const calls: string[][] = [];
     const exec: ExecImpl = async (args) => {
       calls.push([...args]);
-      const bad = { ...VALID_ENVELOPE, picks: VALID_ENVELOPE.picks.slice(0, 1) }; // < MIN_PICKS
+      const bad = {
+        ...VALID_ENVELOPE,
+        positions: VALID_ENVELOPE.positions.slice(0, 1), // < MIN_PICKS
+      };
       return { stdout: ndjson(JSON.stringify(bad)), stderr: "", code: 0 };
     };
-    await expect(spawnAnalystWithExec(baseOptions, exec)).rejects.toThrow(/failed after 2 attempts/);
+    await expect(spawnAnalystWithExec(baseOptions, exec)).rejects.toThrow(
+      /failed after 2 attempts/,
+    );
     expect(calls).toHaveLength(2);
     const retryPrompt = calls[1][calls[1].length - 1];
     expect(retryPrompt).toContain("CORRECTION FROM THE PREVIOUS ATTEMPT");
@@ -667,7 +883,9 @@ describe("docker exec spawner", () => {
 
   it("fails after two attempts when the terminal state is non-zero", async () => {
     const exec: ExecImpl = async () => ({ stdout: "", stderr: "boom", code: 125 });
-    await expect(spawnAnalystWithExec(baseOptions, exec)).rejects.toThrow(/docker exec exited with code 125/);
+    await expect(spawnAnalystWithExec(baseOptions, exec)).rejects.toThrow(
+      /docker exec exited with code 125/,
+    );
   });
 
   it("strips markdown fences before parsing", async () => {
@@ -675,5 +893,141 @@ describe("docker exec spawner", () => {
     const exec: ExecImpl = async () => ({ stdout: ndjson(fenced), stderr: "", code: 0 });
     const result = await spawnAnalystWithExec(baseOptions, exec);
     expect(result.envelope.agent.agentKey).toBe("dr-value--monthly");
+  });
+});
+
+describe("createBookLoader", () => {
+  const lot = {
+    symbol: "JNJ",
+    shares: 120,
+    costBasis: 110,
+    targetWeight: 0.1416,
+    openedFromRoundId: "w1",
+    openedTradeDate: "2026-08-25",
+    realizedPnl: 0,
+    thesis: null,
+  };
+
+  const loaderDeps = (handler: (url: string) => Response | Promise<Response>) =>
+    ({
+      backend: createBackendClient("http://backend:3000", (async (url: RequestInfo | URL) =>
+        handler(String(url))) as unknown as typeof fetch),
+      simulationId: "sim-1",
+      capital: 100000,
+      latestCloseBySymbol: new Map([["JNJ", 118]]),
+      asOfTradeDate: "2026-09-25",
+    }) as const;
+
+  const bookLoader = (handler: (url: string) => Response | Promise<Response>) =>
+    createBookLoader(loaderDeps(handler));
+
+  it("requests the stream's persona/window pair under the simulation", async () => {
+    const urls: string[] = [];
+    await bookLoader((url) => {
+      urls.push(url);
+      return fakeResponse(404, { error: "no materialized book" });
+    })({ personaKey: "dr-value", window: "monthly" });
+
+    expect(urls).toEqual([
+      "http://backend:3000/api/portfolio/simulations/sim-1/streams/dr-value/monthly",
+    ]);
+  });
+
+  it("treats 404 as the opening book rather than a failure", async () => {
+    const book = await bookLoader(() => fakeResponse(404, { error: "no materialized book" }))({
+      personaKey: "dr-value",
+      window: "monthly",
+    });
+
+    expect(book.holdings).toEqual([]);
+    expect(book.heldSymbols.size).toBe(0);
+    expect(book.portfolioValue).toBe(100000);
+  });
+
+  it("carries open lots marked at the decision date's close", async () => {
+    const book = await bookLoader(() =>
+      fakeResponse(200, {
+        stream: { cash: 85840, lastRoundId: "w1" },
+        lots: [lot],
+      }),
+    )({ personaKey: "dr-value", window: "monthly" });
+
+    expect([...book.heldSymbols]).toEqual(["JNJ"]);
+    expect(book.holdings).toHaveLength(1);
+    const [holding] = book.holdings;
+    expect(holding.lastPrice).toBe(118);
+    expect(holding.marketValue).toBe(14160);
+    expect(holding.holdingDays).toBe(31);
+    expect(holding.unrealizedPnlPct).toBeCloseTo(7.27, 2);
+    // cash 85840 + 120 * 118
+    expect(book.portfolioValue).toBe(100000);
+    expect(holding.weight).toBeCloseTo(0.1416, 4);
+  });
+
+  it("carries the stream's cash and names the round the book came from", async () => {
+    const book = await bookLoader(() =>
+      fakeResponse(200, {
+        stream: { cash: 85840, lastRoundId: "w1" },
+        lots: [],
+      }),
+    )({ personaKey: "dr-value", window: "monthly" });
+
+    expect(book.portfolioValue).toBe(85840);
+    expect(book.cash).toBe(85840);
+    expect(book.priorRoundId).toBe("w1");
+  });
+
+  it("carries a chain position as a null prior round on the opening fold", async () => {
+    const book = await bookLoader(() =>
+      fakeResponse(200, {
+        stream: { cash: 100000, lastRoundId: null },
+        lots: [],
+      }),
+    )({ personaKey: "dr-value", window: "monthly" });
+
+    expect(book.priorRoundId).toBeNull();
+    expect(book.portfolioValue).toBe(100000);
+  });
+
+  it("keeps an unpriceable holding at cost rather than silently dropping it", async () => {
+    const book = await createBookLoader({
+      ...loaderDeps(() =>
+        fakeResponse(200, {
+          stream: { cash: 90000, lastRoundId: "w1" },
+          lots: [lot],
+        }),
+      ),
+      latestCloseBySymbol: new Map(),
+    })({ personaKey: "dr-value", window: "monthly" });
+
+    expect([...book.heldSymbols]).toEqual(["JNJ"]);
+    expect(book.holdings[0]?.lastPrice).toBe(110);
+    expect(book.holdings[0]?.unrealizedPnlPct).toBe(0);
+  });
+
+  it("falls back to the opening book when the stream summary carries no cash", async () => {
+    const book = await bookLoader(() =>
+      fakeResponse(200, { stream: { cash: null, lastRoundId: null }, lots: [lot] }),
+    )({ personaKey: "dr-value", window: "monthly" });
+
+    expect(book.holdings).toEqual([]);
+    expect(book.portfolioValue).toBe(100000);
+  });
+
+  it("excludes closed lots and ignores non-409 failures", async () => {
+    const closed = await bookLoader(() =>
+      fakeResponse(200, {
+        stream: { cash: 100000, lastRoundId: "w1" },
+        lots: [{ ...lot, shares: 0 }],
+      }),
+    )({ personaKey: "dr-value", window: "monthly" });
+    expect(closed.heldSymbols.size).toBe(0);
+
+    await expect(
+      bookLoader(() => fakeResponse(500, { error: "boom" }))({
+        personaKey: "dr-value",
+        window: "monthly",
+      }),
+    ).rejects.toThrow(BackendError);
   });
 });

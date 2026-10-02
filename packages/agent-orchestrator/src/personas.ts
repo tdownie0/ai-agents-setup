@@ -49,9 +49,12 @@ export interface AnalystPersona {
   /** Short strategy label persisted to `agent_runs.strategy`. Invariant across windows. */
   strategy: string;
   /**
-   * The full Ph.D-level system prompt for this analyst. May contain the
+   * The full Ph.D.-level system prompt for this analyst. May contain the
    * `{{cadence}}` token, which the prompt builder replaces with the round's
-   * assigned window directive.
+   * assigned window directive, and the `{{holdings}}` token, which it replaces
+   * with a one-line digest of the stream's carried book. Use a token instead of
+   * hard-coding either fact: a prompt that states a cadence or a position the
+   * envelope contradicts is a silent data-quality bug.
    */
   phdSystemPrompt: string;
 }
@@ -87,7 +90,7 @@ CONSTRAINTS
 - Every thesis must cite at least two dataset metrics by name and explain why the market is wrong.
 
 OUTPUT FORMAT
-Output ONLY a single JSON object matching the decision envelope schema exactly (schemaVersion 1). No prose before or after.`,
+Output ONLY a single JSON object matching the decision envelope schema exactly (schemaVersion 2). No prose before or after.`,
   },
   {
     key: "dr-momentum",
@@ -104,6 +107,7 @@ RESEARCH METHODOLOGY
 
 RISK STANCE
 - {{cadence}} You can be aggressive on entry, but you cut losers fast.
+- {{holdings}}
 - 8–10 positions, roughly equal weight with a slight tilt to the top-3 momentum ranks. Diversification is your risk control because single-name momentum can gap.
 - Hard rule: if a held name's sma50AboveSma200 flips to false, it is out — no exceptions, no averaging down.
 
@@ -119,7 +123,7 @@ CONSTRAINTS
 - Every thesis must name the momentum metrics that justify the pick and the level at which you would exit.
 
 OUTPUT FORMAT
-Output ONLY a single JSON object matching the decision envelope schema exactly (schemaVersion 1). No prose before or after.`,
+Output ONLY a single JSON object matching the decision envelope schema exactly (schemaVersion 2). No prose before or after.`,
   },
   {
     key: "dr-contrarian",
@@ -152,7 +156,7 @@ CONSTRAINTS
 - Every thesis must state the oversold evidence and the specific mean-reversion catalyst you expect within a week.
 
 OUTPUT FORMAT
-Output ONLY a single JSON object matching the decision envelope schema exactly (schemaVersion 1). No prose before or after.`,
+Output ONLY a single JSON object matching the decision envelope schema exactly (schemaVersion 2). No prose before or after.`,
   },
   {
     key: "dr-macro",
@@ -182,7 +186,7 @@ CONSTRAINTS
 - Every thesis must state the macro regime you inferred and why the pick's sector is favoured in that regime.
 
 OUTPUT FORMAT
-Output ONLY a single JSON object matching the decision envelope schema exactly (schemaVersion 1). No prose before or after.`,
+Output ONLY a single JSON object matching the decision envelope schema exactly (schemaVersion 2). No prose before or after.`,
   },
   {
     key: "dr-compounder",
@@ -198,6 +202,7 @@ RESEARCH METHODOLOGY
 
 RISK STANCE
 - {{cadence}} You are slow to sell — you sell only on thesis breakage (trend structure failure), not on noise.
+- {{holdings}}
 - 5–8 positions, conviction-weighted. You are comfortable being concentrated because the businesses are high-quality.
 - Hard rule: if sma50AboveSma200 flips false OR returns21d turns deeply negative (< -10%), the compounding thesis is broken — exit.
 
@@ -213,7 +218,7 @@ CONSTRAINTS
 - Every thesis must articulate the durable-advantage story and the specific metric evidence that the business is compounding, not just rallying.
 
 OUTPUT FORMAT
-Output ONLY a single JSON object matching the decision envelope schema exactly (schemaVersion 1). No prose before or after.`,
+Output ONLY a single JSON object matching the decision envelope schema exactly (schemaVersion 2). No prose before or after.`,
   },
   {
     key: "dr-technical",
@@ -246,7 +251,7 @@ CONSTRAINTS
 - Every thesis must be expressed purely in technical terms (trend, momentum, volatility, RSI) — no fundamentals, no narratives.
 
 OUTPUT FORMAT
-Output ONLY a single JSON object matching the decision envelope schema exactly (schemaVersion 1). No prose before or after.`,
+Output ONLY a single JSON object matching the decision envelope schema exactly (schemaVersion 2). No prose before or after.`,
   },
 ]);
 
@@ -292,9 +297,7 @@ export function windowFromAgentKey(agentKey: string): AnalystWindow | undefined 
   const idx = base.lastIndexOf(AGENT_KEY_SEPARATOR);
   if (idx === -1) return undefined;
   const suffix = base.slice(idx + AGENT_KEY_SEPARATOR.length);
-  return ANALYST_WINDOWS.includes(suffix as AnalystWindow)
-    ? (suffix as AnalystWindow)
-    : undefined;
+  return ANALYST_WINDOWS.includes(suffix as AnalystWindow) ? (suffix as AnalystWindow) : undefined;
 }
 
 /**

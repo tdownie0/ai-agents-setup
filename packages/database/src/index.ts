@@ -7,6 +7,8 @@ import * as marketData from "./schema/market_data.js";
 import * as portfolio from "./schema/portfolio.js";
 import * as roundJobs from "./schema/roundJobs.js";
 import * as relations from "./schema/relations.js";
+import * as simulations from "./schema/simulations.js";
+import * as portfolioCarryover from "./schema/portfolioCarryover.js";
 
 export const schema = {
   ...users,
@@ -15,6 +17,8 @@ export const schema = {
   ...portfolio,
   ...roundJobs,
   ...relations,
+  ...simulations,
+  ...portfolioCarryover,
 };
 
 // Using 'prepare: false' prevents "prepared statement" errors when using
@@ -31,3 +35,5 @@ export * from "./schema/market_data.js";
 export * from "./schema/portfolio.js";
 export * from "./schema/roundJobs.js";
 export * from "./schema/relations.js";
+export * from "./schema/simulations.js";
+export * from "./schema/portfolioCarryover.js";

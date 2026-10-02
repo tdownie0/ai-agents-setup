@@ -6,15 +6,24 @@ import { Auth } from "./components/Auth";
 import { Button } from "./components/ui/button";
 import { PortfolioLeaderboard } from "./components/portfolio/PortfolioLeaderboard";
 import { PortfolioDetail } from "./components/portfolio/PortfolioDetail";
-import { cn } from "@/lib/utils";
+import { StreamBoard } from "./components/portfolio/StreamBoard";
+import { StreamDetail } from "./components/portfolio/StreamDetail";
+import { cn } from "./lib/utils";
 
-type View = "users" | "portfolio";
+type View = "users" | "streams" | "runs";
+
+interface SelectedStream {
+  simulationId: string;
+  personaKey: string;
+  window: string;
+}
 
 function App() {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<View>("portfolio");
+  const [view, setView] = useState<View>("streams");
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
+  const [selectedStream, setSelectedStream] = useState<SelectedStream | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -38,6 +47,7 @@ function App() {
   const switchView = (next: View) => {
     setView(next);
     setSelectedRunId(null);
+    setSelectedStream(null);
   };
 
   return (
@@ -52,7 +62,7 @@ function App() {
             <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
               <div>
                 <h1 className="text-3xl font-bold tracking-tight">
-                  {view === "portfolio" ? "Portfolio Simulation" : "Users"}
+                  {view === "users" ? "Users" : "Portfolio Simulation"}
                 </h1>
                 <p className="text-sm text-muted-foreground">{session.user.email}</p>
               </div>
@@ -64,15 +74,27 @@ function App() {
                 >
                   <button
                     type="button"
-                    onClick={() => switchView("portfolio")}
+                    onClick={() => switchView("streams")}
                     className={cn(
                       "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                      view === "portfolio"
+                      view === "streams"
                         ? "bg-primary text-primary-foreground"
                         : "text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    Portfolio
+                    Streams
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => switchView("runs")}
+                    className={cn(
+                      "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                      view === "runs"
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    Runs
                   </button>
                   <button
                     type="button"
@@ -94,16 +116,29 @@ function App() {
               </div>
             </div>
 
-            {view === "portfolio" ? (
-              selectedRunId === null ? (
-                <PortfolioLeaderboard onSelectRun={setSelectedRunId} />
-              ) : (
-                <PortfolioDetail runId={selectedRunId} onBack={() => setSelectedRunId(null)} />
-              )
-            ) : (
+            {view === "users" ? (
               <div className="rounded-lg border bg-card">
                 <UserTable />
               </div>
+            ) : view === "streams" ? (
+              selectedStream === null ? (
+                <StreamBoard
+                  onSelectStream={(simulationId, personaKey, streamWindow) =>
+                    setSelectedStream({ simulationId, personaKey, window: streamWindow })
+                  }
+                />
+              ) : (
+                <StreamDetail
+                  simulationId={selectedStream.simulationId}
+                  personaKey={selectedStream.personaKey}
+                  window={selectedStream.window}
+                  onBack={() => setSelectedStream(null)}
+                />
+              )
+            ) : selectedRunId === null ? (
+              <PortfolioLeaderboard onSelectRun={setSelectedRunId} />
+            ) : (
+              <PortfolioDetail runId={selectedRunId} onBack={() => setSelectedRunId(null)} />
             )}
           </>
         )}

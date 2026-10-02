@@ -10,7 +10,7 @@
  */
 
 import { and, asc, desc, eq, exists, inArray } from "drizzle-orm";
-import { agentRuns, dailyPrices, db, instruments, portfolioPositions } from "@model_md/database";
+import { agentRuns, dailyPrices, instruments, portfolioPositions } from "@model_md/database";
 import type { AgentRun, PortfolioPosition } from "@model_md/database";
 import type { DbClient } from "@model_md/market-data";
 
@@ -18,7 +18,28 @@ export type { EquityPoint, PortfolioWindow, RankingResult } from "./types.js";
 export { parseNumeric, REBALANCE_CADENCE } from "./types.js";
 export type { BarsBySymbol, EngineBar, EnginePosition, EngineRun } from "./valuation.js";
 export { computeEquitySeries } from "./valuation.js";
+export type { RankingInput } from "./ranking.js";
 export { computeRanking } from "./ranking.js";
+export type {
+  ApplyDecisionInput,
+  ApplyDecisionResult,
+  BuyFill,
+  ChainReplay,
+  DecisionDueInput,
+  DecisionFill,
+  DecisionTarget,
+  EngineSegment,
+  HoldFill,
+  OpeningBook,
+  SellFill,
+  SegmentStep,
+} from "./carryover.js";
+export {
+  applyDecision,
+  computeChainEquitySeries,
+  isDecisionDue,
+  replaySegmentChain,
+} from "./carryover.js";
 
 /** One bar row as the bars query returns it (numeric close still a string). */
 export interface BarRow {
@@ -29,8 +50,11 @@ export interface BarRow {
 }
 
 /**
- * Completed runs with at least one position, newest first. When `roundId` is
- * omitted, the latest round (by run created_at) is used.
+ * Completed runs with at least one position, newest chain position first. When
+ * `roundId` is omitted, the latest round is the one with the highest
+ * `round_seq` — NOT the newest `created_at`, which with 18 agents inserting
+ * concurrently is insertion finish time, so it would rank by whichever agent
+ * happened to write last.
  */
 export async function loadRunsForLeaderboard(
   dbClient: DbClient,
@@ -43,7 +67,7 @@ export async function loadRunsForLeaderboard(
       .from(agentRuns)
       .innerJoin(portfolioPositions, eq(portfolioPositions.agentRunId, agentRuns.id))
       .where(eq(agentRuns.status, "completed"))
-      .orderBy(desc(agentRuns.createdAt))
+      .orderBy(desc(agentRuns.roundSeq))
       .limit(1);
     effectiveRoundId = latest?.roundId;
     if (effectiveRoundId === undefined) return [];
@@ -64,7 +88,7 @@ export async function loadRunsForLeaderboard(
         ),
       ),
     )
-    .orderBy(desc(agentRuns.createdAt));
+    .orderBy(desc(agentRuns.roundSeq), asc(agentRuns.agentKey));
 }
 
 /** One run by id, regardless of status (the route enforces `completed`). */

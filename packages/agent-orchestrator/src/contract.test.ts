@@ -32,24 +32,40 @@ const UNIVERSE = [
 
 const SYMBOLS_WITH_PRICE = new Set(UNIVERSE);
 
+/** A stream's first round: it holds nothing, so the omission rule is vacuous. */
+const NO_HOLDINGS: ReadonlySet<string> = new Set();
+
+/** Validators for the default case, so each test states only what it varies. */
+const BASE_OPTS = {
+  universe: UNIVERSE,
+  symbolsWithPrice: SYMBOLS_WITH_PRICE,
+  heldSymbols: NO_HOLDINGS,
+} as const;
+
 function validEnvelope(overrides: Partial<DecisionEnvelope> = {}): DecisionEnvelope {
   return {
     schemaVersion: DECISION_SCHEMA_VERSION,
     roundId: "round-2026-09-24",
+    simulationId: "sim-baseline",
+    roundSeq: 1,
     agent: {
       agentKey: "dr-value",
       persona: "Dr. Value",
       strategy: "deep-value",
       window: "monthly",
-      initialCapital: 100000,
+      portfolioValue: 100000,
+      cash: 0,
+      holdingsValue: 0,
+      priorRoundId: null,
+      roundSeq: 1,
     },
     rationale: "Market breadth is stretched; buying quality at a discount.",
-    picks: [
-      { symbol: "KO", weight: 0.2, thesis: "Oversold staple, 28% off high." },
-      { symbol: "PG", weight: 0.2, thesis: "Defensive quality, low vol." },
-      { symbol: "JNJ", weight: 0.2, thesis: "Health Care leader stabilizing." },
-      { symbol: "XOM", weight: 0.2, thesis: "Hard-asset value with backstop." },
-      { symbol: "CAT", weight: 0.2, thesis: "Seller exhaustion after drawdown." },
+    positions: [
+      { symbol: "KO", targetWeight: 0.2, thesis: "Oversold staple, 28% off high." },
+      { symbol: "PG", targetWeight: 0.2, thesis: "Defensive quality, low vol." },
+      { symbol: "JNJ", targetWeight: 0.2, thesis: "Health Care leader stabilizing." },
+      { symbol: "XOM", targetWeight: 0.2, thesis: "Hard-asset value with backstop." },
+      { symbol: "CAT", targetWeight: 0.2, thesis: "Seller exhaustion after drawdown." },
     ],
     ...overrides,
   };
@@ -59,11 +75,12 @@ function expectValidationError(
   envelope: unknown,
   expectedFragment: string,
   expectedWindow?: "daily" | "weekly" | "monthly",
+  heldSymbols: ReadonlySet<string> = NO_HOLDINGS,
 ): void {
   try {
     validateEnvelope(envelope, {
-      universe: UNIVERSE,
-      symbolsWithPrice: SYMBOLS_WITH_PRICE,
+      ...BASE_OPTS,
+      heldSymbols,
       ...(expectedWindow === undefined ? {} : { expectedWindow }),
     });
     expect.unreachable(`expected validation to fail with "${expectedFragment}"`);
@@ -78,62 +95,57 @@ describe("validateEnvelope — happy path", () => {
   it("accepts a fully valid envelope", () => {
     const envelope = validEnvelope();
     const result = validateEnvelope(envelope, {
-      universe: UNIVERSE,
-      symbolsWithPrice: SYMBOLS_WITH_PRICE,
+      ...BASE_OPTS,
     });
     expect(result).toEqual(envelope);
   });
 
-  it("accepts exactly MIN_PICKS (5) picks", () => {
+  it("accepts exactly MIN_PICKS (5) positions", () => {
     const envelope = validEnvelope();
-    expect(envelope.picks).toHaveLength(MIN_PICKS);
+    expect(envelope.positions).toHaveLength(MIN_PICKS);
     expect(() =>
       validateEnvelope(envelope, {
-        universe: UNIVERSE,
-        symbolsWithPrice: SYMBOLS_WITH_PRICE,
+        ...BASE_OPTS,
       }),
     ).not.toThrow();
   });
 
-  it("accepts exactly MAX_PICKS (10) picks", () => {
-    const picks = Array.from({ length: MAX_PICKS }, (_, i) => ({
+  it("accepts exactly MAX_PICKS (10) positions", () => {
+    const positions = Array.from({ length: MAX_PICKS }, (_, i) => ({
       symbol: UNIVERSE[i],
-      weight: 0.1,
+      targetWeight: 0.1,
       thesis: `Thesis for symbol ${i}.`,
     }));
-    const envelope = validEnvelope({ picks });
+    const envelope = validEnvelope({ positions });
     expect(() =>
       validateEnvelope(envelope, {
-        universe: UNIVERSE,
-        symbolsWithPrice: SYMBOLS_WITH_PRICE,
+        ...BASE_OPTS,
       }),
     ).not.toThrow();
   });
 
   it("accepts a weight sum of exactly 0.99 (lower tolerance bound)", () => {
-    const picks = validEnvelope().picks.map((p, i) => ({
+    const positions = validEnvelope().positions.map((p, i) => ({
       ...p,
-      weight: i === 0 ? 0.19 : p.weight,
+      targetWeight: i === 0 ? 0.19 : p.targetWeight,
     }));
-    const envelope = validEnvelope({ picks });
+    const envelope = validEnvelope({ positions });
     expect(() =>
       validateEnvelope(envelope, {
-        universe: UNIVERSE,
-        symbolsWithPrice: SYMBOLS_WITH_PRICE,
+        ...BASE_OPTS,
       }),
     ).not.toThrow();
   });
 
   it("accepts a weight sum of exactly 1.01 (upper tolerance bound)", () => {
-    const picks = validEnvelope().picks.map((p, i) => ({
+    const positions = validEnvelope().positions.map((p, i) => ({
       ...p,
-      weight: i === 0 ? 0.21 : p.weight,
+      targetWeight: i === 0 ? 0.21 : p.targetWeight,
     }));
-    const envelope = validEnvelope({ picks });
+    const envelope = validEnvelope({ positions });
     expect(() =>
       validateEnvelope(envelope, {
-        universe: UNIVERSE,
-        symbolsWithPrice: SYMBOLS_WITH_PRICE,
+        ...BASE_OPTS,
       }),
     ).not.toThrow();
   });
@@ -148,63 +160,62 @@ describe("validateEnvelope — happy path", () => {
     });
     expect(() =>
       validateEnvelope(envelope, {
-        universe: UNIVERSE,
-        symbolsWithPrice: SYMBOLS_WITH_PRICE,
+        ...BASE_OPTS,
       }),
     ).not.toThrow();
   });
 });
 
-describe("validateEnvelope — pick count boundaries", () => {
-  it("rejects 4 picks (below MIN_PICKS)", () => {
-    const envelope = validEnvelope({ picks: validEnvelope().picks.slice(0, 4) });
+describe("validateEnvelope — position count boundaries", () => {
+  it("rejects 4 positions (below MIN_PICKS)", () => {
+    const envelope = validEnvelope({ positions: validEnvelope().positions.slice(0, 4) });
     expectValidationError(envelope, "at least 5");
   });
 
-  it("rejects 11 picks (above MAX_PICKS)", () => {
-    const picks = Array.from({ length: MAX_PICKS + 1 }, (_, i) => ({
+  it("rejects 11 positions (above MAX_PICKS)", () => {
+    const positions = Array.from({ length: MAX_PICKS + 1 }, (_, i) => ({
       symbol: UNIVERSE[i % UNIVERSE.length],
-      weight: 1 / (MAX_PICKS + 1),
+      targetWeight: 1 / (MAX_PICKS + 1),
       thesis: `Thesis ${i}.`,
     }));
-    const envelope = validEnvelope({ picks });
+    const envelope = validEnvelope({ positions });
     expectValidationError(envelope, "at most 10");
   });
 
-  it("rejects a non-array picks field", () => {
+  it("rejects a non-array positions field", () => {
     const envelope = validEnvelope({
-      picks: "not-an-array" as unknown as DecisionEnvelope["picks"],
+      positions: "not-an-array" as unknown as DecisionEnvelope["positions"],
     });
-    expectValidationError(envelope, "picks must be an array");
+    expectValidationError(envelope, "positions must be an array");
   });
 });
 
 describe("validateEnvelope — weight sum tolerance", () => {
   it("rejects a weight sum of 0.989 (below tolerance)", () => {
-    const picks = validEnvelope().picks.map((p, i) => ({
+    const positions = validEnvelope().positions.map((p, i) => ({
       ...p,
-      weight: i === 0 ? 0.189 : p.weight,
+      targetWeight: i === 0 ? 0.189 : p.targetWeight,
     }));
-    const envelope = validEnvelope({ picks });
-    expectValidationError(envelope, "sum of pick weights");
+    const envelope = validEnvelope({ positions });
+    expectValidationError(envelope, "sum of buy targetWeights");
   });
 
   it("rejects a weight sum of 1.011 (above tolerance)", () => {
-    const picks = validEnvelope().picks.map((p, i) => ({
+    const positions = validEnvelope().positions.map((p, i) => ({
       ...p,
-      weight: i === 0 ? 0.211 : p.weight,
+      targetWeight: i === 0 ? 0.211 : p.targetWeight,
     }));
-    const envelope = validEnvelope({ picks });
-    expectValidationError(envelope, "sum of pick weights");
+    const envelope = validEnvelope({ positions });
+    expectValidationError(envelope, "sum of buy targetWeights");
   });
 });
 
 describe("validateEnvelope — symbol membership", () => {
   it("rejects a symbol not in the universe", () => {
     const envelope = validEnvelope({
-      picks: [
-        ...validEnvelope().picks.slice(0, 4),
-        { symbol: "ZZZZ", weight: 0.2, thesis: "Not a real ticker." },
+      positions: [
+        ...validEnvelope().positions.slice(0, 4),
+        { symbol: "ZZZZ", targetWeight: 0.2, thesis: "Not a real ticker." },
       ],
     });
     expectValidationError(envelope, "not in the universe");
@@ -212,14 +223,14 @@ describe("validateEnvelope — symbol membership", () => {
 
   it("rejects a symbol in the universe but with no price data as of the decision date", () => {
     const envelope = validEnvelope({
-      picks: [
-        ...validEnvelope().picks.slice(0, 4),
-        { symbol: "MSFT", weight: 0.2, thesis: "No price data." },
+      positions: [
+        ...validEnvelope().positions.slice(0, 4),
+        { symbol: "MSFT", targetWeight: 0.2, thesis: "No price data." },
       ],
     });
     const symbolsWithPrice = new Set(UNIVERSE.filter((s) => s !== "MSFT"));
     try {
-      validateEnvelope(envelope, { universe: UNIVERSE, symbolsWithPrice });
+      validateEnvelope(envelope, { ...BASE_OPTS, symbolsWithPrice });
       expect.unreachable('expected validation to fail with "no price data"');
     } catch (err) {
       expect(err).toBeInstanceOf(DecisionValidationError);
@@ -227,66 +238,242 @@ describe("validateEnvelope — symbol membership", () => {
     }
   });
 
-  it("rejects a duplicated symbol in picks", () => {
+  it("rejects a duplicated symbol in positions", () => {
     const envelope = validEnvelope({
-      picks: [
-        ...validEnvelope().picks.slice(0, 4),
-        { symbol: "KO", weight: 0.2, thesis: "Duplicate of KO." },
+      positions: [
+        ...validEnvelope().positions.slice(0, 4),
+        { symbol: "KO", targetWeight: 0.2, thesis: "Duplicate of KO." },
       ],
     });
     expectValidationError(envelope, "duplicated");
   });
 });
 
-describe("validateEnvelope — per-pick weight rules", () => {
-  it("rejects a weight of 0", () => {
+describe("validateEnvelope — per-position targetWeight rules", () => {
+  it("rejects a targetWeight greater than 1", () => {
     const envelope = validEnvelope({
-      picks: [
-        ...validEnvelope().picks.slice(0, 4),
-        { symbol: "V", weight: 0, thesis: "Zero weight." },
+      positions: [
+        ...validEnvelope().positions.slice(0, 4),
+        { symbol: "V", targetWeight: 1.5, thesis: "Overweight." },
       ],
     });
-    expectValidationError(envelope, "0 < weight <= 1");
+    expectValidationError(envelope, "0 <= targetWeight <= 1");
   });
 
-  it("rejects a weight greater than 1", () => {
+  it("rejects a negative targetWeight", () => {
     const envelope = validEnvelope({
-      picks: [
-        ...validEnvelope().picks.slice(0, 4),
-        { symbol: "V", weight: 1.5, thesis: "Overweight." },
+      positions: [
+        ...validEnvelope().positions.slice(0, 4),
+        { symbol: "V", targetWeight: -0.1, thesis: "Negative weight." },
       ],
     });
-    expectValidationError(envelope, "0 < weight <= 1");
+    expectValidationError(envelope, "0 <= targetWeight <= 1");
   });
 
-  it("rejects a NaN weight", () => {
+  it("rejects a NaN targetWeight", () => {
     const envelope = validEnvelope({
-      picks: [
-        ...validEnvelope().picks.slice(0, 4),
-        { symbol: "V", weight: Number.NaN, thesis: "NaN weight." },
+      positions: [
+        ...validEnvelope().positions.slice(0, 4),
+        { symbol: "V", targetWeight: Number.NaN, thesis: "NaN weight." },
       ],
     });
     expectValidationError(envelope, "finite number");
   });
 
-  it("rejects an Infinity weight", () => {
+  it("rejects an Infinity targetWeight", () => {
     const envelope = validEnvelope({
-      picks: [
-        ...validEnvelope().picks.slice(0, 4),
-        { symbol: "V", weight: Number.POSITIVE_INFINITY, thesis: "Inf weight." },
+      positions: [
+        ...validEnvelope().positions.slice(0, 4),
+        { symbol: "V", targetWeight: Number.POSITIVE_INFINITY, thesis: "Inf weight." },
       ],
     });
     expectValidationError(envelope, "finite number");
   });
 
-  it("rejects a string weight", () => {
+  it("rejects a string targetWeight", () => {
     const envelope = validEnvelope({
-      picks: [
-        ...validEnvelope().picks.slice(0, 4),
-        { symbol: "V", weight: "0.2" as unknown as number, thesis: "String weight." },
+      positions: [
+        ...validEnvelope().positions.slice(0, 4),
+        { symbol: "V", targetWeight: "0.2" as unknown as number, thesis: "String weight." },
       ],
     });
     expectValidationError(envelope, "finite number");
+  });
+});
+
+describe("validateEnvelope — sells (targetWeight === 0)", () => {
+  const HELD: ReadonlySet<string> = new Set(["KO", "PG", "JNJ", "XOM", "CAT", "V"]);
+
+  it("accepts a targetWeight of 0 as a liquidation of a held symbol", () => {
+    const envelope = validEnvelope({
+      positions: [
+        ...validEnvelope().positions,
+        { symbol: "V", targetWeight: 0, thesis: "Trend structure failed; exiting." },
+      ],
+    });
+    expect(() => validateEnvelope(envelope, { ...BASE_OPTS, heldSymbols: HELD })).not.toThrow();
+  });
+
+  it("accepts a sell of a symbol that has no price as of the decision date", () => {
+    const envelope = validEnvelope({
+      positions: [
+        ...validEnvelope().positions,
+        { symbol: "V", targetWeight: 0, thesis: "Delisted from the feed; exiting anyway." },
+      ],
+    });
+    const symbolsWithPrice = new Set(UNIVERSE.filter((s) => s !== "V"));
+    expect(() =>
+      validateEnvelope(envelope, { ...BASE_OPTS, symbolsWithPrice, heldSymbols: HELD }),
+    ).not.toThrow();
+  });
+
+  it("accepts a sell of a symbol that is not in the universe at all", () => {
+    const envelope = validEnvelope({
+      positions: [
+        ...validEnvelope().positions,
+        { symbol: "V", targetWeight: 0, thesis: "Left the universe; exiting anyway." },
+      ],
+    });
+    const universe = UNIVERSE.filter((s) => s !== "V");
+    expect(() =>
+      validateEnvelope(envelope, { ...BASE_OPTS, universe, heldSymbols: HELD }),
+    ).not.toThrow();
+  });
+
+  it("rejects a sell of a symbol the stream does not hold", () => {
+    const envelope = validEnvelope({
+      positions: [
+        ...validEnvelope().positions,
+        { symbol: "V", targetWeight: 0, thesis: "Never held; cannot exit." },
+      ],
+    });
+    const heldSymbols: ReadonlySet<string> = new Set(["KO", "PG", "JNJ", "XOM", "CAT"]);
+    expectValidationError(envelope, "not in heldSymbols", undefined, heldSymbols);
+  });
+
+  it("does not count sell lines toward MIN_PICKS", () => {
+    const envelope = validEnvelope({
+      positions: [
+        ...validEnvelope().positions.slice(0, 4),
+        { symbol: "V", targetWeight: 0, thesis: "Exit." },
+      ],
+    });
+    expectValidationError(envelope, "at least 5", undefined, HELD);
+  });
+
+  it("rejects a buy of a symbol with no price as of the decision date", () => {
+    const envelope = validEnvelope({
+      positions: [
+        ...validEnvelope().positions.slice(0, 4),
+        { symbol: "V", targetWeight: 0.2, thesis: "Buy with no price." },
+      ],
+    });
+    const symbolsWithPrice = new Set(UNIVERSE.filter((s) => s !== "V"));
+    try {
+      validateEnvelope(envelope, { ...BASE_OPTS, symbolsWithPrice, heldSymbols: HELD });
+      expect.unreachable('expected validation to fail with "no price data"');
+    } catch (err) {
+      expect(err).toBeInstanceOf(DecisionValidationError);
+      expect((err as DecisionValidationError).message).toContain("no price data");
+    }
+  });
+});
+
+describe("validateEnvelope — the envelope is a complete target book", () => {
+  it("rejects an envelope that omits a held symbol, naming it", () => {
+    const envelope = validEnvelope({
+      positions: [
+        { symbol: "KO", targetWeight: 0.2, thesis: "Still the best staple." },
+        { symbol: "PG", targetWeight: 0.2, thesis: "Still defensive." },
+        { symbol: "JNJ", targetWeight: 0.2, thesis: "Still stabilising." },
+        { symbol: "CAT", targetWeight: 0.2, thesis: "Seller exhaustion." },
+        { symbol: "V", targetWeight: 0.2, thesis: "New entry replacing an exit." },
+      ],
+    });
+    // XOM is held but has no line — the fold would read that silence as an exit.
+    const heldSymbols: ReadonlySet<string> = new Set(["KO", "PG", "JNJ", "XOM", "CAT"]);
+    try {
+      validateEnvelope(envelope, { ...BASE_OPTS, heldSymbols });
+      expect.unreachable('expected validation to fail with "omitted"');
+    } catch (err) {
+      expect(err).toBeInstanceOf(DecisionValidationError);
+      const message = (err as DecisionValidationError).message;
+      expect(message).toContain("omitted");
+      expect(message).toContain("XOM");
+      // Only the omission is named — the four present holdings are not.
+      expect(message).not.toContain("KO,");
+      expect(message).not.toContain("CAT,");
+    }
+  });
+
+  it("accepts a book that keeps a holding at a reduced targetWeight", () => {
+    const envelope = validEnvelope({
+      agent: { ...validEnvelope().agent, cash: 40000, holdingsValue: 60000, roundSeq: 2 },
+      roundSeq: 2,
+      positions: [
+        { symbol: "KO", targetWeight: 0.1, thesis: "Trimmed to half; redeployed to PG." },
+        { symbol: "PG", targetWeight: 0.3, thesis: "Absorbs the trimmed weight." },
+        { symbol: "JNJ", targetWeight: 0.2, thesis: "Unchanged." },
+        { symbol: "XOM", targetWeight: 0.2, thesis: "Unchanged." },
+        { symbol: "CAT", targetWeight: 0.2, thesis: "Unchanged." },
+      ],
+    });
+    const heldSymbols: ReadonlySet<string> = new Set(["KO", "PG", "JNJ", "XOM", "CAT"]);
+    expect(() => validateEnvelope(envelope, { ...BASE_OPTS, heldSymbols })).not.toThrow();
+  });
+});
+
+describe("validateEnvelope — anti-drift against the runner", () => {
+  it("rejects a simulationId that is not the one the runner booked", () => {
+    const envelope = validEnvelope();
+    try {
+      validateEnvelope(envelope, { ...BASE_OPTS, expectedSimulationId: "sim-other" });
+      expect.unreachable('expected validation to fail with "simulationId"');
+    } catch (err) {
+      expect(err).toBeInstanceOf(DecisionValidationError);
+      expect((err as DecisionValidationError).message).toContain(
+        'simulationId must be "sim-other"',
+      );
+    }
+  });
+
+  it("rejects a roundSeq that is not the one the runner booked", () => {
+    const envelope = validEnvelope();
+    try {
+      validateEnvelope(envelope, { ...BASE_OPTS, expectedRoundSeq: 7 });
+      expect.unreachable('expected validation to fail with "roundSeq"');
+    } catch (err) {
+      expect(err).toBeInstanceOf(DecisionValidationError);
+      expect((err as DecisionValidationError).message).toContain("roundSeq must be 7");
+    }
+  });
+
+  it("rejects a non-integer roundSeq", () => {
+    expectValidationError(
+      { ...validEnvelope(), roundSeq: 1.5 },
+      "roundSeq must be a positive integer",
+    );
+  });
+
+  it("rejects agent.roundSeq that disagrees with the top-level roundSeq", () => {
+    // Both copies are positive integers and match nothing the runner checked,
+    // so without the cross-check this envelope validates and persists a
+    // decisionJson contradicting the chain position it is folded at.
+    const envelope = validEnvelope();
+    expectValidationError(
+      { ...envelope, agent: { ...envelope.agent, roundSeq: envelope.roundSeq + 1 } },
+      "agent.roundSeq must equal envelope.roundSeq",
+    );
+  });
+
+  it("accepts an envelope whose two roundSeq copies agree", () => {
+    const envelope = validEnvelope({ roundSeq: 4 });
+    expect(() =>
+      validateEnvelope(
+        { ...envelope, agent: { ...envelope.agent, roundSeq: 4 } },
+        { ...BASE_OPTS, expectedRoundSeq: 4 },
+      ),
+    ).not.toThrow();
   });
 });
 
@@ -301,8 +488,7 @@ describe("validateEnvelope — agent fields", () => {
   it("accepts an envelope whose window matches the round's expectedWindow", () => {
     const envelope = validEnvelope();
     const result = validateEnvelope(envelope, {
-      universe: UNIVERSE,
-      symbolsWithPrice: SYMBOLS_WITH_PRICE,
+      ...BASE_OPTS,
       expectedWindow: "monthly",
     });
     expect(result).toEqual(envelope);
@@ -334,11 +520,11 @@ describe("validateEnvelope — agent fields", () => {
     expectValidationError(envelope, "must match");
   });
 
-  it("rejects a non-positive initialCapital", () => {
+  it("rejects a non-positive portfolioValue", () => {
     const envelope = validEnvelope({
-      agent: { ...validEnvelope().agent, initialCapital: 0 },
+      agent: { ...validEnvelope().agent, portfolioValue: 0 },
     });
-    expectValidationError(envelope, "initialCapital");
+    expectValidationError(envelope, "portfolioValue");
   });
 
   it("rejects a missing agent object", () => {
@@ -349,8 +535,7 @@ describe("validateEnvelope — agent fields", () => {
 
 describe("validateEnvelope — envelope-level fields", () => {
   it("rejects a wrong schemaVersion", () => {
-    const envelope = validEnvelope({ schemaVersion: 2 });
-    expectValidationError(envelope, "schemaVersion must be 1");
+    expectValidationError({ ...validEnvelope(), schemaVersion: 1 }, "schemaVersion must be 2");
   });
 
   it("rejects a missing roundId", () => {
@@ -363,9 +548,12 @@ describe("validateEnvelope — envelope-level fields", () => {
     expectValidationError(envelope, "rationale");
   });
 
-  it("rejects a pick with a missing thesis", () => {
+  it("rejects a position with a missing thesis", () => {
     const envelope = validEnvelope({
-      picks: [...validEnvelope().picks.slice(0, 4), { symbol: "V", weight: 0.2, thesis: "" }],
+      positions: [
+        ...validEnvelope().positions.slice(0, 4),
+        { symbol: "V", targetWeight: 0.2, thesis: "" },
+      ],
     });
     expectValidationError(envelope, "thesis");
   });

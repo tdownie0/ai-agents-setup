@@ -14,7 +14,7 @@
 import "dotenv/config";
 import { resolve } from "node:path";
 import { buildDataset, extractEntryContext } from "./dataset.js";
-import { insertRun } from "./insert.js";
+import { insertRun, loadRoundBooking } from "./insert.js";
 import { agentKeyFor, ANALYST_WINDOWS, getPersona, PERSONAS } from "./personas.js";
 import type { AnalystWindow } from "./personas.js";
 import { spawnAnalyst } from "./spawn.js";
@@ -54,10 +54,12 @@ interface AgentJob {
   replicateOf?: string;
 }
 
+const EMPTY_BOOK: ReadonlySet<string> = new Set<string>();
+
 interface JobResult {
   job: AgentJob;
   ok: boolean;
-  picks?: number;
+  positions?: number;
   insertedId?: number;
   error?: string;
 }
@@ -174,6 +176,8 @@ async function main(): Promise<void> {
   // Entry fills: each symbol's close on the decision date.
   const { entryPrices, symbolsWithPrice } = extractEntryContext(dataset);
 
+  const booking = await loadRoundBooking(opts.round);
+
   const jobs = resolveJobs(opts);
   console.log(`[orchestrator] spawning ${jobs.length} analyst(s)...`);
 
@@ -190,11 +194,14 @@ async function main(): Promise<void> {
         roundId: opts.round,
         datasetPath: summary.datasetPath,
         asOfTradeDate: summary.asOfTradeDate,
-        initialCapital: opts.capital,
+        portfolioValue: opts.capital,
         replicateOf: job.replicateOf,
         cwd: worktreeRoot,
         universe: dataset.universe.map((u) => u.symbol),
         symbolsWithPrice,
+        // This CLI opens a fresh book every round, so the stream holds nothing
+        // when the analyst starts. The carryover runner passes the real book.
+        heldSymbols: EMPTY_BOOK,
       });
 
       const inserted = await insertRun({
@@ -203,17 +210,23 @@ async function main(): Promise<void> {
         asOfTradeDate: summary.asOfTradeDate,
         expectedPersona: persona.displayName,
         expectedStrategy: persona.strategy,
+        roundSeq: booking?.roundSeq ?? 1,
+        // An unbooked round is this CLI's documented standalone mode: it never
+        // launches via POST /rounds/:roundId/job, so it belongs to no chain. A
+        // booked round carries its own identity so the run cannot disagree with
+        // the chain position it was launched at.
+        simulationId: booking?.simulationId ?? null,
         startedAt,
       });
 
       results.push({
         job,
         ok: true,
-        picks: spawned.envelope.picks.length,
+        positions: spawned.envelope.positions.length,
         insertedId: inserted.agentRunId,
       });
       console.log(
-        `[orchestrator] ${job.agentKey}: ${spawned.envelope.picks.length} picks ` +
+        `[orchestrator] ${job.agentKey}: ${spawned.envelope.positions.length} positions ` +
           `-> agent_run #${inserted.agentRunId} (attempts=${spawned.attempts})`,
       );
     } catch (err) {
@@ -227,13 +240,13 @@ async function main(): Promise<void> {
   console.log("\n=== Analyst Round Summary ===");
   console.log(
     `${"agentKey".padEnd(24)} ${"persona".padEnd(16)} ${"window".padEnd(9)} ` +
-      `${"picks".padEnd(6)} ${"insertedId".padEnd(11)} status`,
+      `${"positions".padEnd(10)} ${"insertedId".padEnd(11)} status`,
   );
   for (const r of results) {
     const persona = getPersona(r.job.personaKey);
     console.log(
       `${r.job.agentKey.padEnd(24)} ${persona.displayName.padEnd(16)} ` +
-        `${r.job.window.padEnd(9)} ${String(r.picks ?? "-").padEnd(6)} ` +
+        `${r.job.window.padEnd(9)} ${String(r.positions ?? "-").padEnd(10)} ` +
         `${String(r.insertedId ?? "-").padEnd(11)} ${r.ok ? "ok" : "ERROR"}`,
     );
     if (!r.ok) {

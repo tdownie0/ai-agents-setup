@@ -17,7 +17,7 @@
  * rejected even when the round is re-polled from a different container.
  */
 
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { db, isTerminalRoundJobStatus, roundAgentProgress, roundJobs } from "@model_md/database";
 import type {
@@ -26,6 +26,20 @@ import type {
   RoundJob,
   RoundJobStatus,
 } from "@model_md/database";
+import {
+  loadLatestTradeDate,
+  loadNextRoundSeq,
+  loadRoundsForTradeDate,
+  loadSimulation,
+  loadStreamLastTradeDates,
+  replaceRoundInTx,
+} from "../portfolio/carryoverStore.js";
+import type { Queryable } from "../portfolio/carryoverStore.js";
+import {
+  decideRerun,
+  isRerunRejection,
+  rerunRejectionStatus,
+} from "../portfolio/rerunPolicy.js";
 import { parseRoundId } from "./rounds.js";
 
 export interface RoundJobWire {
@@ -39,6 +53,16 @@ export interface RoundJobWire {
   startedAt: string;
   completedAt: string | null;
   updatedAt: string;
+  /**
+   * The booking this round was actually admitted at. `gateCarryoverLaunch`
+   * resolves `roundSeq` server-side (explicit value, a replaced round's slot, or
+   * the next free one), so the client can only learn it by reading it back here.
+   * The orchestrator must echo this into the analyst prompt: without it the
+   * prompt falls back to `roundSeq=1` and the run-insert booking cross-check
+   * rejects every chained round past the first. `null` for a standalone launch.
+   */
+  simulationId: string | null;
+  roundSeq: number;
 }
 
 export interface RoundAgentProgressWire {
@@ -68,6 +92,8 @@ export function toRoundJobWire(job: RoundJob): RoundJobWire {
     startedAt: job.startedAt.toISOString(),
     completedAt: iso(job.completedAt),
     updatedAt: job.updatedAt.toISOString(),
+    simulationId: job.simulationId,
+    roundSeq: job.roundSeq,
   };
 }
 
@@ -114,6 +140,12 @@ export interface StartRoundBody {
   asOfTradeDate?: string;
   datasetPath?: string;
   takeover: boolean;
+  /** Carries the round into a simulation's chain; absent = legacy launch. */
+  simulationId?: string;
+  /** Explicit chain position. Omit to take the next one after the sim's highest. */
+  roundSeq?: number;
+  /** Re-decide a FINISHED round for the same date instead of being rejected. */
+  replace: boolean;
 }
 
 export function parseStartRoundBody(value: unknown): StartRoundBody {
@@ -154,6 +186,22 @@ export function parseStartRoundBody(value: unknown): StartRoundBody {
   if (value.takeover !== undefined && typeof value.takeover !== "boolean") {
     throw new Error("body.takeover must be a boolean when present");
   }
+  if (value.replace !== undefined && typeof value.replace !== "boolean") {
+    throw new Error("body.replace must be a boolean when present");
+  }
+  if (value.simulationId !== undefined) {
+    if (typeof value.simulationId !== "string" || !/^sim-[a-z0-9][a-z0-9-]{0,46}$/.test(value.simulationId)) {
+      throw new Error("body.simulationId must match /^sim-[a-z0-9][a-z0-9-]{0,46}$/ when present");
+    }
+  }
+  if (value.roundSeq !== undefined) {
+    if (typeof value.roundSeq !== "number" || !Number.isInteger(value.roundSeq) || value.roundSeq < 1) {
+      throw new Error("body.roundSeq must be a positive integer when present");
+    }
+  }
+  if (value.roundSeq !== undefined && value.simulationId === undefined) {
+    throw new Error("body.roundSeq requires body.simulationId — a chain position is scoped to a simulation");
+  }
 
   return {
     agents,
@@ -162,6 +210,9 @@ export function parseStartRoundBody(value: unknown): StartRoundBody {
     asOfTradeDate: value.asOfTradeDate as string | undefined,
     datasetPath: value.datasetPath as string | undefined,
     takeover: value.takeover === true,
+    simulationId: value.simulationId as string | undefined,
+    roundSeq: value.roundSeq as number | undefined,
+    replace: value.replace === true,
   };
 }
 
@@ -236,6 +287,103 @@ const toDate = (value: string | undefined): Date | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+/**
+ * A launch the gate refused. `decideRerun` supplies the four carryover codes;
+ * the two pre-policy codes below are raised before it can run, because the
+ * inputs it needs do not exist yet (no such simulation, or no prices at all).
+ */
+interface LaunchRejection {
+  ok: false;
+  code: string;
+  terminal: boolean;
+  error: string;
+  hint: string;
+  detail: unknown;
+}
+
+type CarryoverGate =
+  | { body: StartRoundBody; replaceRoundIds: string[] }
+  | { rejection: LaunchRejection };
+
+/**
+ * Apply `decideRerun` to a carryover launch and resolve the chain position.
+ *
+ * Runs BEFORE any write so a rejected launch leaves nothing behind. The seq it
+ * returns is either the caller's explicit `roundSeq` or the one the policy
+ * implies: the replaced round's own position for a `replace`, otherwise the
+ * next free slot in the simulation.
+ */
+async function gateCarryoverLaunch(body: StartRoundBody): Promise<CarryoverGate> {
+  const simulationId = body.simulationId;
+  if (simulationId === undefined) return { body, replaceRoundIds: [] };
+
+  const simulation = await loadSimulation(db, simulationId);
+  if (simulation === undefined) {
+    return {
+      rejection: {
+        ok: false,
+        error: `simulation "${simulationId}" does not exist`,
+        code: "UNKNOWN_SIMULATION",
+        terminal: false,
+        hint: "Create the simulation first — POST /api/portfolio/simulations.",
+        detail: { simulationId },
+      },
+    };
+  }
+
+  const latestTradeDate = await loadLatestTradeDate(db);
+  // A carryover round is always dated: the fold marks the book at that close.
+  // Falling back to the newest available close is what the spec calls
+  // "asOfTradeDate is MAX(daily_prices.trade_date) by construction".
+  const asOfTradeDate = body.asOfTradeDate ?? latestTradeDate;
+  if (asOfTradeDate === null) {
+    return {
+      rejection: {
+        ok: false,
+        error: "no price data is available — a carryover round cannot be dated",
+        code: "STALE_TRADE_DATE",
+        terminal: false,
+        hint: "Run market-data ingestion before launching a round.",
+        detail: { asOfTradeDate: null, latestTradeDate },
+      },
+    };
+  }
+
+  const existingRounds = await loadRoundsForTradeDate(db, simulationId, asOfTradeDate);
+  const streamLastTradeDates = await loadStreamLastTradeDates(db, simulationId);
+  const decision = decideRerun({
+    replace: body.replace,
+    asOfTradeDate,
+    existingRounds,
+    latestTradeDate,
+    streamLastTradeDates,
+  });
+  if (isRerunRejection(decision)) return { rejection: decision };
+
+  const roundSeq =
+    body.roundSeq ??
+    (decision.replaceRoundIds.length > 0
+      ? // A replace inherits the position it replaces, so the chain keeps one
+        // entry per date instead of leaving a hole.
+        await replacedRoundSeq(db, decision.replaceRoundIds)
+      : await loadNextRoundSeq(db, simulationId));
+
+  return {
+    body: { ...body, simulationId, asOfTradeDate, roundSeq },
+    replaceRoundIds: decision.replaceRoundIds,
+  };
+}
+
+/** The lowest `round_seq` among the rounds a replace is discarding. */
+async function replacedRoundSeq(client: Queryable, roundIds: readonly string[]): Promise<number> {
+  const rows = await client
+    .select({ seq: roundJobs.roundSeq })
+    .from(roundJobs)
+    .where(inArray(roundJobs.roundId, [...roundIds]));
+  const seqs = rows.map((row) => row.seq);
+  return seqs.length === 0 ? 1 : Math.min(...seqs);
+}
+
 const roundJobsApp = new Hono()
   .post("/rounds/:roundId/job", async (c) => {
     let roundId: string;
@@ -258,9 +406,21 @@ const roundJobsApp = new Hono()
       return c.json({ error: messageOf(err) }, 400);
     }
 
+    // Carryover launches are gated by `decideRerun`; legacy launches (no
+    // simulationId) skip it and get seq 1, since they are outside every chain.
+    let replaceRoundIds: string[] = [];
+    if (body.simulationId !== undefined) {
+      const gate = await gateCarryoverLaunch(body);
+      if ("rejection" in gate) return c.json(gate.rejection, rerunRejectionStatus);
+      body = gate.body;
+      replaceRoundIds = gate.replaceRoundIds;
+    }
+
     const newJobValues = {
       roundId,
       status: "launching" as const,
+      simulationId: body.simulationId ?? null,
+      roundSeq: body.roundSeq ?? 1,
       asOfTradeDate: body.asOfTradeDate ?? null,
       datasetPath: body.datasetPath ?? null,
       maxParallel: body.maxParallel,
@@ -270,24 +430,77 @@ const roundJobsApp = new Hono()
       completedAt: null,
     };
 
-    // Atomic launch guard: `onConflictDoNothing` + `returning()` collapses the
-    // check-then-write race. A concurrent second launch loses the PK conflict,
-    // gets zero rows back, and falls into the 409 below — so a round can never
-    // be launched twice by two overlapping tool calls.
-    const launched = body.takeover
-      ? await db
-          .insert(roundJobs)
-          .values(newJobValues)
-          .onConflictDoUpdate({
-            target: roundJobs.roundId,
-            set: { ...newJobValues, updatedAt: sql`now()` },
+    // One transaction for the whole launch, because a `replace` is a swap: the
+    // discarded round's decisions go, its streams re-fold, and the new job
+    // takes the freed `(simulation_id, round_seq)` slot. Any other interleaving
+    // leaves a chain that is neither the old one nor the new one.
+    const launched = await db.transaction(async (tx) => {
+      if (replaceRoundIds.length > 0 && body.simulationId !== undefined) {
+        await replaceRoundInTx(tx, {
+          simulationId: body.simulationId,
+          roundIds: replaceRoundIds,
+        });
+        // The re-decided round inherits the discarded round's chain position, so
+        // the old job row must be gone before the new one claims that slot.
+        // `round_agent_progress` cascades with it, which is correct: that round
+        // is being discarded, not resumed.
+        await tx.delete(roundJobs).where(inArray(roundJobs.roundId, [...replaceRoundIds]));
+      }
+
+      // Atomic launch guard: `onConflictDoNothing` + `returning()` collapses the
+      // check-then-write race. A concurrent second launch loses the PK conflict,
+      // gets zero rows back, and falls into the 409 below — so a round can never
+      // be launched twice by two overlapping tool calls.
+      const rows = body.takeover
+        ? await tx
+            .insert(roundJobs)
+            .values(newJobValues)
+            .onConflictDoUpdate({
+              target: roundJobs.roundId,
+              set: { ...newJobValues, updatedAt: sql`now()` },
+            })
+            .returning()
+        : await tx
+            .insert(roundJobs)
+            .values(newJobValues)
+            .onConflictDoNothing({ target: roundJobs.roundId })
+            .returning();
+      if (rows.length === 0) return rows;
+
+      // Reset every requested agent to `pending`; this is what makes `takeover`
+      // a genuine re-launch instead of a resume of half-written progress.
+      for (const agent of body.agents) {
+        await tx
+          .insert(roundAgentProgress)
+          .values({
+            roundId,
+            agentKey: agent.agentKey,
+            personaKey: agent.personaKey,
+            status: "pending",
+            runId: null,
+            picks: null,
+            attempts: null,
+            error: null,
+            startedAt: null,
+            completedAt: null,
           })
-          .returning()
-      : await db
-          .insert(roundJobs)
-          .values(newJobValues)
-          .onConflictDoNothing({ target: roundJobs.roundId })
-          .returning();
+          .onConflictDoUpdate({
+            target: [roundAgentProgress.roundId, roundAgentProgress.agentKey],
+            set: {
+              personaKey: agent.personaKey,
+              status: "pending",
+              runId: null,
+              picks: null,
+              attempts: null,
+              error: null,
+              startedAt: null,
+              completedAt: null,
+              updatedAt: sql`now()`,
+            },
+          });
+      }
+      return rows;
+    });
 
     if (launched.length === 0) {
       const [existing] = await db
@@ -303,39 +516,6 @@ const roundJobsApp = new Hono()
         },
         409,
       );
-    }
-
-    // Reset every requested agent to `pending`; this is what makes `takeover`
-    // a genuine re-launch instead of a resume of half-written progress.
-    for (const agent of body.agents) {
-      await db
-        .insert(roundAgentProgress)
-        .values({
-          roundId,
-          agentKey: agent.agentKey,
-          personaKey: agent.personaKey,
-          status: "pending",
-          runId: null,
-          picks: null,
-          attempts: null,
-          error: null,
-          startedAt: null,
-          completedAt: null,
-        })
-        .onConflictDoUpdate({
-          target: [roundAgentProgress.roundId, roundAgentProgress.agentKey],
-          set: {
-            personaKey: agent.personaKey,
-            status: "pending",
-            runId: null,
-            picks: null,
-            attempts: null,
-            error: null,
-            startedAt: null,
-            completedAt: null,
-            updatedAt: sql`now()`,
-          },
-        });
     }
 
     const [job] = await db.select().from(roundJobs).where(eq(roundJobs.roundId, roundId)).limit(1);

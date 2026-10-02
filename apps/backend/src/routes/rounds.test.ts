@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import { extractEntryContext } from "@model_md/agent-orchestrator";
 import type { AgentRun } from "@model_md/database";
 import roundsApp, {
+  classifyBooking,
   loadDatasetForRound,
   parseRoundId,
   parseRunInsertBody,
@@ -102,6 +103,8 @@ describe("toRunStatusWire", () => {
       id: 7,
       roundId: "w1",
       agentKey: "dr-value",
+      simulationId: null,
+      roundSeq: 1,
       persona: "Deep Value",
       strategy: "Fundamental Value",
       window: "monthly",
@@ -221,6 +224,50 @@ describe("parseRunInsertBody", () => {
   it("returns the raw envelope untouched", () => {
     const envelope = { schemaVersion: 1 };
     expect(parseRunInsertBody({ envelope })).toEqual({ envelope });
+  });
+});
+
+describe("classifyBooking", () => {
+  it("rejects a round with no booking row", () => {
+    expect(classifyBooking(null)).toEqual({ kind: "unbooked" });
+  });
+
+  it("routes a booking with no simulation to the legacy insert path", () => {
+    expect(
+      classifyBooking({ simulationId: null, roundSeq: 1, asOfTradeDate: null }),
+    ).toEqual({ kind: "legacy", roundSeq: 1 });
+  });
+
+  it("keeps a chained booking's identity for the fold path", () => {
+    expect(
+      classifyBooking({
+        simulationId: "sim-a",
+        roundSeq: 4,
+        asOfTradeDate: "2026-09-24",
+      }),
+    ).toEqual({
+      kind: "chained",
+      simulationId: "sim-a",
+      roundSeq: 4,
+      asOfTradeDate: "2026-09-24",
+    });
+  });
+
+  it("rejects a chained booking with no decide date to mark against", () => {
+    expect(
+      classifyBooking({ simulationId: "sim-a", roundSeq: 4, asOfTradeDate: null }),
+    ).toEqual({ kind: "undated", simulationId: "sim-a", roundSeq: 4 });
+  });
+
+  it("treats a dated booking as chained even at round 1", () => {
+    expect(
+      classifyBooking({ simulationId: "sim-a", roundSeq: 1, asOfTradeDate: "2026-09-24" }),
+    ).toEqual({
+      kind: "chained",
+      simulationId: "sim-a",
+      roundSeq: 1,
+      asOfTradeDate: "2026-09-24",
+    });
   });
 });
 

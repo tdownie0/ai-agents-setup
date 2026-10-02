@@ -43,6 +43,7 @@ export interface LeaderboardRowWire {
   initialCapital: number;
   currentValue: number;
   totalReturnPct: number;
+  annualizedVolPct: number;
   sharpe: number;
   maxDrawdownPct: number;
   asOfTradeDate: string;
@@ -147,6 +148,7 @@ export function toLeaderboardRow(run: AgentRun, ranking: RankingResult): Leaderb
     initialCapital: parseNumeric(run.initialCapital),
     currentValue: ranking.currentValue,
     totalReturnPct: ranking.totalReturnPct,
+    annualizedVolPct: ranking.annualizedVolPct,
     sharpe: ranking.sharpe,
     maxDrawdownPct: ranking.maxDrawdownPct,
     asOfTradeDate: ranking.asOfTradeDate,

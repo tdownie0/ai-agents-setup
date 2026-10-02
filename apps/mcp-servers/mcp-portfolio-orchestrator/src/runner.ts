@@ -18,6 +18,9 @@ import { runPool } from "./jobs.js";
 import type { RoundStore } from "./roundStore.js";
 import { deriveFinalStatus } from "./roundStore.js";
 import { spawnAnalystViaDocker } from "./spawnViaDocker.js";
+import { streamBook } from "./streamBook.js";
+import type { StreamBook } from "./streamBook.js";
+import type { StreamRef } from "./bookLoader.js";
 import type { OrchestratorConfig } from "./config.js";
 
 export interface DatasetWire {
@@ -40,6 +43,24 @@ export interface RunAgentsDeps {
   config: OrchestratorConfig;
   /** Injectable for tests; defaults to the real docker exec spawner. */
   spawn?: typeof spawnAnalystViaDocker;
+  /**
+   * The book a stream carries into this round, loaded per stream just before it
+   * is spawned. Defaults to the opening book — all cash, no positions — which is
+   * the honest state of a stream nothing has folded yet.
+   */
+  bookFor?: (stream: StreamRef) => Promise<StreamBook> | StreamBook;
+  /**
+   * The chain position the launch gate admitted this round at, read back from
+   * the launch response. The analyst prompt must state this value, and the run
+   * insert rejects any envelope that disagrees with it — so it is sourced from
+   * the booking rather than counted here (R6).
+   */
+  booking: RoundBooking;
+}
+
+export interface RoundBooking {
+  simulationId: string | null;
+  roundSeq: number;
 }
 
 const nowIso = (): string => new Date().toISOString();
@@ -52,6 +73,7 @@ export async function runAgents(
 ): Promise<void> {
   const { store, backend, config } = deps;
   const spawn = deps.spawn ?? spawnAnalystViaDocker;
+  const bookFor = deps.bookFor ?? (() => streamBook([], config.capital));
 
   await store.setRoundStatus(roundId, "running");
 
@@ -69,6 +91,8 @@ export async function runAgents(
       backend,
       config,
       spawn,
+      bookFor,
+      booking: deps.booking,
       dataset,
       datasetPath,
       universe,
@@ -85,18 +109,27 @@ interface RunOneContext {
   backend: BackendClient;
   config: OrchestratorConfig;
   spawn: typeof spawnAnalystViaDocker;
+  bookFor: (stream: StreamRef) => Promise<StreamBook> | StreamBook;
+  booking: RoundBooking;
   dataset: DatasetWire;
   datasetPath: string;
   universe: string[];
   symbolsWithPrice: Set<string>;
 }
 
-async function runOneAgent(
-  roundId: string,
-  job: AgentJob,
-  ctx: RunOneContext,
-): Promise<void> {
-  const { store, backend, config, spawn, dataset, datasetPath, universe, symbolsWithPrice } = ctx;
+async function runOneAgent(roundId: string, job: AgentJob, ctx: RunOneContext): Promise<void> {
+  const {
+    store,
+    backend,
+    config,
+    spawn,
+    bookFor,
+    booking,
+    dataset,
+    datasetPath,
+    universe,
+    symbolsWithPrice,
+  } = ctx;
 
   try {
     await store.setAgentProgress(roundId, job.agentKey, {
@@ -112,6 +145,7 @@ async function runOneAgent(
 
   try {
     const persona = getPersona(job.personaKey);
+    const book = await bookFor({ personaKey: job.personaKey, window: job.window });
     const spawned = await spawn({
       persona,
       window: job.window,
@@ -119,7 +153,13 @@ async function runOneAgent(
       roundId,
       datasetPath,
       asOfTradeDate: dataset.asOfTradeDate,
-      initialCapital: config.capital,
+      portfolioValue: book.portfolioValue,
+      holdings: book.holdings,
+      heldSymbols: book.heldSymbols,
+      roundSeq: booking.roundSeq,
+      priorRoundId: book.priorRoundId,
+      cash: book.cash,
+      holdingsValue: book.holdingsValue,
       agentContainer: config.agentContainer,
       workdir: `/app/worktrees/${config.worktreeSlug}`,
       dockerHost: config.dockerHost,
@@ -133,15 +173,17 @@ async function runOneAgent(
     await store.setAgentProgress(roundId, job.agentKey, {
       status: "inserted",
       runId: inserted.agentRunId,
-      picks: spawned.envelope.picks.length,
+      picks: spawned.envelope.positions.length,
       attempts: spawned.attempts,
       completedAt: nowIso(),
     });
   } catch (err) {
-    await store.setAgentProgress(roundId, job.agentKey, {
-      status: "failed",
-      error: err instanceof Error ? err.message : String(err),
-      completedAt: nowIso(),
-    }).catch(() => undefined);
+    await store
+      .setAgentProgress(roundId, job.agentKey, {
+        status: "failed",
+        error: err instanceof Error ? err.message : String(err),
+        completedAt: nowIso(),
+      })
+      .catch(() => undefined);
   }
 }

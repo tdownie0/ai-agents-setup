@@ -3,14 +3,38 @@ import type { EquityPoint, RankingResult } from "./types.js";
 const TRADING_DAYS_PER_YEAR = 252;
 
 /**
+ * Chain-aware ranking input (beads task 800.3, W3).
+ *
+ * `basisCapital` must be INJECTED for a carryover chain: inferring it from
+ * `equitySeries[0].totalValue` is right for one legacy run and wrong for a
+ * concatenated chain, where it silently resets the return at every round
+ * boundary and makes compounding P&L read as flat.
+ */
+export interface RankingInput {
+  equitySeries: readonly EquityPoint[];
+  /** Chain starting capital. Omit for a legacy single-round series. */
+  basisCapital?: number;
+}
+
+/**
  * Pure performance ranking math (beads task ez8.2).
  *
  * Daily returns come from consecutive `totalValue` points; volatility is the
  * sample stdev of daily returns annualized × √252 (in %); Sharpe is
  * mean/stdev × √252 with rf=0 (0 when <2 points or stdev=0); max drawdown is
  * the largest peak-to-trough decline of totalValue (negative %).
+ *
+ * Sharpe, volatility and drawdown read consecutive points only, so they need
+ * no change for a carryover chain — but ONLY when the series is contiguous and
+ * deduplicated by trade date, which `computeChainEquitySeries` guarantees.
  */
-export function computeRanking(equitySeries: readonly EquityPoint[]): RankingResult {
+export function computeRanking(equitySeries: readonly EquityPoint[]): RankingResult;
+export function computeRanking(input: RankingInput): RankingResult;
+export function computeRanking(input: RankingInput | readonly EquityPoint[]): RankingResult {
+  const legacyCall = isSeries(input);
+  const equitySeries = legacyCall ? input : input.equitySeries;
+  const injectedBasis = legacyCall ? undefined : input.basisCapital;
+
   if (equitySeries.length === 0) {
     return {
       asOfTradeDate: "",
@@ -25,8 +49,9 @@ export function computeRanking(equitySeries: readonly EquityPoint[]): RankingRes
   const first = equitySeries[0];
   const last = equitySeries[equitySeries.length - 1];
   // The entry-day point carries totalValue = initialCapital (returnPct 0), so
-  // the series itself is the source of truth for the starting capital.
-  const initialCapital = first.totalValue;
+  // for a legacy single-run series the series itself is the source of truth for
+  // the starting capital. A chain injects its basis instead.
+  const initialCapital = injectedBasis ?? first.totalValue;
   const currentValue = last.totalValue;
   const totalReturnPct =
     initialCapital === 0 ? 0 : ((currentValue - initialCapital) / initialCapital) * 100;
@@ -64,4 +89,9 @@ export function computeRanking(equitySeries: readonly EquityPoint[]): RankingRes
     sharpe,
     maxDrawdownPct,
   };
+}
+
+/** `Array.isArray` cannot narrow a `readonly` array out of the union, so guard explicitly. */
+function isSeries(input: RankingInput | readonly EquityPoint[]): input is readonly EquityPoint[] {
+  return Array.isArray(input);
 }

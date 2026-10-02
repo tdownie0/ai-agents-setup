@@ -18,7 +18,33 @@ export type ApiNotification = InferResponseType<typeof client.api.notifications.
 export type ApiLeaderboardRow = InferResponseType<
   typeof client.api.portfolio.leaderboard.$get
 >[number];
-export type ApiAgentDetail = InferResponseType<(typeof client.api.portfolio.agents)[":id"]["$get"]>;
+// GET /agents/:id unions the agent record with `{ error, hint }` for 400/404.
+// `Extract` picks the success branch while staying derived from AppType, so a
+// backend shape change breaks the build here instead of drifting silently.
+type ApiAgentDetailResponse = InferResponseType<
+  (typeof client.api.portfolio.agents)[":id"]["$get"]
+>;
+export type ApiAgentDetail = Extract<ApiAgentDetailResponse, { runId: number }>;
+
+// Carryover surface. Every route below is keyed by simulation, not by run, and
+// each one unions its success body with `{ error, hint }` for a 400 simId. The
+// `Extract` selectors pick the success branch by a field only that branch has.
+export type ApiSimulation = InferResponseType<typeof client.api.portfolio.simulations.$get>[number];
+
+export type ApiStreamSummary = Extract<
+  InferResponseType<(typeof client.api.portfolio.simulations)[":simId"]["streams"]["$get"]>,
+  readonly { personaKey: string }[]
+>[number];
+
+export type ApiStreamDetail = Extract<
+  InferResponseType<
+    (typeof client.api.portfolio.simulations)[":simId"]["streams"][":personaKey"][":window"]["$get"]
+  >,
+  { stream: unknown }
+>;
+
+export type ApiLot = ApiStreamDetail["lots"][number];
+export type ApiChainEquityPoint = ApiStreamDetail["equitySeries"][number];
 
 // Resolves the current Supabase session token into an Authorization header.
 // Returns an empty object when no session is present so public calls work.

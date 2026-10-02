@@ -1,6 +1,7 @@
 import type { InferSelectModel } from "drizzle-orm";
 import {
   date,
+  index,
   integer,
   jsonb,
   numeric,
@@ -11,6 +12,7 @@ import {
   uniqueIndex,
   varchar,
 } from "drizzle-orm/pg-core";
+import { simulations } from "./simulations.js";
 
 /**
  * Forward paper-trading schema: one analyst subagent's decision per
@@ -47,10 +49,28 @@ export const agentRuns = pgTable(
   {
     id: serial("id").primaryKey(),
     roundId: varchar("round_id", { length: 64 }).notNull(),
+    /**
+     * Denormalized from the owning `round_jobs` row so a per-stream read needs
+     * no join. INVARIANT (R6): this always equals the `round_jobs` value — the
+     * fold writes both in one transaction and is the single writer.
+     *
+     * NOT NULL for the same reason as `round_jobs.round_seq`: it is the chain
+     * position used to order a stream's history, and a run without one has no
+     * place in any chain.
+     */
+    simulationId: varchar("simulation_id", { length: 64 }).references(() => simulations.simId, {
+      onDelete: "cascade",
+    }),
+    roundSeq: integer("round_seq").notNull(),
     agentKey: varchar("agent_key", { length: 120 }).notNull(),
     persona: varchar("persona", { length: 200 }).notNull(),
     strategy: varchar("strategy", { length: 60 }).notNull(),
     window: text("window").notNull().$type<PortfolioWindow>(),
+    /**
+     * Per-decision portfolio value the target weights were applied to, NOT the
+     * simulation's starting capital. The chain basis lives on
+     * `agent_portfolio_state.initial_capital`.
+     */
     initialCapital: numeric("initial_capital", { precision: 14, scale: 2 })
       .notNull()
       .default("100000"),
@@ -67,6 +87,8 @@ export const agentRuns = pgTable(
     // One run per agent per round — a replica shares the base agentKey, so
     // consistency checks key off roundId + agentKey.
     uniqueIndex("agent_runs_round_id_agent_key_unique_idx").on(table.roundId, table.agentKey),
+    // Per-stream reads: one agent's decisions across a chain, in chain order.
+    index("agent_runs_stream_seq_idx").on(table.simulationId, table.agentKey, table.roundSeq),
   ],
 );
 

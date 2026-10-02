@@ -5,6 +5,7 @@ import {
   ConcurrentRunError,
   DEFAULT_UNIVERSE,
   IngestEngine,
+  subtractUnit,
   YahooSource,
 } from "@model_md/market-data";
 import type { DbClient } from "@model_md/market-data";
@@ -185,7 +186,7 @@ const marketDataApp = new Hono<{ Variables: { userId: string } }>()
         universe: DEFAULT_UNIVERSE,
         runType: "manual",
         db,
-        years: years ?? 1,
+        from: subtractUnit(new Date(), "years", years ?? 1),
       });
       return c.json(result);
     } catch (err) {

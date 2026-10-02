@@ -36,16 +36,18 @@ describe("buildAnalystPrompt", () => {
       roundId: "round-1",
       datasetPath: "/rounds/round-1/dataset.json",
       asOfTradeDate: "2026-09-24",
-      initialCapital: 100000,
+      portfolioValue: 100000,
     });
 
-    expect(prompt).toContain(persona.phdSystemPrompt.replace(/\{\{cadence\}\}/g, WINDOW_CADENCE.monthly));
+    expect(prompt).toContain(
+      persona.phdSystemPrompt.replace(/\{\{cadence\}\}/g, WINDOW_CADENCE.monthly),
+    );
     expect(prompt).toContain("You are analyzing data as of 2026-09-24");
     expect(prompt).toContain("/rounds/round-1/dataset.json");
     expect(prompt).toContain("Output ONLY a single JSON object");
     expect(prompt).toContain('agentKey="dr-value--monthly"');
     expect(prompt).toContain('roundId="round-1"');
-    expect(prompt).toContain("initialCapital=100000");
+    expect(prompt).toContain("portfolioValue=100000");
     expect(prompt).toContain("Pick 5–10 symbols");
   });
 
@@ -58,7 +60,7 @@ describe("buildAnalystPrompt", () => {
         roundId: "round-1",
         datasetPath: "/rounds/round-1/dataset.json",
         asOfTradeDate: "2026-09-24",
-        initialCapital: 100000,
+        portfolioValue: 100000,
       });
 
       expect(prompt).toContain(WINDOW_CADENCE[window]);
@@ -77,7 +79,7 @@ describe("buildAnalystPrompt", () => {
       roundId: "round-1",
       datasetPath: "/rounds/round-1/dataset.json",
       asOfTradeDate: "2026-09-24",
-      initialCapital: 100000,
+      portfolioValue: 100000,
       replicateOf: "dr-value--monthly",
     });
     expect(prompt).toContain('consistency replica of "dr-value--monthly"');
@@ -91,7 +93,7 @@ describe("buildAnalystPrompt", () => {
       roundId: "round-1",
       datasetPath: "/rounds/round-1/dataset.json",
       asOfTradeDate: "2026-09-24",
-      initialCapital: 100000,
+      portfolioValue: 100000,
       correctionHint: "Your previous output failed validation: weight sum was 0.5",
     });
     expect(prompt).toContain("CORRECTION FROM THE PREVIOUS ATTEMPT");

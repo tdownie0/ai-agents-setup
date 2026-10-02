@@ -19,6 +19,9 @@ import {
 const JOB: RoundJob = {
   roundId: "w1",
   status: "running",
+  simulationId: "sim-baseline",
+  roundSeq: 1,
+  advanceMode: "carry",
   asOfTradeDate: "2026-09-25",
   datasetPath: "/app/worktrees/slug/rounds/w1/dataset.json",
   maxParallel: 3,
@@ -53,8 +56,8 @@ describe("parseStartRoundBody", () => {
     capital: 100000,
   };
 
-  it("accepts a minimal launch payload and defaults takeover to false", () => {
-    expect(parseStartRoundBody(valid)).toEqual({ ...valid, takeover: false });
+  it("accepts a minimal launch payload and defaults takeover and replace to false", () => {
+    expect(parseStartRoundBody(valid)).toEqual({ ...valid, takeover: false, replace: false });
   });
 
   it("trims agent and persona keys", () => {
@@ -186,6 +189,8 @@ describe("wire converters", () => {
       startedAt: "2026-09-25T18:00:00.000Z",
       completedAt: null,
       updatedAt: "2026-09-25T18:30:00.000Z",
+      simulationId: "sim-baseline",
+      roundSeq: 1,
     });
   });
 

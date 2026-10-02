@@ -12,7 +12,6 @@
  * is replaced by a real cross-process check.
  */
 
-import { createBackendClient } from "./backendClient.js";
 import type { BackendClient } from "./backendClient.js";
 
 export type RoundJobStatus = "launching" | "running" | "done" | "partial" | "error";
@@ -29,6 +28,9 @@ export interface RoundJobWire {
   startedAt: string;
   completedAt: string | null;
   updatedAt: string;
+  /** Resolved by the launch gate server-side; `null` for a standalone launch. */
+  simulationId: string | null;
+  roundSeq: number;
 }
 
 export interface RoundAgentProgressWire {
@@ -88,6 +90,8 @@ export interface RoundStore {
     asOfTradeDate?: string;
     datasetPath?: string;
     takeover?: boolean;
+    replace?: boolean;
+    simulationId?: string;
   }): Promise<RoundStateWire>;
   getRound(roundId: string): Promise<RoundStateWire>;
   setRoundStatus(roundId: string, status: RoundJobStatus, error?: string): Promise<RoundJobWire>;
@@ -120,11 +124,18 @@ export function createRoundStore(backend: BackendClient): RoundStore {
           ...(input.asOfTradeDate !== undefined ? { asOfTradeDate: input.asOfTradeDate } : {}),
           ...(input.datasetPath !== undefined ? { datasetPath: input.datasetPath } : {}),
           takeover: input.takeover === true,
+          replace: input.replace === true,
+          ...(input.simulationId !== undefined ? { simulationId: input.simulationId } : {}),
         });
       } catch (err) {
         const status = (err as { status?: number }).status;
         const payload = (err as { payload?: unknown }).payload;
         if (status === 409 && typeof payload === "object" && payload !== null) {
+          const code = (payload as { code?: unknown }).code;
+          // A carryover rerun refusal is also a 409, but it reports `code` and no
+          // job. Rethrow it intact so the caller can render the actionable next
+          // step; only a genuine duplicate launch becomes this error.
+          if (typeof code === "string" && code.length > 0) throw err;
           const job = (payload as { job?: RoundJobWire | null }).job ?? null;
           throw new RoundAlreadyLaunchedError(
             (payload as { error?: string }).error ?? `round "${input.roundId}" is already launched`,

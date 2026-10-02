@@ -4,6 +4,7 @@
     { "path": "./apps/backend" },
     { "path": "./apps/frontend" },
     { "path": "./apps/mcp-servers/mcp-database-service" },
+    { "path": "./apps/mcp-servers/mcp-portfolio-orchestrator" },
     { "path": "./packages/database" }
   ]
 }
