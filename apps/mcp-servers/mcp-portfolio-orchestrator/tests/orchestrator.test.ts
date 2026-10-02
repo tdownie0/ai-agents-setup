@@ -35,6 +35,7 @@ import {
   RoundJobMissingError,
 } from "../src/roundStore.js";
 import { runAgents, type DatasetWire } from "../src/runner.js";
+import { createSimulationStore, type SimulationWire } from "../src/simulationStore.js";
 import type { OrchestratorConfig } from "../src/config.js";
 import { streamBook } from "../src/streamBook.js";
 import { createBookLoader } from "../src/bookLoader.js";
@@ -1029,5 +1030,99 @@ describe("createBookLoader", () => {
         window: "monthly",
       }),
     ).rejects.toThrow(BackendError);
+  });
+});
+
+describe("createSimulationStore", () => {
+  const base = "http://backend:3000";
+
+  const SIM: SimulationWire = {
+    simId: "sim-baseline",
+    label: null,
+    initialCapital: 100000,
+    createdAt: "2026-10-02T14:00:00.000Z",
+    streamCount: 0,
+    lastRoundSeq: null,
+  };
+
+  function reply(status: number, payload: unknown): Response {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      statusText: status < 300 ? "OK" : "Error",
+      text: async () => JSON.stringify(payload),
+    } as unknown as Response;
+  }
+
+  const store = (handler: (url: string, init?: RequestInit) => Response | Promise<Response>) =>
+    createSimulationStore(
+      createBackendClient(base, (async (url: RequestInfo | URL, init?: RequestInit) =>
+        handler(String(url), init)) as unknown as typeof fetch),
+    );
+
+  it("POSTs only the fields the caller supplied", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    const simulations = store((url, init) => {
+      calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      return reply(201, SIM);
+    });
+
+    const result = await simulations.create({ simId: "sim-baseline" });
+
+    expect(calls[0]?.url).toBe("http://backend:3000/api/portfolio/simulations");
+    // toStrictEqual, not toEqual: the latter ignores undefined properties, so it
+    // would pass even if the omitted optionals were sent as `label: undefined`.
+    expect(calls[0]?.body).toStrictEqual({ simId: "sim-baseline" });
+    expect(result).toEqual({ alreadyExists: false, simulation: SIM });
+  });
+
+  it("forwards an explicit label and chain basis", async () => {
+    const bodies: unknown[] = [];
+    const simulations = store((_url, init) => {
+      bodies.push(init?.body ? JSON.parse(String(init.body)) : undefined);
+      return reply(201, { ...SIM, simId: "sim-alt", label: "Alt", initialCapital: 25000 });
+    });
+
+    await simulations.create({ simId: "sim-alt", label: "Alt", initialCapital: 25000 });
+
+    expect(bodies[0]).toEqual({ simId: "sim-alt", label: "Alt", initialCapital: 25000 });
+  });
+
+  it("resolves a 409 into the existing simulation instead of failing", async () => {
+    const methods: string[] = [];
+    const simulations = store((_url, init) => {
+      methods.push(String(init?.method));
+      return init?.method === "GET"
+        ? reply(200, [{ ...SIM, streamCount: 6, lastRoundSeq: 3 }])
+        : reply(409, { error: 'simulation "sim-baseline" already exists' });
+    });
+
+    const result = await simulations.create({ simId: "sim-baseline" });
+
+    expect(methods).toEqual(["POST", "GET"]);
+    expect(result.alreadyExists).toBe(true);
+    expect(result.simulation.streamCount).toBe(6);
+    expect(result.simulation.lastRoundSeq).toBe(3);
+  });
+
+  it("rethrows a 409 whose handle is absent from the read-back", async () => {
+    const simulations = store((_url, init) =>
+      init?.method === "GET"
+        ? reply(200, [{ ...SIM, simId: "sim-other" }])
+        : reply(409, { error: "exists" }),
+    );
+
+    await expect(simulations.create({ simId: "sim-baseline" })).rejects.toThrow(BackendError);
+  });
+
+  it("propagates a non-409 failure without attempting a read-back", async () => {
+    const methods: string[] = [];
+    const simulations = store((_url, init) => {
+      methods.push(String(init?.method));
+      return reply(400, { error: "body.simId must match /^sim-[a-z0-9][a-z0-9-]{0,46}$/" });
+    });
+
+    await expect(simulations.create({ simId: "sim-BAD" })).rejects.toThrow(BackendError);
+    expect(methods).toEqual(["POST"]);
   });
 });

@@ -3,6 +3,7 @@
  *
  * The stateless control plane for analyst rounds:
  *   round_dataset_status — probe whether the feature backend has price data
+ *   create_simulation    — create the simulation a chain of rounds folds into
  *   start_agent_round    — build the dataset, launch the round durably, spawn
  *                          analyst subagents inside opencode_agent (docker exec,
  *                          XDG-isolated), then insert each validated envelope
@@ -43,12 +44,14 @@ import { loadConfig } from "./config.js";
 import type { OrchestratorConfig } from "./config.js";
 import { createRoundStore, RoundAlreadyLaunchedError } from "./roundStore.js";
 import type { RoundStateWire } from "./roundStore.js";
+import { createSimulationStore } from "./simulationStore.js";
 import { runAgents } from "./runner.js";
 import type { DatasetWire, RoundBooking } from "./runner.js";
 
 const config = loadConfig(process.env);
 const backend = createBackendClient(config.backendUrl);
 const store = createRoundStore(backend);
+const simulations = createSimulationStore(backend);
 
 const server = new McpServer({ name: "portfolio-orchestrator", version: "1.1.0" });
 
@@ -112,6 +115,35 @@ server.registerTool(
     try {
       const status = await backend.get<DatasetStatusWire>("/api/portfolio/dataset-status");
       return toolText(status);
+    } catch (err) {
+      return toolError(err);
+    }
+  },
+);
+
+server.registerTool(
+  "create_simulation",
+  {
+    description:
+      "Create the carryover simulation that a chain of rounds folds into. Every chained round (start_agent_round with simulationId) requires the simulation to exist first, and a simId is permanent once rounds are booked under it. Idempotent: if the handle already exists it returns that simulation with alreadyExists=true instead of failing.",
+    inputSchema: z.object({
+      simId: z
+        .string()
+        .describe(
+          "Permanent handle, must match /^sim-[a-z0-9][a-z0-9-]{0,46}$/, e.g. sim-baseline",
+        ),
+      label: z.string().optional().describe("Human label for the chain"),
+      initialCapital: z
+        .number()
+        .positive()
+        .optional()
+        .describe("Chain basis capital, fixed for the life of the chain (default 100000)"),
+    }),
+  },
+  async ({ simId, label, initialCapital }) => {
+    try {
+      const result = await simulations.create({ simId, label, initialCapital });
+      return toolText({ ok: true, ...result });
     } catch (err) {
       return toolError(err);
     }
