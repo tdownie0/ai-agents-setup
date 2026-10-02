@@ -101,6 +101,8 @@ registry:
     tools:
       - name: round_dataset_status
         description: "Queries the backend for the current round dataset (asOfTradeDate, universe, dataReady)."
+      - name: create_simulation
+        description: "Creates the carryover simulation that a chain of rounds folds into. Required before start_agent_round with a simulationId; idempotent on an existing handle."
       - name: start_agent_round
         description: "Reads the round dataset, spawns analyst subagents, collects their envelopes, and inserts them into the backend run API."
       - name: get_round_status
