@@ -392,3 +392,82 @@ describe("decideRerun", () => {
     expect(decision.code).toBe("SAME_TRADE_DATE");
   });
 });
+
+/**
+ * The question these exist to answer: does the stream's *carried book* change
+ * what the same decision actually does? Same round, same synthetic bars, same
+ * target weights in both folds — the ONLY difference is whether round 2 opens
+ * from round 1's book or from an empty all-cash book. Every difference below
+ * is therefore attributable to carryover, not to the data or the mandate.
+ */
+describe("carried holdings change the outcome — same prices, same decision, different book", () => {
+  const round2 = ROUNDS[1]!;
+
+  /** Fold round 2 from an explicit opening book: the chain's, or none at all. */
+  const foldRound2 = (opening: {
+    state: StateSnapshot | null;
+    lots: readonly LotSnapshot[];
+  }): StreamWritePlan =>
+    planRoundFold({
+      key: KEY,
+      round: round2,
+      basisCapital: BASIS,
+      currentState: opening.state,
+      currentLots: opening.lots,
+      bars: BARS,
+    });
+
+  const sharesOf = (plan: StreamWritePlan, symbol: string): number => {
+    const lot = plan.lots.find((candidate) => candidate.symbol === symbol);
+    return lot ? Number(lot.shares) : 0;
+  };
+
+  const foldCarried = (): StreamWritePlan => {
+    const round1 = foldIncrementally(ROUNDS)[0]!;
+    return foldRound2({
+      state: toStateSnapshot(round1.state!),
+      lots: toLotSnapshots(round1.lots),
+    });
+  };
+
+  it("values the identical decision against the carried mark, not the original basis", () => {
+    const carried = foldCarried();
+    const fresh = foldRound2({ state: null, lots: [] });
+
+    // Round 1 put 60% of basis into AAPL at 100. By DATES[4] the carried book
+    // marks at 600x104 + 200x202 = 102800, above the 100000 it started with.
+    expect(fresh.summary.totalValue).toBeCloseTo(BASIS, 6);
+    expect(carried.summary.totalValue).toBeGreaterThan(fresh.summary.totalValue);
+
+    // Round 2's 40% AAPL target is therefore sized off different marks.
+    expect(sharesOf(fresh, "AAPL")).toBeCloseTo((0.4 * 100000) / 104, 6);
+    expect(sharesOf(carried, "AAPL")).toBeCloseTo((0.4 * 102800) / 104, 6);
+  });
+
+  it("turns the same target weight into the opposite trade direction", () => {
+    const round1 = foldIncrementally(ROUNDS)[0]!;
+    const carried = foldCarried();
+    const fresh = foldRound2({ state: null, lots: [] });
+
+    // Round 2 asks for 40% AAPL. Carried, the stream already holds 600 shares,
+    // so that instruction trims; fresh, the identical instruction opens one.
+    // Identical mandate, identical prices, opposite trade.
+    expect(sharesOf(round1, "AAPL")).toBeCloseTo(600, 6);
+    expect(sharesOf(carried, "AAPL")).toBeLessThan(sharesOf(round1, "AAPL"));
+    expect(sharesOf(fresh, "AAPL")).toBeGreaterThan(0);
+  });
+
+  it("scales every share count by the carried mark, so position size follows the book", () => {
+    const carried = foldCarried();
+    const fresh = foldRound2({ state: null, lots: [] });
+
+    // targetShares = totalValue * weight / price. With weights and prices held
+    // constant across both folds, the share ratio MUST equal the mark ratio —
+    // this is the precise statement that sizing reads carried holdings.
+    const markRatio = carried.summary.totalValue / fresh.summary.totalValue;
+    expect(markRatio).toBeCloseTo(1.028, 6);
+    for (const symbol of ["AAPL", "MSFT", "TSLA"]) {
+      expect(sharesOf(carried, symbol) / sharesOf(fresh, symbol)).toBeCloseTo(markRatio, 6);
+    }
+  });
+});

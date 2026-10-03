@@ -4,6 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import type { DecisionHolding } from "./contract.js";
 import { getPersona, WINDOW_CADENCE } from "./personas.js";
 import {
   buildAnalystPrompt,
@@ -168,5 +169,91 @@ describe("extractJsonFromText", () => {
 
   it("throws on invalid JSON", () => {
     expect(() => extractJsonFromText("not json at all")).toThrow();
+  });
+});
+
+/**
+ * The analyst's prompt is one of the two real channels carryover travels down:
+ * whatever book the fold carried is rendered into the next round's instructions.
+ * These pin that channel. Same persona, same dataset, same as-of date — the only
+ * variable is the carried book, so any divergence traces back to carryover.
+ */
+describe("buildAnalystPrompt — the carried book reaches the analyst", () => {
+  const persona = getPersona("dr-value");
+  const base = {
+    persona,
+    window: "daily",
+    agentKey: "dr-value--daily",
+    roundId: "round-2",
+    datasetPath: "/rounds/sim-baseline-0002/dataset.json",
+    asOfTradeDate: "2026-09-25",
+  } as const;
+
+  /**
+   * A fixture book, not market data: 600 shares of a ticker no persona text
+   * mentions, so any appearance of it in the prompt can only have arrived via
+   * the carried holdings passed in.
+   */
+  const carried: DecisionHolding[] = [
+    {
+      symbol: "ACME",
+      shares: 600,
+      costBasis: 100,
+      lastPrice: 104,
+      marketValue: 62400,
+      weight: 62400 / 102800,
+      holdingDays: 4,
+      unrealizedPnlPct: 4,
+    },
+  ];
+
+  const carriedOpts = {
+    ...base,
+    simulationId: "sim-baseline",
+    roundSeq: 2,
+    priorRoundId: "round-1",
+    cash: 40400,
+    holdingsValue: 62400,
+    portfolioValue: 102800,
+    holdings: carried,
+  };
+
+  it("states the carried book, its mark, and the chain position", () => {
+    const prompt = buildAnalystPrompt(carriedOpts);
+
+    expect(prompt).toContain("HOLDINGS (your carried book, marked at this decision date)");
+    expect(prompt).toContain("ACME");
+    expect(prompt).toContain("portfolioValue=102800");
+    expect(prompt).toContain("cash=40400.00");
+    expect(prompt).toContain("holdingsValue=62400.00");
+    expect(prompt).toContain("roundSeq=2");
+    expect(prompt).toContain('priorRoundId="round-1"');
+  });
+
+  it("tells a first-round analyst it holds nothing instead of silently omitting the book", () => {
+    const prompt = buildAnalystPrompt({ ...base, portfolioValue: 100000, holdings: [] });
+
+    expect(prompt).toContain("This is its first decision round");
+    expect(prompt).toContain("roundSeq=1");
+    expect(prompt).toContain("priorRoundId=null");
+    expect(prompt).not.toContain("ACME");
+  });
+
+  it("hands the analyst a different input when ONLY the carried book differs", () => {
+    // Only `holdings` varies. The pinned holdingsValue no longer matching the book
+    // is deliberate — holding it constant is what isolates the rendering channel.
+    const pinned = {
+      ...carriedOpts,
+      cash: 40400,
+      holdingsValue: 62400,
+      portfolioValue: 102800,
+    };
+
+    const withBook = buildAnalystPrompt({ ...pinned, holdings: carried });
+    const withoutBook = buildAnalystPrompt({ ...pinned, holdings: [] });
+
+    expect(withBook).not.toEqual(withoutBook);
+    expect(withBook).toContain("ACME");
+    expect(withoutBook).not.toContain("ACME");
   });
 });
