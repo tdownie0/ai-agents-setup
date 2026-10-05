@@ -437,3 +437,81 @@ Wire types `ApiLeaderboardRow` and `ApiAgentDetail` are derived via `InferRespon
 
 - A paid model client can plug into the `DecisionProvider` seam (see the Market Data section) or the orchestrator's persona spawn cost model.
 - No Jev spend in phase 1 by design; the analyst subagents run headlessly via `opencode run --format json`.
+
+---
+
+## 11. Round history & snapshot selector
+
+### Overview
+
+A **simulation** owns a persistent book; a **round** is one dated decision step inside it. Until now
+the Streams board could only show the *current* book, so there was no way to inspect what the board
+looked like at an earlier chain position. This adds a round list plus a per-round snapshot read, and a
+dropdown to select among them.
+
+### 11.1 API contract
+
+| Route | Returns |
+| --- | --- |
+| `GET /portfolio/simulations/:simId/rounds` | `{ roundId, roundSeq, asOfTradeDate \| null, status, runCount }[]`, ordered by `roundSeq` ASC |
+| `GET /portfolio/simulations/:simId/rounds/:roundSeq` | `{ simulationId, roundId, roundSeq, decideTradeDate, basisCapital, streams: StreamSummaryWire[] }` |
+
+`snapshot.streams` has the **same element shape** as the existing
+`GET /portfolio/simulations/:simId/streams` response, so the frontend renders both through one table.
+`roundSeq` is a positive integer; a malformed value is a 400, an unknown sim or out-of-range
+`roundSeq` is a 404.
+
+### 11.2 Key decision: no snapshot table
+
+The obvious design is a per-round position snapshot table. This deliberately does **not** add one.
+
+`planChainRebuild` already replays a stream's whole chain from round 1 and is pure — the fold is
+forward-only and deterministic, so replaying a *prefix* of rounds reproduces exactly the book in force
+after that round. A snapshot is therefore just:
+
+```
+planChainRebuild({ key, basisCapital, rounds: rounds.filter(r => r.roundSeq <= target), bars })
+```
+
+The round history is already the ledger, so a second copy would be a derived cache that can only ever
+disagree with it. This is the same reasoning that made the state cache disposable.
+
+Consequence: a snapshot costs a replay per stream. That is acceptable because round count grows with
+trading days (small), and the read is pure — no writes, no locks, no transaction.
+
+### 11.3 Semantics worth knowing
+
+- **Ranking reads the replayed curve, not the live cache.** Every metric on a snapshot row comes from
+  the same round prefix, so the row is internally consistent. Mixing a cached curve with a replayed
+  book would produce a self-contradictory row.
+- **A stream that had not folded by `roundSeq` reports the untouched chain basis, not a −100% loss.**
+  It never held a position, so nothing was lost. The alternative would make an early round look like a
+  total loss for every stream that joined later.
+- **Rounds are ordered by `round_seq`, never `created_at`.** With 18 agents inserting concurrently,
+  `created_at` is insertion *finish* time, so it would rank by whichever agent happened to write last.
+  A unique index on `(simulation_id, round_seq)` makes `round_seq` a total order.
+- **Undated rounds stay in the list.** A round booked but never reached a dataset date is surfaced with
+  `asOfTradeDate: null` rather than filtered out, so it cannot silently vanish from the history.
+
+### 11.4 Known related defect (not fixed here)
+
+The **legacy** leaderboard (`apps/backend/src/portfolio/index.ts`, `loadRunsForLeaderboard`) resolves
+"latest round" with `orderBy(desc(agentRuns.roundSeq))`. Legacy standalone runs have
+`round_seq = NULL`, and PostgreSQL's `DESC` defaults to `NULLS FIRST`, so legacy rows outrank the
+carryover rows (`round_seq = 1`) and hijack resolution. Symptom: the legacy Runs tab shows stale
+September portfolios that read as "price movement" when they mean "wrong round". Fix is
+`desc(roundSeq NULLS LAST)` with a `created_at DESC` fallback for legacy rows. Left out of this change
+because it is a separate defect in the frozen legacy engine, not part of round-snapshot history.
+
+### 11.5 Verification
+
+- `tsc --noEmit` clean on `apps/backend`.
+- `155/155` backend vitest tests pass (8 files), including 4 new cases covering `parseRoundSeq`
+  rejection of non-positive-integers and the snapshot freezing at the requested round rather than the
+  newest one.
+- **Commit**: `9dce343`.
+
+### 11.6 Beads
+
+- **Epic**: `model_md-worktree-feat-portfolio-sim-8vg`
+- Backend task `model_md-worktree-feat-portfolio-sim-31w` — closed after commit + verify.
