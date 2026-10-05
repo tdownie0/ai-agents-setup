@@ -34,15 +34,21 @@ import type {
 } from "@model_md/database";
 import { computeRanking } from "../portfolio/ranking.js";
 import type { StreamKey } from "../portfolio/carryoverPlan.js";
+import { planChainRebuild } from "../portfolio/carryoverPlan.js";
+import type { StreamWritePlan } from "../portfolio/carryoverPlan.js";
 import { streamAgentKey } from "../portfolio/carryoverStore.js";
 import {
   createSimulation,
   isRecord,
+  loadBarsBySymbol,
   loadEquityByState,
   loadLotsByState,
   loadPersonaLabels,
+  loadSimulation,
+  loadSimulationRounds,
   loadSimulations,
   loadStreamHistory,
+  loadStreamKeys,
   loadStreamLots,
   loadStreamState,
   loadStreamStates,
@@ -140,6 +146,113 @@ export interface LeaderboardWire {
   mode: LeaderboardMode;
   basisCapital: number;
   groups: LeaderboardGroupWire[];
+}
+
+/** One selectable round in a simulation's history. */
+export interface SimulationRoundWire {
+  roundId: string;
+  roundSeq: number;
+  asOfTradeDate: string | null;
+  status: string;
+  runCount: number;
+}
+
+/** Every stream's book frozen at one chain position. */
+export interface RoundSnapshotWire {
+  simulationId: string;
+  roundId: string;
+  roundSeq: number;
+  decideTradeDate: string | null;
+  basisCapital: number;
+  streams: StreamSummaryWire[];
+}
+
+/**
+ * Parse a `roundSeq` path param. Chain positions start at 1, so `0` and
+ * negatives are rejected rather than clamped.
+ */
+export function parseRoundSeq(raw: string | undefined): { roundSeq: number } | { error: unknown } {
+  const text = raw?.trim() ?? "";
+  if (!/^[1-9][0-9]*$/.test(text)) {
+    return {
+      error: {
+        error: `invalid roundSeq ${JSON.stringify(raw ?? "")}`,
+        hint: "roundSeq must be a positive integer",
+      },
+    };
+  }
+  return { roundSeq: Number(text) };
+}
+
+/**
+ * Board row for a stream frozen at a past chain position.
+ *
+ * Ranking reads the replayed curve rather than the live cache, so a snapshot is
+ * self-consistent: every metric on the row comes from the same prefix of rounds.
+ * A stream that had not folded by `roundSeq` reports the untouched basis rather
+ * than a 100% loss — it never held a position, so nothing was lost.
+ */
+export function toSnapshotStream(
+  key: StreamKey,
+  plan: StreamWritePlan,
+  basisCapital: number,
+  labels: ReadonlyMap<string, { persona: string; strategy: string }>,
+  decideTradeDate: string,
+): StreamSummaryWire {
+  const label = labels.get(key.personaKey);
+  const shared = {
+    simulationId: key.simulationId,
+    personaKey: key.personaKey,
+    persona: label?.persona ?? null,
+    strategy: label?.strategy ?? null,
+    window: key.window,
+    agentKey: streamAgentKey(key),
+    basisCapital,
+    lastTradeDate: decideTradeDate,
+    asOfTradeDate: decideTradeDate,
+    openLots: 0,
+  };
+
+  if (plan.state === null) {
+    return {
+      ...shared,
+      seq: 0,
+      lastRoundId: null,
+      cash: basisCapital,
+      holdingsValue: 0,
+      totalValue: basisCapital,
+      returnPct: 0,
+      annualizedVolPct: 0,
+      sharpe: 0,
+      maxDrawdownPct: 0,
+    };
+  }
+
+  const series = plan.equity.map((row) => {
+    const totalValue = parseNumeric(row.totalValue);
+    return {
+      tradeDate: row.tradeDate,
+      cash: parseNumeric(row.cash),
+      holdingsValue: parseNumeric(row.holdingsValue),
+      totalValue,
+      returnPct: basisCapital === 0 ? 0 : ((totalValue - basisCapital) / basisCapital) * 100,
+    };
+  });
+  const ranking = computeRanking({ equitySeries: series, basisCapital });
+
+  return {
+    ...shared,
+    seq: plan.summary.seq,
+    lastRoundId: null,
+    cash: plan.summary.cash,
+    holdingsValue: plan.summary.holdingsValue,
+    totalValue: plan.summary.totalValue,
+    returnPct: ranking.totalReturnPct,
+    annualizedVolPct: ranking.annualizedVolPct,
+    sharpe: ranking.sharpe,
+    maxDrawdownPct: ranking.maxDrawdownPct,
+    openLots: plan.lots.filter((lot) => parseNumeric(lot.shares) > 0).length,
+  };
 }
 
 const SIM_ID_PATTERN = /^sim-[a-z0-9][a-z0-9-]{0,46}$/;
@@ -480,6 +593,77 @@ const portfolioCarryoverApp = new Hono()
         theses: [...round.theses.entries()].map(([symbol, thesis]) => ({ symbol, thesis })),
       }));
     return c.json({ ...stream.key, rounds });
+  })
+
+  .get("/simulations/:simId/rounds", async (c) => {
+    const parsed = parseSimId(c.req.param("simId"));
+    if ("error" in parsed) return c.json(parsed.error, 400);
+    const rows = await loadSimulationRounds(db, parsed.simId);
+    return c.json(
+      rows.map(
+        (row) =>
+          ({
+            roundId: row.roundId,
+            roundSeq: row.roundSeq,
+            asOfTradeDate: row.asOfTradeDate,
+            status: row.status,
+            runCount: row.runCount,
+          }) satisfies SimulationRoundWire,
+      ),
+    );
+  })
+
+  .get("/simulations/:simId/rounds/:roundSeq", async (c) => {
+    const parsed = parseSimId(c.req.param("simId"));
+    if ("error" in parsed) return c.json(parsed.error, 400);
+    const seq = parseRoundSeq(c.req.param("roundSeq"));
+    if ("error" in seq) return c.json(seq.error, 400);
+
+    const [sim, rounds] = await Promise.all([
+      loadSimulation(db, parsed.simId),
+      loadSimulationRounds(db, parsed.simId),
+    ]);
+    if (sim === undefined) {
+      return c.json({ error: `unknown simulation ${JSON.stringify(parsed.simId)}` }, 404);
+    }
+
+    const target = rounds.find((row) => row.roundSeq === seq.roundSeq);
+    if (target === undefined) {
+      return c.json(
+        {
+          error: `round ${seq.roundSeq} is not part of ${JSON.stringify(parsed.simId)}`,
+          hint: `recorded rounds: ${rounds.map((row) => row.roundSeq).join(", ") || "none"}`,
+        },
+        404,
+      );
+    }
+
+    const keys = await loadStreamKeys(db, parsed.simId);
+    const histories = await Promise.all(keys.map((key) => loadStreamHistory(db, key)));
+    const upto = histories.map((rows) => rows.filter((row) => row.roundSeq <= seq.roundSeq));
+
+    const symbols = new Set<string>();
+    for (const rows of upto) {
+      for (const row of rows) for (const targetRow of row.targets) symbols.add(targetRow.symbol);
+    }
+
+    const [bars, labels] = await Promise.all([
+      loadBarsBySymbol(db, [...symbols]),
+      loadPersonaLabels(db, parsed.simId),
+    ]);
+    const basisCapital = parseNumeric(sim.initialCapital);
+    const decideTradeDate = target.asOfTradeDate ?? "";
+
+    return c.json({
+      simulationId: parsed.simId,
+      roundId: target.roundId,
+      roundSeq: target.roundSeq,
+      decideTradeDate: target.asOfTradeDate,
+      basisCapital,
+      streams: keys.map((key, index) =>
+        toSnapshotStream(key, planChainRebuild({ key, basisCapital, rounds: upto[index] ?? [], bars }), basisCapital, labels, decideTradeDate),
+      ),
+    } satisfies RoundSnapshotWire);
   })
 
   .get("/simulations/:simId/leaderboard", async (c) => {

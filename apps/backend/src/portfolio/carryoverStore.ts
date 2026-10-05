@@ -292,6 +292,61 @@ export async function loadStreamLastTradeDates(
   return rows.map((row) => row.lastTradeDate);
 }
 
+/** One recorded round of a simulation, with how many runs it produced. */
+export interface SimulationRoundRow {
+  roundId: string;
+  roundSeq: number;
+  /** `null` when the round was booked but never reached a dataset date. */
+  asOfTradeDate: string | null;
+  status: string;
+  /** Runs recorded in this round; `0` for a launch that inserted nothing. */
+  runCount: number;
+}
+
+/**
+ * A simulation's rounds in chain order — the list a round selector is built from.
+ *
+ * Ordered by `round_seq`, which is unique per simulation and therefore a total
+ * order; `created_at` would rank by whichever agent finished last. `as_of_trade_date`
+ * is left nullable rather than filtered out so a booked-but-undated round still
+ * appears in the history instead of silently vanishing from the dropdown.
+ */
+export async function loadSimulationRounds(
+  client: Queryable,
+  simulationId: string,
+): Promise<SimulationRoundRow[]> {
+  const jobs = await client
+    .select({
+      roundId: roundJobs.roundId,
+      roundSeq: roundJobs.roundSeq,
+      asOfTradeDate: roundJobs.asOfTradeDate,
+      status: roundJobs.status,
+    })
+    .from(roundJobs)
+    .where(eq(roundJobs.simulationId, simulationId))
+    .orderBy(asc(roundJobs.roundSeq));
+
+  if (jobs.length === 0) return [];
+
+  const counts = await client
+    .select({
+      roundId: agentRuns.roundId,
+      runCount: sql<number>`cast(count(*) as int)`,
+    })
+    .from(agentRuns)
+    .where(eq(agentRuns.simulationId, simulationId))
+    .groupBy(agentRuns.roundId);
+  const countByRound = new Map(counts.map((row) => [row.roundId, Number(row.runCount)]));
+
+  return jobs.map((job) => ({
+    roundId: job.roundId,
+    roundSeq: job.roundSeq,
+    asOfTradeDate: job.asOfTradeDate ?? null,
+    status: job.status,
+    runCount: countByRound.get(job.roundId) ?? 0,
+  }));
+}
+
 /** Every `personaKey`/`window` pair that has materialized state in a simulation. */
 export async function loadStreamKeys(
   client: Queryable,
