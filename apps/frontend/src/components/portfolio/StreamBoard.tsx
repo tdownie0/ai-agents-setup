@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { client, type ApiSimulation, type ApiStreamSummary } from "@/lib/api";
+import {
+  client,
+  type ApiRoundSnapshot,
+  type ApiSimulation,
+  type ApiSimulationRound,
+  type ApiStreamSummary,
+} from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -20,18 +26,53 @@ interface StreamBoardProps {
 
 const WINDOW_ORDER: readonly string[] = ["daily", "weekly", "monthly"];
 
+const LATEST_ROUND_VALUE = "latest";
+
 interface PersonaGroup {
   personaKey: string;
   persona: string | null;
   streams: ApiStreamSummary[];
 }
 
+function formatRoundOption(round: ApiSimulationRound): string {
+  const runs = `${round.runCount} ${round.runCount === 1 ? "run" : "runs"}`;
+  return `Round ${round.roundSeq} — ${round.asOfTradeDate ?? "no date"} · ${runs}`;
+}
+
+function newestRoundSeq(rounds: readonly ApiSimulationRound[]): number | null {
+  let newest: number | null = null;
+  for (const round of rounds) {
+    if (newest === null || round.roundSeq > newest) newest = round.roundSeq;
+  }
+  return newest;
+}
+
+function roundCaption(
+  selectedRoundSeq: number | null,
+  snapshot: ApiRoundSnapshot | null,
+  loading: boolean,
+): string | null {
+  if (selectedRoundSeq === null) return null;
+  if (loading) return `Loading round ${selectedRoundSeq} snapshot…`;
+  if (snapshot === null || snapshot.roundSeq !== selectedRoundSeq) {
+    return `Round ${selectedRoundSeq} snapshot unavailable — showing the live book`;
+  }
+  const decided =
+    snapshot.decideTradeDate === null ? "no date" : `decided ${snapshot.decideTradeDate}`;
+  return `Snapshot of round ${snapshot.roundSeq} · ${decided}`;
+}
+
 export function StreamBoard({ onSelectStream }: StreamBoardProps) {
   const [simulations, setSimulations] = useState<ApiSimulation[]>([]);
   const [selectedSimId, setSelectedSimId] = useState<string | null>(null);
   const [streams, setStreams] = useState<ApiStreamSummary[]>([]);
+  const [rounds, setRounds] = useState<ApiSimulationRound[]>([]);
+  const [selectedRoundSeq, setSelectedRoundSeq] = useState<number | null>(null);
+  const [snapshot, setSnapshot] = useState<ApiRoundSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [streamsLoading, setStreamsLoading] = useState(false);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
+  const [snapshotFailed, setSnapshotFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchSimulations = useCallback(async () => {
@@ -68,6 +109,45 @@ export function StreamBoard({ onSelectStream }: StreamBoardProps) {
     }
   }, []);
 
+  const fetchRounds = useCallback(async (simId: string) => {
+    setRounds([]);
+    setSnapshot(null);
+    setSnapshotFailed(false);
+    setSelectedRoundSeq(null);
+    try {
+      const res = await client.api.portfolio.simulations[":simId"].rounds.$get({
+        param: { simId },
+      });
+      if (!res.ok) throw new Error(`Failed to load rounds: ${res.status} ${res.statusText}`);
+      const rows = await res.json();
+      setRounds(rows);
+      setSelectedRoundSeq(newestRoundSeq(rows));
+    } catch (err) {
+      console.error("Failed to fetch rounds:", err);
+      setError(err instanceof Error ? err.message : "An unknown error occurred");
+    }
+  }, []);
+
+  const fetchSnapshot = useCallback(async (simId: string, roundSeq: number) => {
+    setSnapshotLoading(true);
+    setSnapshotFailed(false);
+    try {
+      const res = await client.api.portfolio.simulations[":simId"].rounds[":roundSeq"].$get({
+        param: { simId, roundSeq: String(roundSeq) },
+      });
+      if (!res.ok) {
+        throw new Error(`Failed to load round ${roundSeq}: ${res.status} ${res.statusText}`);
+      }
+      setSnapshot(await res.json());
+    } catch (err) {
+      console.error("Failed to fetch round snapshot:", err);
+      setError(err instanceof Error ? err.message : "An unknown error occurred");
+      setSnapshotFailed(true);
+    } finally {
+      setSnapshotLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchSimulations();
   }, [fetchSimulations]);
@@ -75,11 +155,20 @@ export function StreamBoard({ onSelectStream }: StreamBoardProps) {
   useEffect(() => {
     if (selectedSimId === null) return;
     fetchStreams(selectedSimId);
-  }, [selectedSimId, fetchStreams]);
+    fetchRounds(selectedSimId);
+  }, [selectedSimId, fetchStreams, fetchRounds]);
+
+  useEffect(() => {
+    if (selectedSimId === null || selectedRoundSeq === null) return;
+    fetchSnapshot(selectedSimId, selectedRoundSeq);
+  }, [selectedSimId, selectedRoundSeq, fetchSnapshot]);
+
+  const snapshotInView = snapshot !== null && snapshot.roundSeq === selectedRoundSeq;
+  const visibleStreams: ApiStreamSummary[] = snapshotInView ? snapshot.streams : streams;
 
   const groups = useMemo<readonly PersonaGroup[]>(() => {
     const byPersona = new Map<string, ApiStreamSummary[]>();
-    for (const stream of streams) {
+    for (const stream of visibleStreams) {
       const bucket = byPersona.get(stream.personaKey);
       if (bucket === undefined) byPersona.set(stream.personaKey, [stream]);
       else bucket.push(stream);
@@ -93,9 +182,10 @@ export function StreamBoard({ onSelectStream }: StreamBoardProps) {
         ),
       }))
       .sort((a, b) => a.personaKey.localeCompare(b.personaKey));
-  }, [streams]);
+  }, [visibleStreams]);
 
   const selectedSim = simulations.find((sim) => sim.simId === selectedSimId) ?? null;
+  const caption = roundCaption(selectedRoundSeq, snapshot, snapshotLoading);
 
   if (loading) {
     return (
@@ -173,14 +263,39 @@ export function StreamBoard({ onSelectStream }: StreamBoardProps) {
         ))}
       </div>
 
-      {error && streams.length === 0 && (
+      {rounds.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <label htmlFor="stream-board-round" className="text-sm font-medium">
+            Round
+          </label>
+          <select
+            id="stream-board-round"
+            value={selectedRoundSeq === null ? LATEST_ROUND_VALUE : String(selectedRoundSeq)}
+            onChange={(e) => {
+              const next = e.target.value;
+              setSelectedRoundSeq(next === LATEST_ROUND_VALUE ? null : Number(next));
+            }}
+            className="border-input bg-background h-9 rounded-md border px-3 text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+          >
+            <option value={LATEST_ROUND_VALUE}>Latest (live book)</option>
+            {rounds.map((round) => (
+              <option key={round.roundId} value={String(round.roundSeq)}>
+                {formatRoundOption(round)}
+              </option>
+            ))}
+          </select>
+          {caption !== null && <span className="text-xs text-muted-foreground">{caption}</span>}
+        </div>
+      )}
+
+      {error && (streams.length === 0 || snapshotFailed) && (
         <div className="flex items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
           <AlertTriangle className="h-4 w-4" />
           {error}
         </div>
       )}
 
-      {selectedSim !== null && streams.length === 0 && !streamsLoading && (
+      {selectedSim !== null && visibleStreams.length === 0 && !streamsLoading && (
         <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-12 text-center">
           <p className="font-medium">No streams materialized</p>
           <p className="max-w-sm text-sm text-muted-foreground">

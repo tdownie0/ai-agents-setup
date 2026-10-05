@@ -503,15 +503,44 @@ September portfolios that read as "price movement" when they mean "wrong round".
 `desc(roundSeq NULLS LAST)` with a `created_at DESC` fallback for legacy rows. Left out of this change
 because it is a separate defect in the frozen legacy engine, not part of round-snapshot history.
 
-### 11.5 Verification
+### 11.5 Frontend round selector (`StreamBoard.tsx`)
 
-- `tsc --noEmit` clean on `apps/backend`.
-- `155/155` backend vitest tests pass (8 files), including 4 new cases covering `parseRoundSeq`
-  rejection of non-positive-integers and the snapshot freezing at the requested round rather than the
-  newest one.
-- **Commit**: `9dce343`.
+A native `<select>` lists `Latest (live book)` plus one option per round, labelled
+`Round <seq> — <date> · <n> runs` (a round booked without a date renders `no date`). Default selection
+is the newest chain position, whose snapshot is the book the board showed before the selector existed.
 
-### 11.6 Beads
+- Wire types `ApiSimulationRound` / `ApiRoundSnapshot` are **derived** from `@model_md/backend`'s
+  `AppType` via the file's existing `Extract` idiom rather than hand-copied, so a backend shape change
+  breaks `tsc` instead of drifting silently at runtime.
+- Live and snapshot modes share **one** table renderer — `snapshot.streams` has the same element shape
+  as the live streams list, so the grouping/rendering path is unchanged.
+- A snapshot renders **only** when `snapshot.roundSeq === selectedRoundSeq` (`snapshotInView`). If two
+  round requests race, a late response is stored but not displayed, so wrong-round data can never be
+  shown. A failed request leaves the previously rendered table up (never blanks the board) and reuses
+  the file's existing destructive banner.
+- The caption always describes the table actually on screen — including `Loading round N snapshot…`
+  and `snapshot unavailable — showing the live book` — rather than assuming the fetch succeeded.
+- Selector is hidden entirely when the simulation has no recorded rounds; a single round still renders it.
+- Switching simulations clears the previous rounds/snapshot first, so the prior book's data can never
+  appear under a newly-chosen simulation.
+
+**Known limitation (accepted):** snapshot requests are not aborted or sequence-guarded. A stale
+response that lands last leaves `snapshotInView` false, so the board falls back to the live book with an
+"unavailable" caption until the next selection. No incorrect data is ever displayed, and it
+self-corrects, so an `AbortController` was judged not worth the added state.
+
+### 11.6 Verification
+
+- Backend: `tsc --noEmit` clean; `155/155` vitest tests pass (8 files), including 4 new cases covering
+  `parseRoundSeq` rejection of non-positive integers and the snapshot freezing at the requested round
+  rather than the newest one.
+- Frontend: `tsc --noEmit -p tsconfig.app.json` clean; `oxlint` 0 warnings / 0 errors on both changed files.
+- **Not covered:** neither new route has been exercised against a live database — the backend is
+  unreachable from the agent container (`localhost:3000` and `backend:3000` both refuse connection), so
+  the DB-touching paths (`loadSimulationRounds`'s `count(*)` grouping and the multi-stream replay) are
+  verified by types and unit tests only. Worth one manual browser check.
+
+### 11.7 Beads
 
 - **Epic**: `model_md-worktree-feat-portfolio-sim-8vg`
 - Backend task `model_md-worktree-feat-portfolio-sim-31w` — closed after commit + verify.

@@ -43,6 +43,18 @@ export type ApiStreamDetail = Extract<
   { stream: unknown }
 >;
 
+export type ApiSimulationRound = Extract<
+  InferResponseType<(typeof client.api.portfolio.simulations)[":simId"]["rounds"]["$get"]>,
+  readonly { roundSeq: number }[]
+>[number];
+
+export type ApiRoundSnapshot = Extract<
+  InferResponseType<
+    (typeof client.api.portfolio.simulations)[":simId"]["rounds"][":roundSeq"]["$get"]
+  >,
+  { streams: unknown }
+>;
+
 export type ApiLot = ApiStreamDetail["lots"][number];
 export type ApiChainEquityPoint = ApiStreamDetail["equitySeries"][number];
 
