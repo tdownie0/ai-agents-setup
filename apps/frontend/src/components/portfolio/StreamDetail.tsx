@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { client, type ApiStreamDetail, type ApiTransaction } from "@/lib/api";
+import { useEffect, useMemo, useState } from "react";
+import { client, type ApiLot, type ApiStreamDetail, type ApiTransaction } from "@/lib/api";
+import { useTableSort, type SortDirection } from "@/lib/useTableSort";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -10,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AlertTriangle, ArrowLeft } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EquityChart } from "./EquityChart";
 import { formatAgeInDays, formatCurrency, formatPct, formatWindow, pnlClassName } from "./format";
@@ -20,6 +21,113 @@ interface StreamDetailProps {
   personaKey: string;
   window: string;
   onBack: () => void;
+}
+
+type TxnSortKey = "date" | "round" | "symbol" | "side" | "shares" | "price" | "value" | "pnl";
+type LotSortKey =
+  | "symbol"
+  | "shares"
+  | "costBasis"
+  | "bookValue"
+  | "weight"
+  | "opened"
+  | "age"
+  | "pnl";
+
+const txnSortCompare: Record<TxnSortKey, (a: ApiTransaction, b: ApiTransaction) => number> = {
+  date: (a, b) => a.decideTradeDate.localeCompare(b.decideTradeDate),
+  round: (a, b) => a.roundSeq - b.roundSeq,
+  symbol: (a, b) => a.symbol.localeCompare(b.symbol),
+  side: (a, b) => a.side.localeCompare(b.side),
+  shares: (a, b) => a.shares - b.shares,
+  price: (a, b) => a.price - b.price,
+  value: (a, b) => a.value - b.value,
+  pnl: (a, b) => a.realizedPnl - b.realizedPnl,
+};
+
+// Omitted keys fall back to "asc": symbol (must match the backend's
+// symbol-ascending default lot order) and side on transactions.
+const txnSortDefaults: Partial<Record<TxnSortKey, SortDirection>> = {
+  date: "desc",
+  round: "desc",
+  shares: "desc",
+  price: "desc",
+  value: "desc",
+  pnl: "desc",
+};
+
+const lotSortDefaults: Partial<Record<LotSortKey, SortDirection>> = {
+  shares: "desc",
+  costBasis: "desc",
+  bookValue: "desc",
+  weight: "desc",
+  opened: "desc",
+  age: "desc",
+  pnl: "desc",
+};
+
+const DAY_MS = 86_400_000;
+
+function lotSortCompare(asOfTradeDate: string): Record<LotSortKey, (a: ApiLot, b: ApiLot) => number> {
+  const ageDays = (lot: ApiLot): number => {
+    const opened = Date.parse(lot.openedTradeDate);
+    const asOf = Date.parse(asOfTradeDate);
+    if (Number.isNaN(opened) || Number.isNaN(asOf)) return 0;
+    return Math.round((asOf - opened) / DAY_MS);
+  };
+  return {
+    symbol: (a, b) => a.symbol.localeCompare(b.symbol),
+    shares: (a, b) => a.shares - b.shares,
+    costBasis: (a, b) => a.costBasis - b.costBasis,
+    bookValue: (a, b) => a.shares * a.costBasis - b.shares * b.costBasis,
+    weight: (a, b) => a.targetWeight - b.targetWeight,
+    opened: (a, b) => a.openedTradeDate.localeCompare(b.openedTradeDate),
+    age: (a, b) => ageDays(a) - ageDays(b),
+    pnl: (a, b) => a.realizedPnl - b.realizedPnl,
+  };
+}
+
+function SortableTh<K extends string>({
+  label,
+  sortKey,
+  activeKey,
+  dir,
+  onSort,
+  align = "left",
+}: {
+  label: string;
+  sortKey: K;
+  activeKey: K | null;
+  dir: SortDirection;
+  onSort: (key: K) => void;
+  align?: "left" | "right";
+}) {
+  const active = activeKey === sortKey;
+  const ariaSort: "ascending" | "descending" | "none" = active
+    ? dir === "asc"
+      ? "ascending"
+      : "descending"
+    : "none";
+  return (
+    <TableHead aria-sort={ariaSort} className={align === "right" ? "text-right" : undefined}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={cn("inline-flex items-center gap-1", align === "right" && "justify-end w-full")}
+      >
+        {label}
+        {active ? (
+          dir === "asc" ? (
+            <ArrowUp className="h-3.5 w-3.5" />
+          ) : (
+            <ArrowDown className="h-3.5 w-3.5" />
+          )
+        ) : (
+          <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground/50" />
+        )}
+      </button>
+    </TableHead>
+  );
 }
 
 function Stat({
@@ -96,6 +204,48 @@ export function StreamDetail({ simulationId, personaKey, window, onBack }: Strea
       cancelled = true;
     };
   }, [simulationId, personaKey, window]);
+
+  const [dateFilter, setDateFilter] = useState<string | null>(null);
+
+  const dateOptions = useMemo(() => {
+    const roundByDate = new Map<string, number>();
+    for (const txn of txns) {
+      if (!roundByDate.has(txn.decideTradeDate)) {
+        roundByDate.set(txn.decideTradeDate, txn.roundSeq);
+      }
+    }
+    return [...roundByDate.entries()]
+      .map(([date, roundSeq]) => ({ date, roundSeq }))
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [txns]);
+
+  const activeFilter =
+    dateFilter !== null && dateOptions.some((option) => option.date === dateFilter)
+      ? dateFilter
+      : null;
+
+  const filteredTxns = useMemo(
+    () =>
+      activeFilter === null ? txns : txns.filter((txn) => txn.decideTradeDate === activeFilter),
+    [txns, activeFilter],
+  );
+
+  const txnSort = useTableSort<ApiTransaction, TxnSortKey>(
+    filteredTxns,
+    "date",
+    txnSortCompare,
+    txnSortDefaults,
+  );
+
+  const detailLots = detail?.lots ?? [];
+  const lastTradeDate = detail?.stream.lastTradeDate ?? "";
+  const lotCompare = useMemo(() => lotSortCompare(lastTradeDate), [lastTradeDate]);
+  const lotSort = useTableSort<ApiLot, LotSortKey>(
+    detailLots,
+    "symbol",
+    lotCompare,
+    lotSortDefaults,
+  );
 
   if (loading) {
     return (
@@ -213,18 +363,72 @@ export function StreamDetail({ simulationId, personaKey, window, onBack }: Strea
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Symbol</TableHead>
-                    <TableHead className="text-right">Shares</TableHead>
-                    <TableHead className="text-right">Cost Basis</TableHead>
-                    <TableHead className="text-right">Book Value</TableHead>
-                    <TableHead className="text-right">Weight</TableHead>
-                    <TableHead>Opened</TableHead>
-                    <TableHead className="text-right">Age</TableHead>
-                    <TableHead className="text-right">Realized P&amp;L</TableHead>
+                    <SortableTh
+                      label="Symbol"
+                      sortKey="symbol"
+                      activeKey={lotSort.sortKey}
+                      dir={lotSort.sortDir}
+                      onSort={lotSort.onSort}
+                    />
+                    <SortableTh
+                      label="Shares"
+                      sortKey="shares"
+                      activeKey={lotSort.sortKey}
+                      dir={lotSort.sortDir}
+                      onSort={lotSort.onSort}
+                      align="right"
+                    />
+                    <SortableTh
+                      label="Cost Basis"
+                      sortKey="costBasis"
+                      activeKey={lotSort.sortKey}
+                      dir={lotSort.sortDir}
+                      onSort={lotSort.onSort}
+                      align="right"
+                    />
+                    <SortableTh
+                      label="Book Value"
+                      sortKey="bookValue"
+                      activeKey={lotSort.sortKey}
+                      dir={lotSort.sortDir}
+                      onSort={lotSort.onSort}
+                      align="right"
+                    />
+                    <SortableTh
+                      label="Weight"
+                      sortKey="weight"
+                      activeKey={lotSort.sortKey}
+                      dir={lotSort.sortDir}
+                      onSort={lotSort.onSort}
+                      align="right"
+                    />
+                    <SortableTh
+                      label="Opened"
+                      sortKey="opened"
+                      activeKey={lotSort.sortKey}
+                      dir={lotSort.sortDir}
+                      onSort={lotSort.onSort}
+                    />
+                    <SortableTh
+                      label="Age"
+                      sortKey="age"
+                      activeKey={lotSort.sortKey}
+                      dir={lotSort.sortDir}
+                      onSort={lotSort.onSort}
+                      align="right"
+                    />
+                    <SortableTh
+                      label={"Realized P&L"}
+                      sortKey="pnl"
+                      activeKey={lotSort.sortKey}
+                      dir={lotSort.sortDir}
+                      onSort={lotSort.onSort}
+                      align="right"
+                    />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {lots.map((lot) => {
+                  {lotSort.sortedRows.map((lot) => {
                     const bookValue = lot.shares * lot.costBasis;
                     return (
                       <TableRow key={`${lot.openedFromRoundId}:${lot.symbol}`}>
@@ -267,12 +471,36 @@ export function StreamDetail({ simulationId, personaKey, window, onBack }: Strea
 
       <Card>
         <CardHeader>
-          <CardTitle>Transaction History</CardTitle>
-          <CardDescription>
-            {txns.length === 0
-              ? "No buys or sells recorded yet"
-              : `${txns.length} fills · newest decision first — holds are not trades`}
-          </CardDescription>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex flex-col gap-2">
+              <CardTitle>Transaction History</CardTitle>
+              <CardDescription>
+                {txns.length === 0
+                  ? "No buys or sells recorded yet"
+                  : activeFilter === null
+                    ? `${txns.length} fills · newest decision first — holds are not trades`
+                    : `${filteredTxns.length} of ${txns.length} fills · holds are not trades`}
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label htmlFor="tx-history-date" className="text-sm font-medium">
+                Date
+              </label>
+              <select
+                id="tx-history-date"
+                value={activeFilter ?? "all"}
+                onChange={(e) => setDateFilter(e.target.value === "all" ? null : e.target.value)}
+                className="border-input bg-background h-9 rounded-md border px-3 text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+              >
+                <option value="all">All dates</option>
+                {dateOptions.map((option) => (
+                  <option key={option.date} value={option.date}>
+                    {option.date} · Round {option.roundSeq}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {txns.length === 0 ? (
@@ -284,18 +512,71 @@ export function StreamDetail({ simulationId, personaKey, window, onBack }: Strea
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead className="text-right">Round</TableHead>
-                    <TableHead>Symbol</TableHead>
-                    <TableHead>Side</TableHead>
-                    <TableHead className="text-right">Shares</TableHead>
-                    <TableHead className="text-right">Price</TableHead>
-                    <TableHead className="text-right">Value</TableHead>
-                    <TableHead className="text-right">Realized P&amp;L</TableHead>
+                    <SortableTh
+                      label="Date"
+                      sortKey="date"
+                      activeKey={txnSort.sortKey}
+                      dir={txnSort.sortDir}
+                      onSort={txnSort.onSort}
+                    />
+                    <SortableTh
+                      label="Round"
+                      sortKey="round"
+                      activeKey={txnSort.sortKey}
+                      dir={txnSort.sortDir}
+                      onSort={txnSort.onSort}
+                      align="right"
+                    />
+                    <SortableTh
+                      label="Symbol"
+                      sortKey="symbol"
+                      activeKey={txnSort.sortKey}
+                      dir={txnSort.sortDir}
+                      onSort={txnSort.onSort}
+                    />
+                    <SortableTh
+                      label="Side"
+                      sortKey="side"
+                      activeKey={txnSort.sortKey}
+                      dir={txnSort.sortDir}
+                      onSort={txnSort.onSort}
+                    />
+                    <SortableTh
+                      label="Shares"
+                      sortKey="shares"
+                      activeKey={txnSort.sortKey}
+                      dir={txnSort.sortDir}
+                      onSort={txnSort.onSort}
+                      align="right"
+                    />
+                    <SortableTh
+                      label="Price"
+                      sortKey="price"
+                      activeKey={txnSort.sortKey}
+                      dir={txnSort.sortDir}
+                      onSort={txnSort.onSort}
+                      align="right"
+                    />
+                    <SortableTh
+                      label="Value"
+                      sortKey="value"
+                      activeKey={txnSort.sortKey}
+                      dir={txnSort.sortDir}
+                      onSort={txnSort.onSort}
+                      align="right"
+                    />
+                    <SortableTh
+                      label={"Realized P&L"}
+                      sortKey="pnl"
+                      activeKey={txnSort.sortKey}
+                      dir={txnSort.sortDir}
+                      onSort={txnSort.onSort}
+                      align="right"
+                    />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {txns.map((txn) => (
+                  {txnSort.sortedRows.map((txn) => (
                     <TableRow key={`${txn.roundId}:${txn.symbol}:${txn.side}`}>
                       <TableCell className="tabular-nums">{txn.decideTradeDate}</TableCell>
                       <TableCell className="text-right">
