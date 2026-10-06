@@ -58,6 +58,14 @@ export type ApiRoundSnapshot = Extract<
 export type ApiLot = ApiStreamDetail["lots"][number];
 export type ApiChainEquityPoint = ApiStreamDetail["equitySeries"][number];
 
+export type ApiStreamTransactions = Extract<
+  InferResponseType<
+    (typeof client.api.portfolio.simulations)[":simId"]["streams"][":personaKey"][":window"]["transactions"]["$get"]
+  >,
+  { transactions: unknown }
+>;
+export type ApiTransaction = ApiStreamTransactions["transactions"][number];
+
 // Resolves the current Supabase session token into an Authorization header.
 // Returns an empty object when no session is present so public calls work.
 export const getAuthHeaders = async (): Promise<Record<string, string>> => {

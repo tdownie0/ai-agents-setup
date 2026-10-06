@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   BackdatedRoundError,
   planChainRebuild,
+  planChainTransactions,
   planRoundFold,
   toLotSnapshots,
   toStateSnapshot,
@@ -469,5 +470,166 @@ describe("carried holdings change the outcome — same prices, same decision, di
     for (const symbol of ["AAPL", "MSFT", "TSLA"]) {
       expect(sharesOf(carried, symbol) / sharesOf(fresh, symbol)).toBeCloseTo(markRatio, 6);
     }
+  });
+});
+
+/**
+ * The transaction log is the byte-identical companion of the fold: it emits
+ * one entry per non-hold fill, priced and sized by the SAME closes the cache
+ * materialized against. All three chains below are hand-computed on the
+ * fixtures so the entries assert exact fill arithmetic, not re-derived floats.
+ */
+describe("planChainTransactions", () => {
+  const T3_DATES = sessions(3, "2026-01-05");
+  const T3_BARS = makeBars(T3_DATES, { AAPL: [100, 101, 102], MSFT: [200, 202, 204] });
+
+  const tr1: ChainRoundInput = {
+    roundId: "tr1",
+    roundSeq: 1,
+    decideTradeDate: T3_DATES[0]!,
+    targets: [
+      { symbol: "AAPL", targetWeight: 0.6 },
+      { symbol: "MSFT", targetWeight: 0.4 },
+    ],
+    theses: new Map([
+      ["AAPL", "cheap"],
+      ["MSFT", "quality"],
+    ]),
+  };
+
+  const tr2: ChainRoundInput = {
+    roundId: "tr2",
+    roundSeq: 2,
+    decideTradeDate: T3_DATES[1]!,
+    targets: [
+      { symbol: "AAPL", targetWeight: 0.5 },
+      { symbol: "MSFT", targetWeight: 0.5 },
+    ],
+    theses: new Map([["MSFT", "valuation"]]),
+  };
+
+  const tr3: ChainRoundInput = {
+    roundId: "tr3",
+    roundSeq: 3,
+    decideTradeDate: T3_DATES[2]!,
+    targets: [
+      { symbol: "AAPL", targetWeight: 0.5 },
+      { symbol: "MSFT", targetWeight: 0.5 },
+    ],
+  };
+
+  it("logs buys, trims and holds exactly as the fold saw them, newest first", () => {
+    const txns = planChainTransactions({
+      basisCapital: 10000,
+      rounds: [tr1, tr2, tr3],
+      bars: T3_BARS,
+    });
+    // Round 2 sizes off the carried mark (6060 + 4040 = 10100): AAPL trims
+    // from 60 to 50 (sell 10 @ 101, +10 realized), MSFT grows 20 → 25 (buy 5
+    // @ 202). Round 3 keeps the same weights → zero-delta holds, no entries.
+    expect(txns).toEqual([
+      {
+        roundId: "tr2",
+        roundSeq: 2,
+        decideTradeDate: T3_DATES[1],
+        symbol: "MSFT",
+        side: "buy",
+        shares: 5,
+        price: 202,
+        value: 1010,
+        realizedPnl: 0,
+        thesis: "valuation",
+      },
+      {
+        roundId: "tr2",
+        roundSeq: 2,
+        decideTradeDate: T3_DATES[1],
+        symbol: "AAPL",
+        side: "sell",
+        shares: 10,
+        price: 101,
+        value: 1010,
+        realizedPnl: 10,
+        thesis: null,
+      },
+      {
+        roundId: "tr1",
+        roundSeq: 1,
+        decideTradeDate: T3_DATES[0],
+        symbol: "MSFT",
+        side: "buy",
+        shares: 20,
+        price: 200,
+        value: 4000,
+        realizedPnl: 0,
+        thesis: "quality",
+      },
+      {
+        roundId: "tr1",
+        roundSeq: 1,
+        decideTradeDate: T3_DATES[0],
+        symbol: "AAPL",
+        side: "buy",
+        shares: 60,
+        price: 100,
+        value: 6000,
+        realizedPnl: 0,
+        thesis: "cheap",
+      },
+    ]);
+  });
+
+  it("logs a full exit as a sell of every held share with its realized P&L", () => {
+    const exit: ChainRoundInput = {
+      roundId: "tr2x",
+      roundSeq: 2,
+      decideTradeDate: T3_DATES[1]!,
+      targets: [
+        { symbol: "AAPL", targetWeight: 0 },
+        { symbol: "MSFT", targetWeight: 0 },
+      ],
+    };
+    const txns = planChainTransactions({
+      basisCapital: 10000,
+      rounds: [tr1, exit],
+      bars: T3_BARS,
+    });
+    expect(txns.slice(0, 2)).toEqual([
+      {
+        roundId: "tr2x",
+        roundSeq: 2,
+        decideTradeDate: T3_DATES[1],
+        symbol: "MSFT",
+        side: "sell",
+        shares: 20,
+        price: 202,
+        value: 4040,
+        realizedPnl: 40,
+        thesis: null,
+      },
+      {
+        roundId: "tr2x",
+        roundSeq: 2,
+        decideTradeDate: T3_DATES[1],
+        symbol: "AAPL",
+        side: "sell",
+        shares: 60,
+        price: 101,
+        value: 6060,
+        realizedPnl: 60,
+        thesis: null,
+      },
+    ]);
+    expect(txns).toHaveLength(4);
+  });
+
+  it("returns an empty log for an empty history", () => {
+    expect(planChainTransactions({ basisCapital: 10000, rounds: [], bars: T3_BARS })).toEqual([]);
+  });
+
+  it("is insensitive to the order the round history arrives in", () => {
+    const ordered = planChainTransactions({ basisCapital: 10000, rounds: [tr1, tr2], bars: T3_BARS });
+    const shuffled = planChainTransactions({ basisCapital: 10000, rounds: [tr2, tr1], bars: T3_BARS });
+    expect(shuffled).toEqual(ordered);
   });
 });

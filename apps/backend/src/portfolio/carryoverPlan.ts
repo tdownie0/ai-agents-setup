@@ -255,6 +255,82 @@ export function planChainRebuild(input: ChainRebuildInput): StreamWritePlan {
   };
 }
 
+/** One buy or sell in a stream's history, as the fold saw it. */
+export interface ChainTransaction {
+  roundId: string;
+  roundSeq: number;
+  decideTradeDate: string;
+  symbol: string;
+  /** "buy" when the line grew, "sell" when it shrank. Holds are not transactions. */
+  side: "buy" | "sell";
+  /** Absolute delta shares transacted (fractional shares are the norm). */
+  shares: number;
+  /** The close on `decideTradeDate` — the fill price. */
+  price: number;
+  /** Trade notional: shares × price. */
+  value: number;
+  /** sells only; 0 for buys — soldShares × (price − costBasis). */
+  realizedPnl: number;
+  thesis: string | null;
+}
+
+export interface ChainTransactionsInput {
+  /** The chain basis the replay opens with. */
+  basisCapital: number;
+  rounds: readonly ChainRoundInput[];
+  bars: BarsBySymbol;
+}
+
+/**
+ * Replay a stream's round history through the fold to produce its buy/sell log.
+ *
+ * This is the SAME fold that materializes the cache (`planChainRebuild`), so
+ * the log is guaranteed to agree with the stream's lots and equity curve: each
+ * round opens with the previous round's next book, marks at the
+ * `closesOnOrBefore` closes on its decide date, and emits one fill per target
+ * line. Zero-delta lines (`hold`) are dropped — a no-op is not a trade.
+ *
+ * Newest chain position first, matching the `/rounds` wire convention.
+ */
+export function planChainTransactions(input: ChainTransactionsInput): ChainTransaction[] {
+  const ordered = [...input.rounds].sort((a, b) => a.roundSeq - b.roundSeq);
+
+  const symbols = new Set<string>();
+  for (const round of ordered) {
+    for (const target of round.targets) symbols.add(target.symbol);
+  }
+
+  const transactions: ChainTransaction[] = [];
+  let book = emptyBook(input.basisCapital);
+  for (const round of ordered) {
+    const closes = closesOnOrBefore(input.bars, symbols, round.decideTradeDate);
+    const step = applyDecision({
+      openingBook: book,
+      basisCapital: input.basisCapital,
+      targets: round.targets,
+      prices: Object.fromEntries(closes),
+      asOfTradeDate: round.decideTradeDate,
+    });
+    for (const fill of step.fills) {
+      if (fill.side === "hold") continue;
+      transactions.push({
+        roundId: round.roundId,
+        roundSeq: round.roundSeq,
+        decideTradeDate: round.decideTradeDate,
+        symbol: fill.symbol,
+        side: fill.side,
+        shares: fill.shares,
+        price: fill.price,
+        value: fill.shares * fill.price,
+        realizedPnl: fill.realizedPnl,
+        thesis: round.theses?.get(fill.symbol) ?? null,
+      });
+    }
+    book = step.nextBook;
+  }
+  return transactions.reverse();
+}
+
 export interface RoundFoldInput {
   key: StreamKey;
   round: ChainRoundInput;

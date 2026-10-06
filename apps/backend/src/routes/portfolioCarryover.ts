@@ -10,6 +10,7 @@
  *   GET /portfolio/simulations/:simId/streams
  *   GET /portfolio/simulations/:simId/streams/:personaKey/:window
  *   GET /portfolio/simulations/:simId/streams/:personaKey/:window/rounds
+ *   GET /portfolio/simulations/:simId/streams/:personaKey/:window/transactions
  *   GET /portfolio/simulations/:simId/leaderboard?mode=overall|by-window|by-persona
  *
  * These read the CACHE, never a re-fold: `agent_portfolio_state` +
@@ -34,7 +35,7 @@ import type {
 } from "@model_md/database";
 import { computeRanking } from "../portfolio/ranking.js";
 import type { StreamKey } from "../portfolio/carryoverPlan.js";
-import { planChainRebuild } from "../portfolio/carryoverPlan.js";
+import { planChainRebuild, planChainTransactions } from "../portfolio/carryoverPlan.js";
 import type { StreamWritePlan } from "../portfolio/carryoverPlan.js";
 import { streamAgentKey } from "../portfolio/carryoverStore.js";
 import {
@@ -132,6 +133,32 @@ export interface StreamRoundWire {
   decideTradeDate: string;
   targets: { symbol: string; targetWeight: number }[];
   theses: { symbol: string; thesis: string }[];
+}
+
+/** One buy or sell in a stream's history, newest chain position first. */
+export interface StreamTransactionWire {
+  roundId: string;
+  roundSeq: number;
+  decideTradeDate: string;
+  symbol: string;
+  side: "buy" | "sell";
+  /** Absolute delta shares transacted (fractional shares are the norm). */
+  shares: number;
+  /** The fill close on `decideTradeDate`. */
+  price: number;
+  /** Trade notional: shares × price. */
+  value: number;
+  /** sells only; 0 for buys. */
+  realizedPnl: number;
+  thesis: string | null;
+}
+
+/** The transaction log for one stream. */
+export interface StreamTransactionsWire {
+  simulationId: string;
+  personaKey: string;
+  window: PortfolioWindow;
+  transactions: StreamTransactionWire[];
 }
 
 /** The leaderboard: one `rows` list per group, ranked by return within a group. */
@@ -593,6 +620,47 @@ const portfolioCarryoverApp = new Hono()
         theses: [...round.theses.entries()].map(([symbol, thesis]) => ({ symbol, thesis })),
       }));
     return c.json({ ...stream.key, rounds });
+  })
+
+  .get("/simulations/:simId/streams/:personaKey/:window/transactions", async (c) => {
+    const parsed = parseSimId(c.req.param("simId"));
+    if ("error" in parsed) return c.json(parsed.error, 400);
+    const stream = parseStreamParams(
+      parsed.simId,
+      c.req.param("personaKey"),
+      c.req.param("window"),
+    );
+    if ("error" in stream) return c.json(stream.error, 400);
+
+    const sim = await loadSimulation(db, parsed.simId);
+    if (sim === undefined) {
+      return c.json({ error: `unknown simulation ${JSON.stringify(parsed.simId)}` }, 404);
+    }
+
+    const history = await loadStreamHistory(db, stream.key);
+    if (history.length === 0) {
+      return c.json({ ...stream.key, transactions: [] } satisfies StreamTransactionsWire);
+    }
+
+    const symbols = new Set<string>();
+    for (const round of history) {
+      for (const target of round.targets) symbols.add(target.symbol);
+    }
+    const bars = await loadBarsBySymbol(db, [...symbols]);
+
+    const transactions = planChainTransactions({
+      basisCapital: parseNumeric(sim.initialCapital),
+      rounds: history.map((row) => ({
+        roundId: row.roundId,
+        roundSeq: row.roundSeq,
+        decideTradeDate: row.decideTradeDate,
+        targets: row.targets,
+        theses: row.theses,
+      })),
+      bars,
+    });
+
+    return c.json({ ...stream.key, transactions } satisfies StreamTransactionsWire);
   })
 
   .get("/simulations/:simId/rounds", async (c) => {

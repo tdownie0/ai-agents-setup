@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { client, type ApiStreamDetail } from "@/lib/api";
+import { client, type ApiStreamDetail, type ApiTransaction } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -41,11 +41,28 @@ function Stat({
 
 export function StreamDetail({ simulationId, personaKey, window, onBack }: StreamDetailProps) {
   const [detail, setDetail] = useState<ApiStreamDetail | null>(null);
+  const [txns, setTxns] = useState<ApiTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+
+    const fetchTransactions = async () => {
+      try {
+        const res = await client.api.portfolio.simulations[":simId"].streams[":personaKey"][
+          ":window"
+        ].transactions.$get({
+          param: { simId: simulationId, personaKey, window },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setTxns(data.transactions);
+      } catch (err) {
+        console.error("Failed to fetch transactions:", err);
+      }
+    };
+
     const fetchDetail = async () => {
       setLoading(true);
       setError(null);
@@ -74,6 +91,7 @@ export function StreamDetail({ simulationId, personaKey, window, onBack }: Strea
       }
     };
     fetchDetail();
+    void fetchTransactions();
     return () => {
       cancelled = true;
     };
@@ -244,6 +262,83 @@ export function StreamDetail({ simulationId, personaKey, window, onBack }: Strea
             symbol, which this endpoint does not return yet — book value above is shares × cost
             basis, not market value.
           </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Transaction History</CardTitle>
+          <CardDescription>
+            {txns.length === 0
+              ? "No buys or sells recorded yet"
+              : `${txns.length} fills · newest decision first — holds are not trades`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {txns.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              This stream has no buy or sell activity yet.
+            </div>
+          ) : (
+            <div className="rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead className="text-right">Round</TableHead>
+                    <TableHead>Symbol</TableHead>
+                    <TableHead>Side</TableHead>
+                    <TableHead className="text-right">Shares</TableHead>
+                    <TableHead className="text-right">Price</TableHead>
+                    <TableHead className="text-right">Value</TableHead>
+                    <TableHead className="text-right">Realized P&amp;L</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {txns.map((txn) => (
+                    <TableRow key={`${txn.roundId}:${txn.symbol}:${txn.side}`}>
+                      <TableCell className="tabular-nums">{txn.decideTradeDate}</TableCell>
+                      <TableCell className="text-right">
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          {txn.roundSeq}
+                        </span>
+                      </TableCell>
+                      <TableCell className="font-medium">{txn.symbol}</TableCell>
+                      <TableCell>
+                        <span
+                          className={cn(
+                            "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                            txn.side === "buy"
+                              ? "bg-emerald-600/10 text-emerald-600"
+                              : "bg-red-600/10 text-red-600",
+                          )}
+                        >
+                          {txn.side === "buy" ? "Buy" : "Sell"}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {txn.shares.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatCurrency(txn.price)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatCurrency(txn.value)}
+                      </TableCell>
+                      <TableCell
+                        className={cn(
+                          "text-right tabular-nums",
+                          txn.side === "sell" && pnlClassName(txn.realizedPnl),
+                        )}
+                      >
+                        {txn.side === "sell" ? formatCurrency(txn.realizedPnl) : "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
