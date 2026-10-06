@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { client, type ApiLeaderboardRow } from "@/lib/api";
+import { useTableSort, type SortDirection } from "@/lib/useTableSort";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -12,10 +13,43 @@ import {
 import { ChevronRight, LineChart, RefreshCw, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCurrency, formatPct, formatWindow } from "./format";
+import { SortableTh } from "./SortableTh";
 
 interface PortfolioLeaderboardProps {
   onSelectRun: (runId: number) => void;
 }
+
+type RunSortKey =
+  | "agent"
+  | "strategy"
+  | "window"
+  | "currentValue"
+  | "totalReturn"
+  | "sharpe"
+  | "drawdown"
+  | "asOf";
+
+const WINDOW_ORDER: readonly string[] = ["daily", "weekly", "monthly"];
+
+const runSortCompare: Record<RunSortKey, (a: ApiLeaderboardRow, b: ApiLeaderboardRow) => number> = {
+  agent: (a, b) => a.persona.localeCompare(b.persona),
+  strategy: (a, b) => a.strategy.localeCompare(b.strategy),
+  window: (a, b) => WINDOW_ORDER.indexOf(a.window) - WINDOW_ORDER.indexOf(b.window),
+  currentValue: (a, b) => a.currentValue - b.currentValue,
+  totalReturn: (a, b) => a.totalReturnPct - b.totalReturnPct,
+  sharpe: (a, b) => a.sharpe - b.sharpe,
+  drawdown: (a, b) => a.maxDrawdownPct - b.maxDrawdownPct,
+  asOf: (a, b) => a.asOfTradeDate.localeCompare(b.asOfTradeDate),
+};
+
+// Omitted keys fall back to "asc": agent, strategy, window.
+const runSortDefaults: Partial<Record<RunSortKey, SortDirection>> = {
+  currentValue: "desc",
+  totalReturn: "desc",
+  sharpe: "desc",
+  drawdown: "desc",
+  asOf: "desc",
+};
 
 export function PortfolioLeaderboard({ onSelectRun }: PortfolioLeaderboardProps) {
   const [rows, setRows] = useState<ApiLeaderboardRow[]>([]);
@@ -42,6 +76,13 @@ export function PortfolioLeaderboard({ onSelectRun }: PortfolioLeaderboardProps)
   useEffect(() => {
     fetchLeaderboard();
   }, [fetchLeaderboard]);
+
+  const sort = useTableSort<ApiLeaderboardRow, RunSortKey>(
+    rows,
+    "totalReturn",
+    runSortCompare,
+    runSortDefaults,
+  );
 
   if (loading) {
     return (
@@ -96,19 +137,71 @@ export function PortfolioLeaderboard({ onSelectRun }: PortfolioLeaderboardProps)
           <TableHeader>
             <TableRow>
               <TableHead className="w-14">Rank</TableHead>
-              <TableHead>Agent</TableHead>
-              <TableHead>Strategy</TableHead>
-              <TableHead>Window</TableHead>
-              <TableHead className="text-right">Current Value</TableHead>
-              <TableHead className="text-right">Total Return</TableHead>
-              <TableHead className="text-right">Sharpe</TableHead>
-              <TableHead className="text-right">Max Drawdown</TableHead>
-              <TableHead>As of</TableHead>
+              <SortableTh
+                label="Agent"
+                sortKey="agent"
+                activeKey={sort.sortKey}
+                dir={sort.sortDir}
+                onSort={sort.onSort}
+              />
+              <SortableTh
+                label="Strategy"
+                sortKey="strategy"
+                activeKey={sort.sortKey}
+                dir={sort.sortDir}
+                onSort={sort.onSort}
+              />
+              <SortableTh
+                label="Window"
+                sortKey="window"
+                activeKey={sort.sortKey}
+                dir={sort.sortDir}
+                onSort={sort.onSort}
+              />
+              <SortableTh
+                label="Current Value"
+                sortKey="currentValue"
+                activeKey={sort.sortKey}
+                dir={sort.sortDir}
+                onSort={sort.onSort}
+                align="right"
+              />
+              <SortableTh
+                label="Total Return"
+                sortKey="totalReturn"
+                activeKey={sort.sortKey}
+                dir={sort.sortDir}
+                onSort={sort.onSort}
+                align="right"
+              />
+              <SortableTh
+                label="Sharpe"
+                sortKey="sharpe"
+                activeKey={sort.sortKey}
+                dir={sort.sortDir}
+                onSort={sort.onSort}
+                align="right"
+              />
+              <SortableTh
+                label="Max Drawdown"
+                sortKey="drawdown"
+                activeKey={sort.sortKey}
+                dir={sort.sortDir}
+                onSort={sort.onSort}
+                align="right"
+              />
+              <SortableTh
+                label="As of"
+                sortKey="asOf"
+                activeKey={sort.sortKey}
+                dir={sort.sortDir}
+                onSort={sort.onSort}
+              />
               <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((row, index) => {
+            {sort.sortedRows.map((row, index) => {
               const rank = index + 1;
               const returnPositive = row.totalReturnPct >= 0;
               return (
