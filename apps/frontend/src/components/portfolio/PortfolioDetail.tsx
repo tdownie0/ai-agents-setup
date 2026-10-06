@@ -1,24 +1,62 @@
 import { useEffect, useState } from "react";
 import { client, type ApiAgentDetail } from "@/lib/api";
+import { useTableSort, type SortDirection } from "@/lib/useTableSort";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import { AlertTriangle, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EquityChart } from "./EquityChart";
+import { SortableTh } from "./SortableTh";
 import { formatCurrency, formatPct, formatWindow } from "./format";
 
 interface PortfolioDetailProps {
   runId: number;
   onBack: () => void;
 }
+
+type PositionRow = ApiAgentDetail["positions"][number];
+
+type PosSortKey =
+  | "symbol"
+  | "name"
+  | "targetWeight"
+  | "shares"
+  | "entryDate"
+  | "entryPrice"
+  | "latestPrice"
+  | "value"
+  | "pnl";
+
+const posSortCompare: Record<PosSortKey, (a: PositionRow, b: PositionRow) => number> = {
+  symbol: (a, b) => a.symbol.localeCompare(b.symbol),
+  name: (a, b) => (a.name ?? "").localeCompare(b.name ?? ""),
+  targetWeight: (a, b) => a.targetWeight - b.targetWeight,
+  shares: (a, b) => a.shares - b.shares,
+  entryDate: (a, b) => a.entryTradeDate.localeCompare(b.entryTradeDate),
+  entryPrice: (a, b) => a.entryPrice - b.entryPrice,
+  latestPrice: (a, b) => a.latestPrice - b.latestPrice,
+  value: (a, b) => a.value - b.value,
+  pnl: (a, b) => a.unrealizedPnlPct - b.unrealizedPnlPct,
+};
+
+// Omitted keys fall back to "asc": symbol (matches the backend's
+// agentRunId-then-symbol ascending order) and name.
+const posSortDefaults: Partial<Record<PosSortKey, SortDirection>> = {
+  targetWeight: "desc",
+  shares: "desc",
+  entryDate: "desc",
+  entryPrice: "desc",
+  latestPrice: "desc",
+  value: "desc",
+  pnl: "desc",
+};
 
 interface DetailError {
   title: string;
@@ -104,6 +142,14 @@ export function PortfolioDetail({ runId, onBack }: PortfolioDetailProps) {
       cancelled = true;
     };
   }, [runId]);
+
+  const positionRows: readonly PositionRow[] = detail?.positions ?? [];
+  const posSort = useTableSort<PositionRow, PosSortKey>(
+    positionRows,
+    "symbol",
+    posSortCompare,
+    posSortDefaults,
+  );
 
   if (loading) {
     return (
@@ -230,19 +276,79 @@ export function PortfolioDetail({ runId, onBack }: PortfolioDetailProps) {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Symbol</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead className="text-right">Target Weight</TableHead>
-                    <TableHead className="text-right">Shares</TableHead>
-                    <TableHead>Entry Date</TableHead>
-                    <TableHead className="text-right">Entry Price</TableHead>
-                    <TableHead className="text-right">Latest Price</TableHead>
-                    <TableHead className="text-right">Value</TableHead>
-                    <TableHead className="text-right">Unrealized P&amp;L</TableHead>
+                    <SortableTh
+                      label="Symbol"
+                      sortKey="symbol"
+                      activeKey={posSort.sortKey}
+                      dir={posSort.sortDir}
+                      onSort={posSort.onSort}
+                    />
+                    <SortableTh
+                      label="Name"
+                      sortKey="name"
+                      activeKey={posSort.sortKey}
+                      dir={posSort.sortDir}
+                      onSort={posSort.onSort}
+                    />
+                    <SortableTh
+                      label="Target Weight"
+                      sortKey="targetWeight"
+                      activeKey={posSort.sortKey}
+                      dir={posSort.sortDir}
+                      onSort={posSort.onSort}
+                      align="right"
+                    />
+                    <SortableTh
+                      label="Shares"
+                      sortKey="shares"
+                      activeKey={posSort.sortKey}
+                      dir={posSort.sortDir}
+                      onSort={posSort.onSort}
+                      align="right"
+                    />
+                    <SortableTh
+                      label="Entry Date"
+                      sortKey="entryDate"
+                      activeKey={posSort.sortKey}
+                      dir={posSort.sortDir}
+                      onSort={posSort.onSort}
+                    />
+                    <SortableTh
+                      label="Entry Price"
+                      sortKey="entryPrice"
+                      activeKey={posSort.sortKey}
+                      dir={posSort.sortDir}
+                      onSort={posSort.onSort}
+                      align="right"
+                    />
+                    <SortableTh
+                      label="Latest Price"
+                      sortKey="latestPrice"
+                      activeKey={posSort.sortKey}
+                      dir={posSort.sortDir}
+                      onSort={posSort.onSort}
+                      align="right"
+                    />
+                    <SortableTh
+                      label="Value"
+                      sortKey="value"
+                      activeKey={posSort.sortKey}
+                      dir={posSort.sortDir}
+                      onSort={posSort.onSort}
+                      align="right"
+                    />
+                    <SortableTh
+                      label="Unrealized P&L"
+                      sortKey="pnl"
+                      activeKey={posSort.sortKey}
+                      dir={posSort.sortDir}
+                      onSort={posSort.onSort}
+                      align="right"
+                    />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {detail.positions.map((pos) => (
+                  {posSort.sortedRows.map((pos) => (
                     <TableRow key={pos.symbol}>
                       <TableCell className="font-medium">{pos.symbol}</TableCell>
                       <TableCell className="text-muted-foreground">{pos.name ?? "—"}</TableCell>
