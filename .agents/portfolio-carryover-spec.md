@@ -6,7 +6,7 @@
 
 ## Bottom line
 
-Introduce a first-class **`simulations`** scope plus a **materialized, rebuildable per-stream book** (`agent_portfolio_state` + `portfolio_position_lots` + `portfolio_equity_daily`), and make **`agent_runs` a decision log rather than the book**. Order by a numeric `round_seq`, never by parsing the string id. Express sells as `targetWeight: 0` and make the envelope a **complete target book** — no `side`, no `quantity`. Remove the mechanical cadence re-snap from valuation; the window becomes *decision cadence*, not *auto-trade cadence*.
+Introduce a first-class **`simulations`** scope plus a **materialized, rebuildable per-stream book** (`agent_portfolio_state` + `portfolio_position_lots` + `portfolio_equity_daily`), and make **`agent_runs` a decision log rather than the book**. Order by a numeric `round_seq`, never by parsing the string id. Express sells as `targetWeight: 0` and make the envelope a **complete target book** — no `side`, no `quantity`. Remove the mechanical cadence re-snap from valuation; the window becomes _decision cadence_, not _auto-trade cadence_.
 
 ---
 
@@ -19,15 +19,15 @@ Introduce a first-class **`simulations`** scope plus a **materialized, rebuildab
 
 **Naming**
 
-| Field | Convention | Regex |
-|---|---|---|
-| `simId` | `sim-baseline` | `/^sim-[a-z0-9][a-z0-9-]{0,46}$/` |
+| Field     | Convention                                          | Regex                                     |
+| --------- | --------------------------------------------------- | ----------------------------------------- |
+| `simId`   | `sim-baseline`                                      | `/^sim-[a-z0-9][a-z0-9-]{0,46}$/`         |
 | `roundId` | `<simId>-<seq zero-padded 4>` → `sim-baseline-0001` | `/^sim-[a-z0-9][a-z0-9-]{0,46}-\d{4,6}$/` |
 
 - Keep `ROUND_ID_PATTERN` (`/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/`) as the **dataset-dir safety** guard, unchanged — `rounds.test.ts:43` asserts `W1.A_2026-09-22` is valid. Apply the stricter `SIM_ROUND_ID_PATTERN` only on the new carryover create path.
 - `rounds/<roundId>/dataset.json` stays exactly as-is; the dir name just becomes structured. Nothing in `datasetPathFor` changes.
 
-**Ordering:** `ORDER BY round_seq`. Never parse the id. Concretely this is required — `loadRunsForLeaderboard` (`portfolio/index.ts:46`) orders by `desc(agentRuns.createdAt)`, and with 18 agents inserting concurrently `createdAt` is *insertion finish time*, so "latest round" is currently whichever agent finished last.
+**Ordering:** `ORDER BY round_seq`. Never parse the id. Concretely this is required — `loadRunsForLeaderboard` (`portfolio/index.ts:46`) orders by `desc(agentRuns.createdAt)`, and with 18 agents inserting concurrently `createdAt` is _insertion finish time_, so "latest round" is currently whichever agent finished last.
 
 ---
 
@@ -35,14 +35,14 @@ Introduce a first-class **`simulations`** scope plus a **materialized, rebuildab
 
 `asOfTradeDate` is `MAX(daily_prices.trade_date)` (`dataset.ts:273-282`) — a global max, so a same-day relaunch yields an identical decision date. All enforcement goes in the **backend** (`POST /portfolio/rounds/:roundId/job`); the MCP server keeps a thin pass-through. The DB unique index is the last line of defense, not the policy.
 
-| Case | Detection | Action | Enforced in |
-|---|---|---|---|
-| **(a)** duplicate launch, round in flight | `round_jobs` row exists, non-terminal | **409** (today's behavior, `roundJobs.ts:292-306`) — keep | DB PK + route |
-| **(a')** duplicate launch, round finished | row exists, terminal | **409** `ROUND_ALREADY_COMPLETE` | Route |
-| **(b)** intentional same-day re-decision | row exists, terminal, `replace=true` | **200/201** — delete that round's `agent_runs` (cascade → positions) + its equity rows, then re-fold affected streams from round 1 | Route, one transaction |
-| **(c)** replay/backfill of a past day | `asOfTradeDate <= max(stream.last_trade_date)` for a selected stream, `replace=false` | **409** `OUT_OF_SEQUENCE` — the fold is forward-only; a back-dated round would emit equity out of order | Route |
-| **(c')** replay as a clean experiment | same, but a *different* `simId` | **Allowed** — opens a fresh book, chain basis = current capital | Route |
-| **(d)** new day | `MAX(trade_date) > max(stream.last_trade_date)` | **Allowed** | Route |
+| Case                                      | Detection                                                                             | Action                                                                                                                             | Enforced in            |
+| ----------------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| **(a)** duplicate launch, round in flight | `round_jobs` row exists, non-terminal                                                 | **409** (today's behavior, `roundJobs.ts:292-306`) — keep                                                                          | DB PK + route          |
+| **(a')** duplicate launch, round finished | row exists, terminal                                                                  | **409** `ROUND_ALREADY_COMPLETE`                                                                                                   | Route                  |
+| **(b)** intentional same-day re-decision  | row exists, terminal, `replace=true`                                                  | **200/201** — delete that round's `agent_runs` (cascade → positions) + its equity rows, then re-fold affected streams from round 1 | Route, one transaction |
+| **(c)** replay/backfill of a past day     | `asOfTradeDate <= max(stream.last_trade_date)` for a selected stream, `replace=false` | **409** `OUT_OF_SEQUENCE` — the fold is forward-only; a back-dated round would emit equity out of order                            | Route                  |
+| **(c')** replay as a clean experiment     | same, but a _different_ `simId`                                                       | **Allowed** — opens a fresh book, chain basis = current capital                                                                    | Route                  |
+| **(d)** new day                           | `MAX(trade_date) > max(stream.last_trade_date)`                                       | **Allowed**                                                                                                                        | Route                  |
 
 `replace` is safe because the fold is a **deterministic replay over `agent_runs` + `portfolio_positions` + `daily_prices`** — all in the DB. Rollback needs no snapshot table; it is a recompute. This is why I reject the snapshot-rollback design in §4.
 
@@ -55,18 +55,18 @@ Introduce a first-class **`simulations`** scope plus a **materialized, rebuildab
 Why, against the actual code and prompts:
 
 - `valuation.ts:139-151` already re-snaps shares to `targetWeight` on every boundary. The entire sizing path — validation, sum-to-1, share math, rebalance — is target-weight machinery. Switching to `side`/`quantity` discards it and adds share/cash math, rounding, and a new cash-solvency validation model.
-- **Target weight already expresses a trim exactly.** "Halve JNJ" *is* `targetWeight: jnjWeight / 2`. A `trimFraction` field adds a second sizing primitive the fold and engine must both honor, for zero added expressiveness.
+- **Target weight already expresses a trim exactly.** "Halve JNJ" _is_ `targetWeight: jnjWeight / 2`. A `trimFraction` field adds a second sizing primitive the fold and engine must both honor, for zero added expressiveness.
 - All six personas state "weights MUST sum to 1.0" and describe fully-invested books; `dr-macro` demands "at least 2 defensive and 2 cyclical names at all times." Keeping sum=1.0 preserves every prompt and the cadence math.
 - Three personas already reference a book they were never shown (dr-value `:76`, dr-momentum `:108`, dr-compounder `:202`). The fix is showing them the book, not giving them new verbs.
 
-**The one real gap — omission must not be ambiguous.** Today omission is a silent full reallocation; with a carried book that is dangerous (a model that forgets one name dumps it). Rule: **the envelope is a complete target book.** Any currently-held symbol absent from the envelope is a *validation error* listing it.
+**The one real gap — omission must not be ambiguous.** Today omission is a silent full reallocation; with a carried book that is dangerous (a model that forgets one name dumps it). Rule: **the envelope is a complete target book.** Any currently-held symbol absent from the envelope is a _validation error_ listing it.
 
 **Weight-sum rule:** sum over `targetWeight > 0` entries ∈ `[0.99, 1.01]`, rounding preserved. Zero-weight entries contribute 0. That is the entire change.
 
 ```ts
 export const DECISION_SCHEMA_VERSION = 2 as const;
-export const MIN_PICKS = 5;   // unchanged: counts BUYS only
-export const MAX_PICKS = 10;  // unchanged: buys only
+export const MIN_PICKS = 5; // unchanged: counts BUYS only
+export const MAX_PICKS = 10; // unchanged: buys only
 export const WEIGHT_SUM_MIN = 0.99;
 export const WEIGHT_SUM_MAX = 1.01;
 export const TARGET_WEIGHT_MAX = 1;
@@ -82,10 +82,10 @@ export interface DecisionPosition {
 export interface DecisionHolding {
   symbol: string;
   shares: number;
-  costBasis: number;        // per-share average cost
+  costBasis: number; // per-share average cost
   lastPrice: number;
   marketValue: number;
-  weight: number;           // current share of total value
+  weight: number; // current share of total value
   holdingDays: number;
   unrealizedPnlPct: number;
 }
@@ -150,7 +150,7 @@ export interface ValidateEnvelopeOptions {
 
 ## 4. Persistence model
 
-**Recommendation: (a) + (c), with the state table as a *materialized cache* over a deterministic fold — not an authoritative ledger.**
+**Recommendation: (a) + (c), with the state table as a _materialized cache_ over a deterministic fold — not an authoritative ledger.**
 
 Why not (b): `UNIQUE (agent_run_id, symbol)` makes a position structurally unable to span runs, and cash is not derivable per-run. (b) is impossible as stated.
 
@@ -241,8 +241,8 @@ Pure and DB-free in `apps/backend/src/portfolio/carryover.ts`, so `portfolio.tes
 ```ts
 export interface OpeningBook {
   cash: number;
-  shares:     ReadonlyMap<string, number>;  // carried in
-  costBasis:  ReadonlyMap<string, number>;
+  shares: ReadonlyMap<string, number>; // carried in
+  costBasis: ReadonlyMap<string, number>;
   targetWeights: ReadonlyMap<string, number>;
 }
 
@@ -259,15 +259,23 @@ export interface ApplyDecisionInput {
 
 export interface ApplyDecisionResult {
   nextBook: OpeningBook;
-  fills: ReadonlyArray<{ symbol: string; side: "buy" | "sell" | "hold";
-                         shares: number; price: number; realizedPnl: number }>;
+  fills: ReadonlyArray<{
+    symbol: string;
+    side: "buy" | "sell" | "hold";
+    shares: number;
+    price: number;
+    realizedPnl: number;
+  }>;
   realizedPnl: number;
   totalValue: number;
 }
 
 export function applyDecision(input: ApplyDecisionInput): ApplyDecisionResult;
-export function rebuildStream(input: { simulationId: string; personaKey: string;
-  window: PortfolioWindow }): Promise<void>;   // recompute from round 1
+export function rebuildStream(input: {
+  simulationId: string;
+  personaKey: string;
+  window: PortfolioWindow;
+}): Promise<void>; // recompute from round 1
 ```
 
 Semantics: mark the opening book at `asOfTradeDate` closes → `totalValue` → for each target, `targetShares = totalValue × targetWeight / price` → `deltaShares = targetShares − heldShares`; exiting names get `targetShares = 0` → full liquidation → proceeds to cash; new `costBasis` is shares-weighted average; a zero-delta line is a `hold` with **no** trade. No cash constraint can be violated because every target is a fraction of the same mark — which is the concrete payoff of target-weight over `side`/`quantity`.
@@ -310,8 +318,8 @@ Four concrete changes vs. today:
 ```ts
 export function isDecisionDue(opts: {
   window: PortfolioWindow;
-  tradingDaysSinceLastDecision: number;   // null on a stream's first round → true
-}): boolean;  // >= REBALANCE_CADENCE[window]
+  tradingDaysSinceLastDecision: number; // null on a stream's first round → true
+}): boolean; // >= REBALANCE_CADENCE[window]
 ```
 
 This preserves the meaning of the window end-to-end (surfaced in the UI as "next review due") and stops the engine from trading without a decision.
@@ -327,7 +335,7 @@ export interface RankingInput {
 export function computeRanking(input: RankingInput | readonly EquityPoint[]): RankingResult;
 ```
 
-Omitted → `first.totalValue` (today's behavior, tests unaffected). Provided → chain basis. `totalReturnPct` uses the basis; sharpe/vol/drawdown already work off consecutive points and need no change **provided the segments are contiguous and date-deduplicated** — so `computeChainEquitySeries` must dedupe by `tradeDate` (last write wins) and segment *k* must open the trading day after segment *k−1*'s decide date. Add a test that pins this.
+Omitted → `first.totalValue` (today's behavior, tests unaffected). Provided → chain basis. `totalReturnPct` uses the basis; sharpe/vol/drawdown already work off consecutive points and need no change **provided the segments are contiguous and date-deduplicated** — so `computeChainEquitySeries` must dedupe by `tradeDate` (last write wins) and segment _k_ must open the trading day after segment _k−1_'s decide date. Add a test that pins this.
 
 Also: expose the already-computed `annualizedVolPct` on `LeaderboardRowWire`. Additive, non-breaking, and the board wants it.
 
@@ -339,12 +347,12 @@ Also: expose the already-computed `annualizedVolPct` on `LeaderboardRowWire`. Ad
 
 **New routes** (mount under the existing `/api/portfolio`):
 
-| Route | Returns |
-|---|---|
-| `GET /portfolio/simulations` | sims + chain summary (round count, last trade date, stream count) |
-| `GET /portfolio/simulations/:simId/streams` | **the 18-stream board** — one row per (persona, window): cash, holdings, total, `totalReturnPct` vs chain basis, sharpe, drawdown, positionCount, lastDecisionDate, `nextDecisionDue` |
-| `GET /portfolio/simulations/:simId/streams/:personaKey/:window` | drilldown: open lots (shares, cost basis, target weight, unrealized P&L), equity series, ordered decision history |
-| `GET /portfolio/simulations/:simId/rounds` | rounds ordered by `roundSeq` (with the asOf/status of each) |
+| Route                                                           | Returns                                                                                                                                                                               |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /portfolio/simulations`                                    | sims + chain summary (round count, last trade date, stream count)                                                                                                                     |
+| `GET /portfolio/simulations/:simId/streams`                     | **the 18-stream board** — one row per (persona, window): cash, holdings, total, `totalReturnPct` vs chain basis, sharpe, drawdown, positionCount, lastDecisionDate, `nextDecisionDue` |
+| `GET /portfolio/simulations/:simId/streams/:personaKey/:window` | drilldown: open lots (shares, cost basis, target weight, unrealized P&L), equity series, ordered decision history                                                                     |
+| `GET /portfolio/simulations/:simId/rounds`                      | rounds ordered by `roundSeq` (with the asOf/status of each)                                                                                                                           |
 
 **Preserved, with corrected semantics:**
 
@@ -362,43 +370,43 @@ These stay public (no auth), consistent with the existing portfolio/market-data 
 **Recommendation: reject, do not skip and do not re-decide.** With a carried book, a same-date re-decision is actively harmful:
 
 - The dataset is `MAX(trade_date)`; a same-day round gets byte-identical input. The book is marked at the same close it just traded at, so the fold re-trades at stale prices.
-- `roundSeq` advances and `holdingDays` resets to 0, destroying the one piece of state three personas' rules depend on (dr-momentum `:108` and dr-compounder `:202` are both *trend-flip* rules — a flip is measured on **new bars**; on identical data nothing flips and nothing should change).
+- `roundSeq` advances and `holdingDays` resets to 0, destroying the one piece of state three personas' rules depend on (dr-momentum `:108` and dr-compounder `:202` are both _trend-flip_ rules — a flip is measured on **new bars**; on identical data nothing flips and nothing should change).
 - Cost: 18 agents × up to 10 minutes for churn that carries no information.
 
 **Rules**
 
 1. A new round for `(simulationId, asOfTradeDate)` → **409** `SAME_TRADE_DATE` if any round for that pair is non-terminal; **409** `ROUND_ALREADY_COMPLETE` if terminal. Hint: `replace=true` for (b), or wait for new price data.
 2. A new round advances the chain only when `MAX(daily_prices.trade_date) > max(stream.last_trade_date)` for every selected stream. Otherwise **409** `STALE_TRADE_DATE` with the current vs. required date — the single most useful error the user can get.
-3. `takeover=true` (today's crash-recovery flag) **retains its meaning**: reset a *partially failed* round for re-execution. `replace=true` is a *new* flag: discard a *finished* round's decisions and re-decide. Different jobs; do not conflate them.
+3. `takeover=true` (today's crash-recovery flag) **retains its meaning**: reset a _partially failed_ round for re-execution. `replace=true` is a _new_ flag: discard a _finished_ round's decisions and re-decide. Different jobs; do not conflate them.
 
-**Window cadence is advisory, not a launch gate.** A round still runs all 18 agents, preserving the persona×window cross product that `orchestrator.test.ts:138` asserts. A `weekly` agent asked to decide daily now has the book in front of it, and `WINDOW_CADENCE.weekly` ("patience between reviews is part of the edge") is finally *expressible* — it keeps its targets. That is a benefit of carryover, not a conflict. Cadence surfaces in the UI via `isDecisionDue` (§5).
+**Window cadence is advisory, not a launch gate.** A round still runs all 18 agents, preserving the persona×window cross product that `orchestrator.test.ts:138` asserts. A `weekly` agent asked to decide daily now has the book in front of it, and `WINDOW_CADENCE.weekly` ("patience between reviews is part of the edge") is finally _expressible_ — it keeps its targets. That is a benefit of carryover, not a conflict. Cadence surfaces in the UI via `isDecisionDue` (§5).
 
 ---
 
 ## Build sequence
 
-| # | Work unit | Domain | Depends on | Parallel |
-|---|---|---|---|---|
-| **W1** | Schema: `simulations`, `round_jobs`+`agent_runs` additions, `agent_portfolio_state`, `portfolio_position_lots`, `portfolio_equity_daily`; exports in `packages/database/src/index.ts`; `pnpm db:generate --name=add_portfolio_carryover` | DB | — | — |
-| **W2** | Envelope v2: `contract.ts` (types + rules 1-9), `ENVELOPE_SCHEMA_JSON`, `buildEnvelopeExample`, `buildAnalystPrompt` (**new HOLDINGS section**), personas.ts (`{{holdings}}` token) | Orchestrator | — | ‖ W3 |
-| **W3** | Engine: `applyDecision` / `rebuildStream` fold, `computeChainEquitySeries`, `isDecisionDue`, `computeRanking` overload — pure, no DB | Backend | — | ‖ W2 |
-| **W4** | Persistence + routes: atomic insert+fold, `simulations`/`streams`/`rounds` routes, leaderboard `round_seq` ordering, rerun policy (`replace`/`SAME_TRADE_DATE`/`STALE_TRADE_DATE`), `annualizedVolPct` on the wire | Backend | W1, W3 | — |
-| **W5** | Orchestrator: pass holdings/`portfolioValue`/`cash`/`roundSeq` into spawn, `positions.length` for progress, expose `replace`, surface the 409s as actionable MCP text | Orchestrator | W2, W4 | ‖ W6 |
-| **W6** | Frontend: 18-stream board, positions table, equity sparkline, "next review due" | Frontend | W4 | ‖ W5 |
+| #      | Work unit                                                                                                                                                                                                                                | Domain       | Depends on | Parallel |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | ---------- | -------- |
+| **W1** | Schema: `simulations`, `round_jobs`+`agent_runs` additions, `agent_portfolio_state`, `portfolio_position_lots`, `portfolio_equity_daily`; exports in `packages/database/src/index.ts`; `pnpm db:generate --name=add_portfolio_carryover` | DB           | —          | —        |
+| **W2** | Envelope v2: `contract.ts` (types + rules 1-9), `ENVELOPE_SCHEMA_JSON`, `buildEnvelopeExample`, `buildAnalystPrompt` (**new HOLDINGS section**), personas.ts (`{{holdings}}` token)                                                      | Orchestrator | —          | ‖ W3     |
+| **W3** | Engine: `applyDecision` / `rebuildStream` fold, `computeChainEquitySeries`, `isDecisionDue`, `computeRanking` overload — pure, no DB                                                                                                     | Backend      | —          | ‖ W2     |
+| **W4** | Persistence + routes: atomic insert+fold, `simulations`/`streams`/`rounds` routes, leaderboard `round_seq` ordering, rerun policy (`replace`/`SAME_TRADE_DATE`/`STALE_TRADE_DATE`), `annualizedVolPct` on the wire                       | Backend      | W1, W3     | —        |
+| **W5** | Orchestrator: pass holdings/`portfolioValue`/`cash`/`roundSeq` into spawn, `positions.length` for progress, expose `replace`, surface the 409s as actionable MCP text                                                                    | Orchestrator | W2, W4     | ‖ W6     |
+| **W6** | Frontend: 18-stream board, positions table, equity sparkline, "next review due"                                                                                                                                                          | Frontend     | W4         | ‖ W5     |
 
 Gate names: `schema-portfolio-carryover` → `contract-envelope-v2` + `engine-chain-equity` → `api-contract-streams` → done.
 
 **Mandatory test edits** (v2 intentionally inverts two v1 assertions; everything else is additive):
 
-| File | Change |
-|---|---|
-| `contract.test.ts:249` | `weight: 0` **must now PASS** → invert to an acceptance test; add sell-path tests (sell not in `symbolsWithPrice` → valid; sell of an unheld symbol → invalid) |
-| `contract.test.ts:253` | message becomes `"0 <= targetWeight <= 1"`; `1.5` still rejected |
-| `contract.test.ts:374` | `"schemaVersion must be 2"` |
-| `spawn.test.ts:48` | `initialCapital=100000` → `portfolioValue=100000` (keep the `Pick 5–10 symbols` line verbatim — it stays in the prompt) |
-| `orchestrator.test.ts:51-69` | `VALID_ENVELOPE` → v2 shape; add `heldSymbols` to the spawner options |
-| `portfolio.test.ts` | **unchanged** — additive-only engine |
-| `rounds.test.ts` | **unchanged** — `RunStatusWire` gains fields only, and it asserts fields individually |
+| File                         | Change                                                                                                                                                         |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `contract.test.ts:249`       | `weight: 0` **must now PASS** → invert to an acceptance test; add sell-path tests (sell not in `symbolsWithPrice` → valid; sell of an unheld symbol → invalid) |
+| `contract.test.ts:253`       | message becomes `"0 <= targetWeight <= 1"`; `1.5` still rejected                                                                                               |
+| `contract.test.ts:374`       | `"schemaVersion must be 2"`                                                                                                                                    |
+| `spawn.test.ts:48`           | `initialCapital=100000` → `portfolioValue=100000` (keep the `Pick 5–10 symbols` line verbatim — it stays in the prompt)                                        |
+| `orchestrator.test.ts:51-69` | `VALID_ENVELOPE` → v2 shape; add `heldSymbols` to the spawner options                                                                                          |
+| `portfolio.test.ts`          | **unchanged** — additive-only engine                                                                                                                           |
+| `rounds.test.ts`             | **unchanged** — `RunStatusWire` gains fields only, and it asserts fields individually                                                                          |
 
 **Effort: Large (3d+).** W1+W2+W3 in parallel is ~1.5-2d; W4 is the critical path at ~1d.
 
@@ -407,7 +415,7 @@ Gate names: `schema-portfolio-carryover` → `contract-envelope-v2` + `engine-ch
 ## Uncertainties and what would resolve them
 
 1. **Existing dev rows.** `agent_runs`/`portfolio_positions`/`round_jobs` are populated in the dev DB. The nullable→tighten migration needs a backfill. `pnpm db:reset` exists and this is a feature worktree — **I'd default to a reset**, not a backfill. Resolve by asking whether the 6 existing `rounds/*` dirs hold anything worth keeping.
-2. **Is per-stream cadence gating wanted?** I chose "all 18 run every round; cadence is advisory." If the intent is that a `weekly` stream should *skip* a daily round, that is a different design (agents that no-op, per-stream `nextDueSeq`) and roughly doubles W4. Resolve by confirming "a round is a global time step" is the intent.
+2. **Is per-stream cadence gating wanted?** I chose "all 18 run every round; cadence is advisory." If the intent is that a `weekly` stream should _skip_ a daily round, that is a different design (agents that no-op, per-stream `nextDueSeq`) and roughly doubles W4. Resolve by confirming "a round is a global time step" is the intent.
 3. **Frontend scope.** `apps/frontend/src` has **no** portfolio UI today (no leaderboard/portfolio references), so W6 is net-new rather than an extension. Confirm it's in this pass.
 4. **Pre-existing bias, now compounding.** Fills are at the same close used to compute the signal (`insert.ts:128`, `entryPrice` = `asOfTradeDate` close), so a decision is filled at a close it could only have observed after that close closed. Mildly optimistic, pre-existing, and it compounds over many rounds. Not introduced here — worth a footnote in `FEATURE_README.md`, not a redesign.
 5. **No transaction costs.** Zero-cost re-snapping slightly flatters everyone and is now more visible as agents trade more often. Explicitly out of scope; flag it rather than model it.
@@ -435,6 +443,7 @@ rows come from the stateless architecture being replaced and have no carryover m
 Therefore: do NOT write a backfill. Migration may go straight to the final constraints.
 
 **R4 — Error codes, precisely (the four are adjacent but distinct):**
+
 - `ROUND_ALREADY_COMPLETE` — a round for this (simulationId, asOfTradeDate) exists and is terminal.
 - `SAME_TRADE_DATE` — a round for this (simulationId, asOfTradeDate) exists and is non-terminal.
 - `STALE_TRADE_DATE` — no new price data: `MAX(daily_prices.trade_date) <= max(stream.last_trade_date)`. Response MUST include current vs required date.
@@ -462,13 +471,14 @@ between decisions, shares and cash are held FIXED and only the mark moves, with 
 forward-fill technique for halted symbols. Two engines coexist; do not unify them.
 
 **R8 — File ownership (strict, to avoid merge conflicts):**
+
 - W3 owns and has SHIPPED `apps/backend/src/portfolio/carryover.ts`, `ranking.ts`, and
   `carryover.test.ts`. They are imports, not edit targets.
 - W4 owns all DB-facing code: routes, the atomic insert+fold transaction, and the `rebuildStream`
   DB wrapper around `replaySegmentChain`.
 - W2 owns and has SHIPPED the orchestrator's validation layer (80/80 green).
 - W6 owns the frontend exclusively.
-Editing another wave's file is a merge conflict, not a contribution.
+  Editing another wave's file is a merge conflict, not a contribution.
 
 **R9 — W4 OWNS `insert.ts`. The earlier "do not touch the orchestrator package" line was WRONG.**
 The W4 brief contained two instructions that cannot both hold: "make `insertRun` accept a `tx`"

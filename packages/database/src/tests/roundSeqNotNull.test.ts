@@ -45,7 +45,9 @@ function readSnapshot(): Snapshot {
 describe("round_seq is NOT NULL in the schema", () => {
   for (const { table } of TABLES) {
     it(`${getTableConfig(table).name}.round_seq rejects null`, () => {
-      const column = getTableConfig(table).columns.find((candidate) => candidate.name === "round_seq");
+      const column = getTableConfig(table).columns.find(
+        (candidate) => candidate.name === "round_seq",
+      );
       expect(column).toBeDefined();
       expect(column?.notNull).toBe(true);
     });

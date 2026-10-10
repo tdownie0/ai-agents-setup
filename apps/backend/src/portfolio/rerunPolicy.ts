@@ -168,7 +168,11 @@ export function decideRerun(input: RerunPolicyInput): RerunAllowed | RerunReject
     };
   }
 
-  if (streamLastTradeDate !== null && asOfTradeDate === latestTradeDate && latestTradeDate <= streamLastTradeDate) {
+  if (
+    streamLastTradeDate !== null &&
+    asOfTradeDate === latestTradeDate &&
+    latestTradeDate <= streamLastTradeDate
+  ) {
     return {
       ok: false,
       code: "STALE_TRADE_DATE",
@@ -179,7 +183,11 @@ export function decideRerun(input: RerunPolicyInput): RerunAllowed | RerunReject
     };
   }
 
-  if (streamLastTradeDate !== null && asOfTradeDate < latestTradeDate && asOfTradeDate <= streamLastTradeDate) {
+  if (
+    streamLastTradeDate !== null &&
+    asOfTradeDate < latestTradeDate &&
+    asOfTradeDate <= streamLastTradeDate
+  ) {
     return {
       ok: false,
       code: "OUT_OF_SEQUENCE",
@@ -197,6 +205,8 @@ export function decideRerun(input: RerunPolicyInput): RerunAllowed | RerunReject
 export const rerunRejectionStatus = 409;
 
 /** Narrow a decision to a rejection (used by the route before mapping to `c.json`). */
-export function isRerunRejection(decision: RerunAllowed | RerunRejection): decision is RerunRejection {
+export function isRerunRejection(
+  decision: RerunAllowed | RerunRejection,
+): decision is RerunRejection {
   return decision.ok === false;
 }

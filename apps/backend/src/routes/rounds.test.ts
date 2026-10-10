@@ -80,7 +80,11 @@ describe("resolveRoundsDir", () => {
 
 describe("toDatasetStatusWire", () => {
   it("flags dataReady and rounds coverage to 1dp", () => {
-    const wire = toDatasetStatusWire({ symbols: 49, symbolsWithData: 39, asOfTradeDate: "2026-09-22" });
+    const wire = toDatasetStatusWire({
+      symbols: 49,
+      symbolsWithData: 39,
+      asOfTradeDate: "2026-09-22",
+    });
     expect(wire.dataReady).toBe(true);
     expect(wire.coveragePct).toBe(79.6);
     expect(wire.asOfTradeDate).toBe("2026-09-22");
@@ -233,9 +237,10 @@ describe("classifyBooking", () => {
   });
 
   it("routes a booking with no simulation to the legacy insert path", () => {
-    expect(
-      classifyBooking({ simulationId: null, roundSeq: 1, asOfTradeDate: null }),
-    ).toEqual({ kind: "legacy", roundSeq: 1 });
+    expect(classifyBooking({ simulationId: null, roundSeq: 1, asOfTradeDate: null })).toEqual({
+      kind: "legacy",
+      roundSeq: 1,
+    });
   });
 
   it("keeps a chained booking's identity for the fold path", () => {
@@ -254,9 +259,11 @@ describe("classifyBooking", () => {
   });
 
   it("rejects a chained booking with no decide date to mark against", () => {
-    expect(
-      classifyBooking({ simulationId: "sim-a", roundSeq: 4, asOfTradeDate: null }),
-    ).toEqual({ kind: "undated", simulationId: "sim-a", roundSeq: 4 });
+    expect(classifyBooking({ simulationId: "sim-a", roundSeq: 4, asOfTradeDate: null })).toEqual({
+      kind: "undated",
+      simulationId: "sim-a",
+      roundSeq: 4,
+    });
   });
 
   it("treats a dated booking as chained even at round 1", () => {
@@ -273,7 +280,9 @@ describe("classifyBooking", () => {
 
 describe("rounds mount", () => {
   it("coexists with the portfolio handler on the same prefix", () => {
-    expect(() => new Hono().route("/portfolio", portfolioHandler).route("/portfolio", roundsApp)).not.toThrow();
+    expect(() =>
+      new Hono().route("/portfolio", portfolioHandler).route("/portfolio", roundsApp),
+    ).not.toThrow();
   });
 
   it("GET /portfolio/rounds/:roundId/dataset returns 404 with a build hint when absent", async () => {

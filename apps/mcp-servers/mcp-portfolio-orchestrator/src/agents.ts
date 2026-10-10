@@ -7,12 +7,7 @@
  * independently comparable on the leaderboard.
  */
 
-import {
-  agentKeyFor,
-  ANALYST_WINDOWS,
-  getPersona,
-  PERSONAS,
-} from "@model_md/agent-orchestrator";
+import { agentKeyFor, ANALYST_WINDOWS, getPersona, PERSONAS } from "@model_md/agent-orchestrator";
 import type { AnalystWindow } from "@model_md/agent-orchestrator";
 
 export interface AgentJob {
@@ -49,7 +44,9 @@ export function resolveAgents(raw: unknown, windows?: readonly AnalystWindow[]):
 export function parseWindows(raw: unknown): readonly AnalystWindow[] | undefined {
   if (raw === undefined || raw === null) return undefined;
   if (Array.isArray(raw)) {
-    return raw.map((part) => String(part).trim()).filter((part) => part.length > 0) as AnalystWindow[];
+    return raw
+      .map((part) => String(part).trim())
+      .filter((part) => part.length > 0) as AnalystWindow[];
   }
   const trimmed = String(raw).trim();
   if (trimmed.length === 0 || trimmed === "all") return undefined;

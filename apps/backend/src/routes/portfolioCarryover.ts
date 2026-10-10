@@ -729,7 +729,13 @@ const portfolioCarryoverApp = new Hono()
       decideTradeDate: target.asOfTradeDate,
       basisCapital,
       streams: keys.map((key, index) =>
-        toSnapshotStream(key, planChainRebuild({ key, basisCapital, rounds: upto[index] ?? [], bars }), basisCapital, labels, decideTradeDate),
+        toSnapshotStream(
+          key,
+          planChainRebuild({ key, basisCapital, rounds: upto[index] ?? [], bars }),
+          basisCapital,
+          labels,
+          decideTradeDate,
+        ),
       ),
     } satisfies RoundSnapshotWire);
   })

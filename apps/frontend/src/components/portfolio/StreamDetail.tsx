@@ -3,13 +3,7 @@ import { client, type ApiLot, type ApiStreamDetail, type ApiTransaction } from "
 import { useTableSort, type SortDirection } from "@/lib/useTableSort";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertTriangle, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EquityChart } from "./EquityChart";
@@ -68,7 +62,9 @@ const lotSortDefaults: Partial<Record<LotSortKey, SortDirection>> = {
 
 const DAY_MS = 86_400_000;
 
-function lotSortCompare(asOfTradeDate: string): Record<LotSortKey, (a: ApiLot, b: ApiLot) => number> {
+function lotSortCompare(
+  asOfTradeDate: string,
+): Record<LotSortKey, (a: ApiLot, b: ApiLot) => number> {
   const ageDays = (lot: ApiLot): number => {
     const opened = Date.parse(lot.openedTradeDate);
     const asOf = Date.parse(asOfTradeDate);

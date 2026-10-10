@@ -56,7 +56,10 @@ function barSeries(closes: readonly number[], dates: readonly string[]): EngineB
 }
 
 /** 20 sessions of bars for the given symbols, each on its own price path. */
-function makeBars(dates: readonly string[], paths: Record<string, readonly number[]>): BarsBySymbol {
+function makeBars(
+  dates: readonly string[],
+  paths: Record<string, readonly number[]>,
+): BarsBySymbol {
   const map = new Map<string, EngineBar[]>();
   for (const [symbol, closes] of Object.entries(paths)) {
     map.set(symbol, barSeries(closes, dates));
@@ -81,7 +84,10 @@ const ROUNDS: ChainRoundInput[] = [
       { symbol: "AAPL", targetWeight: 0.6 },
       { symbol: "MSFT", targetWeight: 0.4 },
     ],
-    theses: new Map([["AAPL", "cheap"], ["MSFT", "quality"]]),
+    theses: new Map([
+      ["AAPL", "cheap"],
+      ["MSFT", "quality"],
+    ]),
   },
   {
     roundId: "r2",
@@ -113,7 +119,14 @@ function foldIncrementally(rounds: readonly ChainRoundInput[]): StreamWritePlan[
   let state: StateSnapshot | null = null;
   let lots: LotSnapshot[] = [];
   for (const round of rounds) {
-    const plan = planRoundFold({ key: KEY, round, basisCapital: BASIS, currentState: state, currentLots: lots, bars: BARS });
+    const plan = planRoundFold({
+      key: KEY,
+      round,
+      basisCapital: BASIS,
+      currentState: state,
+      currentLots: lots,
+      bars: BARS,
+    });
     plans.push(plan);
     state = toStateSnapshot(plan.state!);
     lots = toLotSnapshots(plan.lots);
@@ -237,7 +250,12 @@ describe("planChainRebuild", () => {
   });
 
   it("carries lot provenance from the round that opened each line", () => {
-    const plan = planChainRebuild({ key: KEY, basisCapital: BASIS, rounds: ROUNDS.slice(0, 2), bars: BARS });
+    const plan = planChainRebuild({
+      key: KEY,
+      basisCapital: BASIS,
+      rounds: ROUNDS.slice(0, 2),
+      bars: BARS,
+    });
     const tsla = plan.lots.find((lot) => lot.symbol === "TSLA");
     expect(tsla?.openedFromRoundId).toBe("r2");
     expect(tsla?.openedTradeDate).toBe(DATES[4]);
@@ -272,7 +290,14 @@ describe("planRoundFold", () => {
         key: KEY,
         round: ROUNDS[0]!,
         basisCapital: BASIS,
-        currentState: { seq: 3, lastTradeDate: DATES[9]!, lastRoundId: "r3", cash: 0, holdingsValue: 0, totalValue: 0 },
+        currentState: {
+          seq: 3,
+          lastTradeDate: DATES[9]!,
+          lastRoundId: "r3",
+          cash: 0,
+          holdingsValue: 0,
+          totalValue: 0,
+        },
         currentLots: [],
         bars: BARS,
       });
@@ -285,7 +310,14 @@ describe("planRoundFold", () => {
   });
 
   it("opens a first round from cash alone", () => {
-    const plan = planRoundFold({ key: KEY, round: ROUNDS[0]!, basisCapital: BASIS, currentState: null, currentLots: [], bars: BARS });
+    const plan = planRoundFold({
+      key: KEY,
+      round: ROUNDS[0]!,
+      basisCapital: BASIS,
+      currentState: null,
+      currentLots: [],
+      bars: BARS,
+    });
     expect(plan.state?.seq).toBe(1);
     expect(plan.lots).toHaveLength(2);
   });
@@ -628,8 +660,16 @@ describe("planChainTransactions", () => {
   });
 
   it("is insensitive to the order the round history arrives in", () => {
-    const ordered = planChainTransactions({ basisCapital: 10000, rounds: [tr1, tr2], bars: T3_BARS });
-    const shuffled = planChainTransactions({ basisCapital: 10000, rounds: [tr2, tr1], bars: T3_BARS });
+    const ordered = planChainTransactions({
+      basisCapital: 10000,
+      rounds: [tr1, tr2],
+      bars: T3_BARS,
+    });
+    const shuffled = planChainTransactions({
+      basisCapital: 10000,
+      rounds: [tr2, tr1],
+      bars: T3_BARS,
+    });
     expect(shuffled).toEqual(ordered);
   });
 });

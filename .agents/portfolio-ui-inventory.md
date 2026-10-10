@@ -1,8 +1,10 @@
 # Portfolio UI Inventory — W6 briefing source of truth
+
 Gathered from the WORKTREE only. Oracle's "no portfolio UI" finding was WRONG (it read the main repo).
 Worktree: /app/worktrees/model_md-worktree-feat-portfolio-sim
 
 ## Existing files (W6 EXTENDS these; it is NOT net-new)
+
 - src/components/portfolio/PortfolioLeaderboard.tsx (179) — props { onSelectRun: (runId:number)=>void }, self-fetching
 - src/components/portfolio/PortfolioDetail.tsx (283) — props { runId:number; onBack:()=>void }, self-fetching
 - src/components/portfolio/EquityChart.tsx (122) — PURE presentational, props { series, className? }, hand-rolled SVG 600x220
@@ -12,6 +14,7 @@ Worktree: /app/worktrees/model_md-worktree-feat-portfolio-sim
 - src/components/ui/{table,card,button}.tsx — shadcn new-york, slate base, lucide icons
 
 ## Conventions that MUST be followed (verified, not guessed)
+
 - Plain React hooks. NO state library, NO TanStack Query.
 - Import { client } from "@/lib/api". DO NOT pass getAuthHeaders() — portfolio routes are PUBLIC.
 - Fetch-once in useEffect with a `cancelled` cleanup flag. NO polling anywhere; refresh is a manual Button.
@@ -27,6 +30,7 @@ Worktree: /app/worktrees/model_md-worktree-feat-portfolio-sim
 - Reuse format.ts for ALL number formatting. Do not duplicate formatters.
 
 ## Verified ABSENT (do not assume, do not add a dependency for these)
+
 - NO chart library (no recharts/d3/plotly/victory/nivo/visx). EquityChart is hand-rolled SVG.
 - NO router library. Extend the View union + nullable-id pattern instead.
 - NO test runner, NO test script, NO component tests. Frontend package.json scripts: dev, build, lint, preview.
@@ -35,21 +39,24 @@ Worktree: /app/worktrees/model_md-worktree-feat-portfolio-sim
 - EquityChart has NO compact/sparkline mode. An 18-up sparkline needs a new mode added to it.
 
 ## Already exists vs. genuinely missing (vs the 18-stream requirement)
+
 EXISTS: sharpe, max drawdown, total return, current value, asOfTradeDate, persona, agentKey,
-        strategy, window, positions table (9 cols), equity area chart, position count as a
-        "{n} holdings" card description only.
+strategy, window, positions table (9 cols), equity area chart, position count as a
+"{n} holdings" card description only.
 MISSING: the 18-stream board itself; rendered per-stream cash/holdings/total (fields exist on
-        EquityPointWire as cash/holdingsValue/totalValue but NO component reads them);
-        position count as a column; a sparkline; last decision date; next review due;
-        open lots; polling.
+EquityPointWire as cash/holdingsValue/totalValue but NO component reads them);
+position count as a column; a sparkline; last decision date; next review due;
+open lots; polling.
 
 ## API consumed today
-- client.api.portfolio.leaderboard.$get({})          -> ApiLeaderboardRow[]
+
+- client.api.portfolio.leaderboard.$get({}) -> ApiLeaderboardRow[]
 - client.api.portfolio.agents[":id"].$get({param:{id}}) -> ApiAgentDetail
-NOTE: /api/portfolio is a SHARED mount: portfolioHandler + roundsHandler + roundJobsHandler are all
-mounted on that prefix in apps/backend/src/index.ts. Beware prefix collisions when adding routes.
+  NOTE: /api/portfolio is a SHARED mount: portfolioHandler + roundsHandler + roundJobsHandler are all
+  mounted on that prefix in apps/backend/src/index.ts. Beware prefix collisions when adding routes.
 
 ## Rejected scope (do not build)
+
 - Do NOT add a test runner to the frontend. Out of scope; the repo has none.
 - Do NOT add a charting dependency. Extend EquityChart with a compact mode.
 - Do NOT add a router. Follow the existing View union pattern.

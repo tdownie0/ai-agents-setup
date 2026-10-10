@@ -20,11 +20,7 @@
  * `replace` and a full rebuild share this module.
  */
 
-import {
-  applyDecision,
-  computeChainEquitySeries,
-  replaySegmentChain,
-} from "./carryover.js";
+import { applyDecision, computeChainEquitySeries, replaySegmentChain } from "./carryover.js";
 import type { DecisionTarget, EngineSegment, OpeningBook, SegmentStep } from "./carryover.js";
 import type { PortfolioWindow } from "./types.js";
 import type { BarsBySymbol, EngineBar } from "./valuation.js";
@@ -236,7 +232,11 @@ export function planChainRebuild(input: ChainRebuildInput): StreamWritePlan {
   const { steps, finalBook } = replaySegmentChain(segments, input.bars);
   const equitySeries = computeChainEquitySeries(segments, input.bars);
   const last = ordered[ordered.length - 1]!;
-  const closes = closesOnOrBefore(input.bars, chainSymbols(ordered, finalBook), last.decideTradeDate);
+  const closes = closesOnOrBefore(
+    input.bars,
+    chainSymbols(ordered, finalBook),
+    last.decideTradeDate,
+  );
 
   const provenance = foldLotProvenance([], steps, ordered);
   return {
@@ -358,7 +358,9 @@ export function planRoundFold(input: RoundFoldInput): StreamWritePlan {
   }
 
   const book: OpeningBook =
-    currentState === null ? emptyBook(basisCapital) : bookFromLots(input.currentLots, currentState.cash);
+    currentState === null
+      ? emptyBook(basisCapital)
+      : bookFromLots(input.currentLots, currentState.cash);
 
   const symbols = new Set([...book.shares.keys(), ...round.targets.map((t) => t.symbol)]);
   const openTradeDate =

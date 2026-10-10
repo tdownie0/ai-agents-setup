@@ -104,12 +104,8 @@
           "name": "daily_prices_instrument_id_instruments_id_fk",
           "tableFrom": "daily_prices",
           "tableTo": "instruments",
-          "columnsFrom": [
-            "instrument_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["instrument_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -337,12 +333,8 @@
           "name": "notifications_user_id_users_id_fk",
           "tableFrom": "notifications",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -518,12 +510,8 @@
           "name": "agent_runs_simulation_id_simulations_sim_id_fk",
           "tableFrom": "agent_runs",
           "tableTo": "simulations",
-          "columnsFrom": [
-            "simulation_id"
-          ],
-          "columnsTo": [
-            "sim_id"
-          ],
+          "columnsFrom": ["simulation_id"],
+          "columnsTo": ["sim_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -622,12 +610,8 @@
           "name": "portfolio_positions_agent_run_id_agent_runs_id_fk",
           "tableFrom": "portfolio_positions",
           "tableTo": "agent_runs",
-          "columnsFrom": [
-            "agent_run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["agent_run_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -766,12 +750,8 @@
           "name": "agent_portfolio_state_simulation_id_simulations_sim_id_fk",
           "tableFrom": "agent_portfolio_state",
           "tableTo": "simulations",
-          "columnsFrom": [
-            "simulation_id"
-          ],
-          "columnsTo": [
-            "sim_id"
-          ],
+          "columnsFrom": ["simulation_id"],
+          "columnsTo": ["sim_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -857,12 +837,8 @@
           "name": "portfolio_equity_daily_state_id_agent_portfolio_state_id_fk",
           "tableFrom": "portfolio_equity_daily",
           "tableTo": "agent_portfolio_state",
-          "columnsFrom": [
-            "state_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["state_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -996,12 +972,8 @@
           "name": "portfolio_position_lots_state_id_agent_portfolio_state_id_fk",
           "tableFrom": "portfolio_position_lots",
           "tableTo": "agent_portfolio_state",
-          "columnsFrom": [
-            "state_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["state_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1141,12 +1113,8 @@
           "name": "round_agent_progress_round_id_round_jobs_round_id_fk",
           "tableFrom": "round_agent_progress",
           "tableTo": "round_jobs",
-          "columnsFrom": [
-            "round_id"
-          ],
-          "columnsTo": [
-            "round_id"
-          ],
+          "columnsFrom": ["round_id"],
+          "columnsTo": ["round_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1154,12 +1122,8 @@
           "name": "round_agent_progress_run_id_agent_runs_id_fk",
           "tableFrom": "round_agent_progress",
           "tableTo": "agent_runs",
-          "columnsFrom": [
-            "run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["run_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -1292,12 +1256,8 @@
           "name": "round_jobs_simulation_id_simulations_sim_id_fk",
           "tableFrom": "round_jobs",
           "tableTo": "simulations",
-          "columnsFrom": [
-            "simulation_id"
-          ],
-          "columnsTo": [
-            "sim_id"
-          ],
+          "columnsFrom": ["simulation_id"],
+          "columnsTo": ["sim_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1357,9 +1317,7 @@
         "simulations_sim_id_unique": {
           "name": "simulations_sim_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "sim_id"
-          ]
+          "columns": ["sim_id"]
         }
       },
       "policies": {},
@@ -1403,9 +1361,7 @@
         "users_email_unique": {
           "name": "users_email_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "email"
-          ]
+          "columns": ["email"]
         }
       },
       "policies": {},

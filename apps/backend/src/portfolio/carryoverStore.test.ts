@@ -129,7 +129,10 @@ class FakeTx {
     onRejected?: ((reason: unknown) => TResult | PromiseLike<TResult>) | null,
   ): PromiseLike<TResult> {
     if (this.#op === "delete") {
-      const query = this.#where === undefined ? { sql: "", params: [] as unknown[] } : dialect.sqlToQuery(this.#where);
+      const query =
+        this.#where === undefined
+          ? { sql: "", params: [] as unknown[] }
+          : dialect.sqlToQuery(this.#where);
       this.deletes.push({ table: this.#table, sql: query.sql, params: query.params });
     }
     if (this.#failOn !== undefined && this.#op === "insert" && this.#table === this.#failOn.table) {
@@ -198,9 +201,21 @@ function plan(overrides: Partial<StreamWritePlan> = {}): StreamWritePlan {
     },
     lots: [],
     equity: [
-      { tradeDate: "2026-01-16", cash: "109918.8435", holdingsValue: "0.0000", totalValue: "109918.8435", roundSeq: 3 },
+      {
+        tradeDate: "2026-01-16",
+        cash: "109918.8435",
+        holdingsValue: "0.0000",
+        totalValue: "109918.8435",
+        roundSeq: 3,
+      },
     ],
-    summary: { seq: 3, cash: 109918.8435, holdingsValue: 0, totalValue: 109918.8435, positionCount: 0 },
+    summary: {
+      seq: 3,
+      cash: 109918.8435,
+      holdingsValue: 0,
+      totalValue: 109918.8435,
+      positionCount: 0,
+    },
     ...overrides,
   };
 }
@@ -237,7 +252,9 @@ describe("applyStreamPlan stale-lot cleanup", () => {
 
   it("keeps exactly the symbols the plan still holds", async () => {
     const tx = new FakeTx();
-    await applyStreamPlan(asQueryable(tx), plan({ lots: [openLot("AAPL"), openLot("MSFT")] }), { reset: false });
+    await applyStreamPlan(asQueryable(tx), plan({ lots: [openLot("AAPL"), openLot("MSFT")] }), {
+      reset: false,
+    });
 
     const deletion = lotDelete(tx);
     expect(deletion?.sql).toContain("not in");
@@ -303,7 +320,9 @@ function emptyStreamRows(): Record<string, unknown[]> {
 
 describe("insertRunAndFold", () => {
   it("commits the run and its state advance together", async () => {
-    const db = new FakeDb(new FakeTx({ results: emptyStreamRows(), returningIds: { agent_runs: 7 } }));
+    const db = new FakeDb(
+      new FakeTx({ results: emptyStreamRows(), returningIds: { agent_runs: 7 } }),
+    );
 
     const result = await insertRunAndFold(asDbClient(db), runInput());
 
@@ -328,7 +347,10 @@ describe("insertRunAndFold", () => {
     // committed the run anyway would deadlock every retry behind the
     // duplicate-run guard — this is the exact half-state R5 forbids.
     const db = new FakeDb(
-      new FakeTx({ results: emptyStreamRows(), failOn: { table: STATE, error: new Error("late failure") } }),
+      new FakeTx({
+        results: emptyStreamRows(),
+        failOn: { table: STATE, error: new Error("late failure") },
+      }),
     );
 
     await expect(insertRunAndFold(asDbClient(db), runInput())).rejects.toThrow("late failure");
@@ -337,7 +359,9 @@ describe("insertRunAndFold", () => {
 
   it("maps a unique violation from any step to the duplicate-run guard", async () => {
     const unique = Object.assign(new Error("duplicate key"), { code: "23505" });
-    const db = new FakeDb(new FakeTx({ results: emptyStreamRows(), failOn: { table: STATE, error: unique } }));
+    const db = new FakeDb(
+      new FakeTx({ results: emptyStreamRows(), failOn: { table: STATE, error: unique } }),
+    );
 
     await expect(insertRunAndFold(asDbClient(db), runInput())).rejects.toThrow(
       /already exists for round "r1"/,

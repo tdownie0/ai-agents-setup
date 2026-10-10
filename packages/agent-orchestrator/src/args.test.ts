@@ -55,9 +55,7 @@ describe("parseCliArgs", () => {
   });
 
   it("throws on an empty --window list", () => {
-    expect(() => parseCliArgs(["--round", "r1", "--window", ""])).toThrow(
-      /at least one window/,
-    );
+    expect(() => parseCliArgs(["--round", "r1", "--window", ""])).toThrow(/at least one window/);
   });
 
   it("throws on a missing value for --window", () => {
