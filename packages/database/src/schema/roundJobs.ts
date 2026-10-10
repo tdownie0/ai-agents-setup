@@ -67,6 +67,12 @@ export const roundAgentStatuses = {
   running: "running",
   inserted: "inserted",
   failed: "failed",
+  /**
+   * The stream's cadence window had not elapsed when the round launched, so the
+   * agent was deliberately NOT spawned and carries its book forward. A success
+   * state, not a failure: it neither inserts a run nor blocks the round.
+   */
+  not_due: "not_due",
 } as const;
 
 export type RoundAgentStatus = (typeof roundAgentStatuses)[keyof typeof roundAgentStatuses];

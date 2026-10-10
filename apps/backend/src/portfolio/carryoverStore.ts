@@ -28,6 +28,7 @@ import {
   portfolioEquityDaily,
   portfolioPositionLots,
   portfolioPositions,
+  roundAgentProgress,
   roundJobs,
   simulations,
 } from "@model_md/database";
@@ -35,8 +36,10 @@ import type {
   AgentPortfolioState,
   PortfolioEquityDaily,
   PortfolioWindow,
+  RoundAgentStatus,
 } from "@model_md/database";
 import type { DbClient } from "@model_md/market-data";
+import { isDecisionDue } from "./carryover.js";
 import type { DecisionTarget } from "./carryover.js";
 import {
   planChainRebuild,
@@ -237,6 +240,75 @@ export async function loadTradingDatesBetween(
     .where(and(gt(dailyPrices.tradeDate, after), lte(dailyPrices.tradeDate, through)))
     .orderBy(asc(dailyPrices.tradeDate));
   return [...new Set(rows.map((row) => row.tradeDate))];
+}
+
+/** One stream of a prospective roster: the identity the cadence gate needs. */
+export interface RosterStream {
+  agentKey: string;
+  personaKey: string;
+  window: PortfolioWindow;
+}
+
+/** The decision-due state of one roster stream at a round's `asOfTradeDate`. */
+export interface StreamDue extends RosterStream {
+  /** The stream's last decision date, or null on its first round. */
+  lastTradeDate: string | null;
+  /** Trading days elapsed since that decision; null on the first round. */
+  tradingDaysSinceLastDecision: number | null;
+  due: boolean;
+}
+
+/**
+ * Resolve which roster streams are due to decide at `asOfTradeDate`.
+ *
+ * The count is trading days from the price calendar — the same calendar the fold
+ * marks against — so holidays and weekends never advance it. The calendar is
+ * loaded ONCE for the whole roster (from the earliest last decision) and counted
+ * per stream, rather than one query per stream. A stream with no state is due:
+ * its first round always opens a book (`isDecisionDue`).
+ */
+export async function computeRosterDue(
+  client: Queryable,
+  simulationId: string,
+  asOfTradeDate: string,
+  roster: readonly RosterStream[],
+): Promise<StreamDue[]> {
+  if (roster.length === 0) return [];
+  const states = await loadStreamStates(client, simulationId);
+  const lastByKey = new Map(states.map((state) => [streamAgentKey(state), state.lastTradeDate]));
+  const lastDates = roster.map((entry) => lastByKey.get(entry.agentKey) ?? null);
+  const known = lastDates.filter((value): value is string => value !== null);
+  const earliest = known.reduce<string | null>(
+    (min, value) => (min === null || value < min ? value : min),
+    null,
+  );
+  const calendar =
+    earliest === null ? [] : await loadTradingDatesBetween(client, earliest, asOfTradeDate);
+  return roster.map((entry, index) => {
+    const lastTradeDate = lastDates[index];
+    const tradingDaysSinceLastDecision =
+      lastTradeDate === null ? null : calendar.filter((date) => date > lastTradeDate).length;
+    return {
+      ...entry,
+      lastTradeDate,
+      tradingDaysSinceLastDecision,
+      due: isDecisionDue({ window: entry.window, tradingDaysSinceLastDecision }),
+    };
+  });
+}
+
+/** One agent's orchestration status in a round, or undefined when it has no row. */
+export async function loadAgentProgressStatus(
+  client: Queryable,
+  roundId: string,
+  agentKey: string,
+): Promise<RoundAgentStatus | undefined> {
+  const [row] = await client
+    .select({ status: roundAgentProgress.status })
+    .from(roundAgentProgress)
+    .where(and(eq(roundAgentProgress.roundId, roundId), eq(roundAgentProgress.agentKey, agentKey)))
+    .limit(1);
+  return row?.status;
 }
 
 /** The simulation row, or `undefined` when the simId is unknown. */

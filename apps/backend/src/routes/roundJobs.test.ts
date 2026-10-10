@@ -12,6 +12,7 @@ import {
   parsePatchRoundJobBody,
   parsePutAgentProgressBody,
   parseStartRoundBody,
+  statusForAgent,
   toRoundAgentProgressWire,
   toRoundJobWire,
 } from "./roundJobs.js";
@@ -130,7 +131,9 @@ describe("parsePatchRoundJobBody", () => {
   });
 
   it("rejects an unknown status and a non-string error", () => {
-    expect(() => parsePatchRoundJobBody({ status: "cancelled" })).toThrow(/body.status must be one of/);
+    expect(() => parsePatchRoundJobBody({ status: "cancelled" })).toThrow(
+      /body.status must be one of/,
+    );
     expect(() => parsePatchRoundJobBody({ status: "done", error: 5 })).toThrow(/body.error/);
   });
 });
@@ -159,8 +162,9 @@ describe("parsePutAgentProgressBody", () => {
   });
 
   it("drops an unparseable timestamp instead of writing Invalid Date", () => {
-    expect(parsePutAgentProgressBody({ status: "running", startedAt: "not-a-date" }).startedAt)
-      .toBeUndefined();
+    expect(
+      parsePutAgentProgressBody({ status: "running", startedAt: "not-a-date" }).startedAt,
+    ).toBeUndefined();
   });
 
   it("rejects an unknown agent status", () => {
@@ -169,10 +173,33 @@ describe("parsePutAgentProgressBody", () => {
     );
   });
 
+  it("accepts the not_due cadence status", () => {
+    expect(parsePutAgentProgressBody({ status: "not_due" }).status).toBe("not_due");
+  });
+
   it("rejects non-integer counters", () => {
     expect(() => parsePutAgentProgressBody({ status: "inserted", runId: 1.5 })).toThrow(/runId/);
     expect(() => parsePutAgentProgressBody({ status: "inserted", picks: "3" })).toThrow(/picks/);
     expect(() => parsePutAgentProgressBody({ status: "inserted", attempts: null })).not.toThrow();
+  });
+});
+
+describe("statusForAgent", () => {
+  it("stamps a due stream pending and a not-due stream not_due", () => {
+    const due = new Map<string, boolean>([
+      ["dr-value--daily", true],
+      ["dr-value--weekly", false],
+    ]);
+    expect(statusForAgent("dr-value--daily", due)).toBe("pending");
+    expect(statusForAgent("dr-value--weekly", due)).toBe("not_due");
+  });
+
+  it("launches an agent whose window cannot be decoded", () => {
+    expect(statusForAgent("dr-value", new Map())).toBe("pending");
+  });
+
+  it("launches an agent missing from the due map rather than skipping it", () => {
+    expect(statusForAgent("dr-macro--monthly", new Map())).toBe("pending");
   });
 });
 

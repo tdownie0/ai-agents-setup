@@ -27,7 +27,7 @@ import {
 } from "../src/agents.js";
 import { createBackendClient, BackendError } from "../src/backendClient.js";
 import { loadConfig, parsePositiveInt, ConfigError } from "../src/config.js";
-import { runPool } from "../src/jobs.js";
+import { runPool, selectDueJobs } from "../src/jobs.js";
 import {
   createRoundStore,
   deriveFinalStatus,
@@ -268,6 +268,52 @@ describe("deriveFinalStatus", () => {
   it("is error when an agent never ran", () => {
     expect(deriveFinalStatus([{ status: "inserted" }, { status: "pending" }])).toBe("partial");
     expect(deriveFinalStatus([])).toBe("error");
+  });
+
+  it("treats a not-due stream as settled success, not failure", () => {
+    expect(deriveFinalStatus([{ status: "not_due" }, { status: "not_due" }])).toBe("done");
+    expect(deriveFinalStatus([{ status: "inserted" }, { status: "not_due" }])).toBe("done");
+  });
+
+  it("still reports partial when a not-due stream sits beside a real failure", () => {
+    expect(deriveFinalStatus([{ status: "not_due" }, { status: "failed" }])).toBe("partial");
+    expect(deriveFinalStatus([{ status: "not_due" }, { status: "running" }])).toBe("partial");
+  });
+});
+
+describe("selectDueJobs", () => {
+  const jobs = [
+    { agentKey: "dr-value--daily" },
+    { agentKey: "dr-value--weekly" },
+    { agentKey: "dr-macro--monthly" },
+  ];
+
+  it("keeps only the streams the gate left pending", () => {
+    expect(
+      selectDueJobs(jobs, [
+        { agentKey: "dr-value--daily", status: "pending" },
+        { agentKey: "dr-value--weekly", status: "not_due" },
+        { agentKey: "dr-macro--monthly", status: "not_due" },
+      ]),
+    ).toEqual([{ agentKey: "dr-value--daily" }]);
+  });
+
+  it("returns every job when every stream is due", () => {
+    expect(
+      selectDueJobs(
+        jobs,
+        jobs.map((job) => ({ agentKey: job.agentKey, status: "pending" })),
+      ),
+    ).toEqual(jobs);
+  });
+
+  it("returns nothing when every stream is not due", () => {
+    expect(
+      selectDueJobs(
+        jobs,
+        jobs.map((job) => ({ agentKey: job.agentKey, status: "not_due" })),
+      ),
+    ).toEqual([]);
   });
 });
 

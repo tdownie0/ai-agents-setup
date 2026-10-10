@@ -38,6 +38,7 @@ import {
   parseWindows,
   resolveAgents,
 } from "./agents.js";
+import { selectDueJobs } from "./jobs.js";
 import { createBackendClient, BackendError, isRecord } from "./backendClient.js";
 import { createBookLoader } from "./bookLoader.js";
 import { loadConfig } from "./config.js";
@@ -257,6 +258,7 @@ server.registerTool(
     const datasetPath = datasetPathFor(cfg.worktreeSlug, roundId);
 
     let booking: RoundBooking;
+    let dueJobs = jobs;
     try {
       const launched = await store.startRound({
         roundId,
@@ -281,6 +283,10 @@ server.registerTool(
         });
       }
       booking = { simulationId: job.simulationId, roundSeq: job.roundSeq };
+      // The launch gate already decided each stream's cadence. Spawn only the
+      // streams it left `pending`; the `not_due` rest carry their book forward and
+      // are reported as settled without an agent call.
+      dueJobs = selectDueJobs(jobs, launched.agents);
     } catch (err) {
       if (err instanceof RoundAlreadyLaunchedError) {
         return toolText({
@@ -312,7 +318,7 @@ server.registerTool(
               latestCloseBySymbol,
               asOfTradeDate: dataset.asOfTradeDate,
             });
-      await runAgents(roundId, jobs, dataset, { store, backend, config: cfg, bookFor, booking });
+      await runAgents(roundId, dueJobs, dataset, { store, backend, config: cfg, bookFor, booking });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await store.setRoundStatus(roundId, "error", message).catch(() => undefined);

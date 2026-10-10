@@ -36,14 +36,11 @@ import {
   validateEnvelope,
   windowFromAgentKey,
 } from "@model_md/agent-orchestrator";
-import type {
-  AnalystDataset,
-  DecisionEnvelope,
-  RoundBooking,
-} from "@model_md/agent-orchestrator";
+import type { AnalystDataset, DecisionEnvelope, RoundBooking } from "@model_md/agent-orchestrator";
 import {
   DuplicateStreamRunError,
   insertRunAndFold,
+  loadAgentProgressStatus,
   loadHeldSymbols,
   loadSimulation,
   parseEnvelopeTargets,
@@ -136,7 +133,12 @@ export function toDatasetStatusWire(input: {
 }): DatasetStatusWire {
   const coveragePct =
     input.symbols === 0 ? 0 : Math.round((input.symbolsWithData / input.symbols) * 1000) / 10;
-  return { ...input, dataReady: input.symbolsWithData > 0, coveragePct, generatedAt: new Date().toISOString() };
+  return {
+    ...input,
+    dataReady: input.symbolsWithData > 0,
+    coveragePct,
+    generatedAt: new Date().toISOString(),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -160,12 +162,17 @@ async function queryDatasetCounts(
 
 const DATASET_SCHEMA_VERSION = 1 as const;
 
-export async function loadDatasetForRound(roundsDir: string, roundId: string): Promise<AnalystDataset> {
+export async function loadDatasetForRound(
+  roundsDir: string,
+  roundId: string,
+): Promise<AnalystDataset> {
   let raw: string;
   try {
     raw = await readFile(join(roundsDir, roundId, "dataset.json"), "utf8");
   } catch {
-    throw new Error(`dataset for round "${roundId}" not found — POST /api/portfolio/rounds/${roundId}/dataset first`);
+    throw new Error(
+      `dataset for round "${roundId}" not found — POST /api/portfolio/rounds/${roundId}/dataset first`,
+    );
   }
   let parsed: unknown;
   try {
@@ -266,7 +273,9 @@ const messageOf = (err: unknown): string => (err instanceof Error ? err.message 
 const roundsApp = new Hono()
   .get("/dataset-status", async (c) => {
     const { symbolsWithData, asOfTradeDate } = await queryDatasetCounts(db);
-    return c.json(toDatasetStatusWire({ symbols: DEFAULT_UNIVERSE.length, symbolsWithData, asOfTradeDate }));
+    return c.json(
+      toDatasetStatusWire({ symbols: DEFAULT_UNIVERSE.length, symbolsWithData, asOfTradeDate }),
+    );
   })
 
   .post("/rounds/:roundId/dataset", async (c) => {
@@ -303,7 +312,10 @@ const roundsApp = new Hono()
       return c.json(dataset);
     } catch (err) {
       return c.json(
-        { error: messageOf(err), hint: `POST /api/portfolio/rounds/${roundId}/dataset to build it` },
+        {
+          error: messageOf(err),
+          hint: `POST /api/portfolio/rounds/${roundId}/dataset to build it`,
+        },
         404,
       );
     }
@@ -382,7 +394,10 @@ const roundsApp = new Hono()
       dataset = await loadDatasetForRound(resolveRoundsDir(), roundId);
     } catch (err) {
       return c.json(
-        { error: messageOf(err), hint: `POST /api/portfolio/rounds/${roundId}/dataset to build it` },
+        {
+          error: messageOf(err),
+          hint: `POST /api/portfolio/rounds/${roundId}/dataset to build it`,
+        },
         409,
       );
     }
@@ -401,8 +416,7 @@ const roundsApp = new Hono()
       streamHint !== null && booking.kind === "chained"
         ? { ...streamHint, simulationId: booking.simulationId }
         : streamHint;
-    const heldSymbols =
-      heldKey === null ? new Set<string>() : await loadHeldSymbols(db, heldKey);
+    const heldSymbols = heldKey === null ? new Set<string>() : await loadHeldSymbols(db, heldKey);
     let envelope: DecisionEnvelope;
     try {
       envelope = validateEnvelope(body.envelope, {
@@ -466,6 +480,22 @@ const roundsApp = new Hono()
         }
         return c.json({ error: messageOf(err) }, 500);
       }
+    }
+
+    // Cadence backstop: the launch gate stamps streams whose window has not
+    // elapsed as `not_due`, and the orchestrator must not have spawned them. If
+    // one posts anyway, refuse before any fold, so a stream can never advance its
+    // book ahead of its own review cadence.
+    const agentStatus = await loadAgentProgressStatus(db, roundId, envelope.agent.agentKey);
+    if (agentStatus === "not_due") {
+      return c.json(
+        {
+          error: `agent "${envelope.agent.agentKey}" is not due to rebalance for its ${envelope.agent.window} window at ${booking.asOfTradeDate}`,
+          code: "NOT_DUE",
+          hint: "This stream carries its book forward until its cadence window elapses; it decides on a later round.",
+        },
+        409,
+      );
     }
 
     // A chained round: the run row and the state advance commit together, or the
@@ -533,7 +563,12 @@ const roundsApp = new Hono()
         },
       });
       return c.json(
-        { ok: true, agentRunId: inserted.agentRunId, positionsInserted: inserted.positionsInserted, state: inserted.state },
+        {
+          ok: true,
+          agentRunId: inserted.agentRunId,
+          positionsInserted: inserted.positionsInserted,
+          state: inserted.state,
+        },
         201,
       );
     } catch (err) {

@@ -346,10 +346,10 @@ Frontend  PortfolioLeaderboard → PortfolioDetail → EquityChart (SVG, no char
 
 #### Database schema (`packages/database/src/schema/portfolio.ts`, migration `0002_married_thanos.sql`)
 
-| Table                  | Purpose                                                                                                                          | Key constraints                                                                                                                                                                                                 |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent_runs`           | One analyst subagent's decision per simulation round.                                                                            | Serial PK; unique index `agent_runs_round_id_agent_key_unique_idx` on `(round_id, agent_key)`; `replicate_of` self-reference for consistency replicas; `window` typed `daily`/`weekly`/`monthly`; `status` typed `pending`/`completed`/`failed` (default `completed`) |
-| `portfolio_positions`  | One equal-weight pick per run, with the entry fill at decision-time close.                                                      | Serial PK; FK to `agent_runs.id` with `ON DELETE cascade`; unique index `portfolio_positions_agent_run_id_symbol_unique_idx` on `(agent_run_id, symbol)`; `shares` = `initialCapital × targetWeight / entryPrice` (fractional shares allowed) |
+| Table                 | Purpose                                                                    | Key constraints                                                                                                                                                                                                                                                       |
+| --------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent_runs`          | One analyst subagent's decision per simulation round.                      | Serial PK; unique index `agent_runs_round_id_agent_key_unique_idx` on `(round_id, agent_key)`; `replicate_of` self-reference for consistency replicas; `window` typed `daily`/`weekly`/`monthly`; `status` typed `pending`/`completed`/`failed` (default `completed`) |
+| `portfolio_positions` | One equal-weight pick per run, with the entry fill at decision-time close. | Serial PK; FK to `agent_runs.id` with `ON DELETE cascade`; unique index `portfolio_positions_agent_run_id_symbol_unique_idx` on `(agent_run_id, symbol)`; `shares` = `initialCapital × targetWeight / entryPrice` (fractional shares allowed)                         |
 
 `agent_runs` carries the run identity and decision: `id`, `agent_key`, `persona`, `strategy`, `window`, `replicate_of`, `round_id`, `initial_capital`, `rationale`, `decision_json`, `status`, and timestamps. The performance metrics `current_value`, `total_return_pct`, `sharpe`, `max_drawdown_pct`, and `as_of_trade_date` are derived by the backend ranking engine from the equity series; they are never stored. `portfolio_positions` stores the entry fill: `id`, `run_id`, `symbol`, `target_weight`, `shares`, `entry_trade_date`, `entry_price`. The marks `name`, `latest_trade_date`, `latest_price`, `value`, and `unrealized_pnl_pct` are computed in the route layer from `daily_prices`.
 
@@ -357,12 +357,12 @@ Drizzle relations (`relations.ts`) wire `agent_runs → many portfolio_positions
 
 #### Backend engine (`apps/backend/src/portfolio/`)
 
-| Module        | Role                                                                                                                                                                                                                                                          |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`    | Wire types: `EquityPoint`, `RankingResult`, `REBALANCE_CADENCE` (daily=1, weekly=5, monthly=21), and `parseNumeric` (DB numeric strings parsed to JS numbers at the edge)                                                                                      |
-| `valuation.ts`| `computeEquitySeries`: shares = `initialCapital × targetWeight / entryPrice`; `entryTradeDate` = the latest `trade_date`; `entryPrice` = that day's close; rebalance to equal target weights every Nth trading day (daily=1, weekly=5, monthly=21); total value preserved by construction |
-| `ranking.ts`  | `computeRanking`: total-return-based ranking with Sharpe (mean/stdev × √252, rf=0) and max drawdown (negative %)                                                                                |
-| `index.ts`    | `PortfolioEngine` orchestrator: read-only query helpers (`loadRunsForLeaderboard`, `loadRunById`, `loadPositionsForRuns`, `loadBarsForRuns`). The engine never writes; the orchestrator owns ingest |
+| Module         | Role                                                                                                                                                                                                                                                                                      |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`     | Wire types: `EquityPoint`, `RankingResult`, `REBALANCE_CADENCE` (daily=1, weekly=5, monthly=21), and `parseNumeric` (DB numeric strings parsed to JS numbers at the edge)                                                                                                                 |
+| `valuation.ts` | `computeEquitySeries`: shares = `initialCapital × targetWeight / entryPrice`; `entryTradeDate` = the latest `trade_date`; `entryPrice` = that day's close; rebalance to equal target weights every Nth trading day (daily=1, weekly=5, monthly=21); total value preserved by construction |
+| `ranking.ts`   | `computeRanking`: total-return-based ranking with Sharpe (mean/stdev × √252, rf=0) and max drawdown (negative %)                                                                                                                                                                          |
+| `index.ts`     | `PortfolioEngine` orchestrator: read-only query helpers (`loadRunsForLeaderboard`, `loadRunById`, `loadPositionsForRuns`, `loadBarsForRuns`). The engine never writes; the orchestrator owns ingest                                                                                       |
 
 Routes live in `apps/backend/src/routes/portfolio.ts`, mounted `.route("/portfolio", portfolioHandler)` in `apps/backend/src/index.ts`. The backend suite is 19/19 vitest tests passing, tsc clean.
 
@@ -372,10 +372,10 @@ Routes live in `apps/backend/src/routes/portfolio.ts`, mounted `.route("/portfol
 
 Both routes are public reads (no auth), consistent with the market-data reads. Wire convention: portfolio values are computed numbers, so they go out as JSON numbers (unlike raw OHLC bars, which stay strings). The contract is frozen by gate `contract-portfolio-api`.
 
-| Method | Path                          | Auth | Request                                        | Response                                                                                                                                                                                                                                                                                                                                 | Status codes                                                                                     |
-| ------ | ----------------------------- | ---- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| GET    | `/api/portfolio/leaderboard`  | none | optional `?round=<id>`; default latest round   | array sorted DESC by `totalReturnPct`: `[{ runId, agentKey, persona, strategy, window, replicateOf, roundId, initialCapital, currentValue, totalReturnPct, sharpe, maxDrawdownPct, asOfTradeDate, status }]`                                                                                                                             | 200 (empty array when no completed runs)                                                          |
-| GET    | `/api/portfolio/agents/:id`   | none | none                                           | `{ runId, agentKey, persona, strategy, window, replicateOf, roundId, initialCapital, currentValue, totalReturnPct, sharpe, maxDrawdownPct, asOfTradeDate, status, rationale, decisionJson, positions: [{ symbol, name, targetWeight, shares, entryTradeDate, entryPrice, latestTradeDate, latestPrice, value, unrealizedPnlPct }], equitySeries: [{ tradeDate, totalValue, returnPct, cash, holdingsValue }] }` | 200; 400 `{ error, hint }` bad id; 404 `{ error, hint }` missing or not completed                 |
+| Method | Path                         | Auth | Request                                      | Response                                                                                                                                                                                                                                                                                                                                                                                                        | Status codes                                                                      |
+| ------ | ---------------------------- | ---- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| GET    | `/api/portfolio/leaderboard` | none | optional `?round=<id>`; default latest round | array sorted DESC by `totalReturnPct`: `[{ runId, agentKey, persona, strategy, window, replicateOf, roundId, initialCapital, currentValue, totalReturnPct, sharpe, maxDrawdownPct, asOfTradeDate, status }]`                                                                                                                                                                                                    | 200 (empty array when no completed runs)                                          |
+| GET    | `/api/portfolio/agents/:id`  | none | none                                         | `{ runId, agentKey, persona, strategy, window, replicateOf, roundId, initialCapital, currentValue, totalReturnPct, sharpe, maxDrawdownPct, asOfTradeDate, status, rationale, decisionJson, positions: [{ symbol, name, targetWeight, shares, entryTradeDate, entryPrice, latestTradeDate, latestPrice, value, unrealizedPnlPct }], equitySeries: [{ tradeDate, totalValue, returnPct, cash, holdingsValue }] }` | 200; 400 `{ error, hint }` bad id; 404 `{ error, hint }` missing or not completed |
 
 Notes on the implementation (`apps/backend/src/routes/portfolio.ts`):
 
@@ -387,14 +387,14 @@ Notes on the implementation (`apps/backend/src/routes/portfolio.ts`):
 
 ### 10.4 Orchestrator (`packages/agent-orchestrator/`)
 
-| Module        | Role                                                                                                                                                                                                                                                          |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `personas.ts` | Six Ph.D-level analyst personas (Dr. Value, Dr. Momentum, Dr. Contrarian, Dr. Macro, Dr. Compounder, Dr. Technical), each with a distinct methodology, risk stance, and rebalance window; prompts written to diverge                                          |
-| `dataset.ts`  | Builds a self-contained `rounds/<roundId>/dataset.json` from `daily_prices`: per-symbol returns, volatility21d, RSI-14, SMAs, 52-week range, avg dollar volume. The analyst never touches the DB; dataset.json is the only truth                                  |
-| `contract.ts` | The agent-decision contract: `DecisionEnvelope` (schemaVersion 1, roundId, agent, rationale, picks[5-10]) with `validateEnvelope` as the single gate; anything that passes is insertable and valuatable                                                          |
-| `spawn.ts`    | Spawns each analyst headlessly via `opencode run --format json`, parses the NDJSON stdout stream, extracts the JSON envelope, validates it, and retries once with a correction hint on failure |
-| `insert.ts`   | Inserts one validated envelope in a transaction: one `agent_runs` row plus one `portfolio_positions` row per pick with entry fills; `DuplicateRunError` on an existing `(roundId, agentKey)`    |
-| `cli.ts` / `args.ts` | CLI entrypoint `pnpm agents:run -- --round <roundId>`; the only module that reads `process.env` / `process.argv`; pure arg parsing kept import-free for tests                                     |
+| Module               | Role                                                                                                                                                                                                                             |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `personas.ts`        | Six Ph.D-level analyst personas (Dr. Value, Dr. Momentum, Dr. Contrarian, Dr. Macro, Dr. Compounder, Dr. Technical), each with a distinct methodology, risk stance, and rebalance window; prompts written to diverge             |
+| `dataset.ts`         | Builds a self-contained `rounds/<roundId>/dataset.json` from `daily_prices`: per-symbol returns, volatility21d, RSI-14, SMAs, 52-week range, avg dollar volume. The analyst never touches the DB; dataset.json is the only truth |
+| `contract.ts`        | The agent-decision contract: `DecisionEnvelope` (schemaVersion 1, roundId, agent, rationale, picks[5-10]) with `validateEnvelope` as the single gate; anything that passes is insertable and valuatable                          |
+| `spawn.ts`           | Spawns each analyst headlessly via `opencode run --format json`, parses the NDJSON stdout stream, extracts the JSON envelope, validates it, and retries once with a correction hint on failure                                   |
+| `insert.ts`          | Inserts one validated envelope in a transaction: one `agent_runs` row plus one `portfolio_positions` row per pick with entry fills; `DuplicateRunError` on an existing `(roundId, agentKey)`                                     |
+| `cli.ts` / `args.ts` | CLI entrypoint `pnpm agents:run -- --round <roundId>`; the only module that reads `process.env` / `process.argv`; pure arg parsing kept import-free for tests                                                                    |
 
 Flow: build dataset → spawn agents (parallel, capped at `--max-parallel 3`) → validate → insert each → print a summary table. A multi-agent round is tracked as a swarm: epic `model_md-worktree-feat-portfolio-sim-dkq` wraps beads task ez8. The orchestrator suite is 54/54 vitest tests passing, tsc clean. Gate `contract-agent-decision`.
 
@@ -402,12 +402,12 @@ Flow: build dataset → spawn agents (parallel, capped at `--max-parallel 3`) �
 
 ### 10.5 Frontend (`apps/frontend/src/components/portfolio/`)
 
-| Component                  | Role                                                                                                                                                                                                                                                          |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PortfolioLeaderboard.tsx` | Ranked table (rank, agent, strategy, window, current value, total return, Sharpe, max drawdown, as-of); loading / empty / error+retry states; replica badge; row click drills into the run      |
-| `PortfolioDetail.tsx`      | Agent card with stats, rationale, positions table, EquityChart, back link; friendly 400/404 errors rendered from `{ error, hint }`                                                                                                                             |
-| `EquityChart.tsx`          | Hand-rolled SVG area/line chart, no chart dependencies; scales `returnPct` with a dashed zero line and gridlines                                                                                |
-| `format.ts`                | `formatCurrency`, `formatPct`, `formatWindow` helpers                                                                                                                                                                                                          |
+| Component                  | Role                                                                                                                                                                                       |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `PortfolioLeaderboard.tsx` | Ranked table (rank, agent, strategy, window, current value, total return, Sharpe, max drawdown, as-of); loading / empty / error+retry states; replica badge; row click drills into the run |
+| `PortfolioDetail.tsx`      | Agent card with stats, rationale, positions table, EquityChart, back link; friendly 400/404 errors rendered from `{ error, hint }`                                                         |
+| `EquityChart.tsx`          | Hand-rolled SVG area/line chart, no chart dependencies; scales `returnPct` with a dashed zero line and gridlines                                                                           |
+| `format.ts`                | `formatCurrency`, `formatPct`, `formatWindow` helpers                                                                                                                                      |
 
 Wire types `ApiLeaderboardRow` and `ApiAgentDetail` are derived via `InferResponseType` in `apps/frontend/src/lib/api.ts`, the centralized Hono client (no raw fetch). `App.tsx` is session-gated with Portfolio/Users tab navigation (default Portfolio view) and lightweight `selectedRunId` routing; deliberately no react-router. Gate `ui-contract-portfolio`.
 
@@ -445,15 +445,15 @@ Wire types `ApiLeaderboardRow` and `ApiAgentDetail` are derived via `InferRespon
 ### Overview
 
 A **simulation** owns a persistent book; a **round** is one dated decision step inside it. Until now
-the Streams board could only show the *current* book, so there was no way to inspect what the board
+the Streams board could only show the _current_ book, so there was no way to inspect what the board
 looked like at an earlier chain position. This adds a round list plus a per-round snapshot read, and a
 dropdown to select among them.
 
 ### 11.1 API contract
 
-| Route | Returns |
-| --- | --- |
-| `GET /portfolio/simulations/:simId/rounds` | `{ roundId, roundSeq, asOfTradeDate \| null, status, runCount }[]`, ordered by `roundSeq` ASC |
+| Route                                                | Returns                                                                                            |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `GET /portfolio/simulations/:simId/rounds`           | `{ roundId, roundSeq, asOfTradeDate \| null, status, runCount }[]`, ordered by `roundSeq` ASC      |
 | `GET /portfolio/simulations/:simId/rounds/:roundSeq` | `{ simulationId, roundId, roundSeq, decideTradeDate, basisCapital, streams: StreamSummaryWire[] }` |
 
 `snapshot.streams` has the **same element shape** as the existing
@@ -466,7 +466,7 @@ dropdown to select among them.
 The obvious design is a per-round position snapshot table. This deliberately does **not** add one.
 
 `planChainRebuild` already replays a stream's whole chain from round 1 and is pure — the fold is
-forward-only and deterministic, so replaying a *prefix* of rounds reproduces exactly the book in force
+forward-only and deterministic, so replaying a _prefix_ of rounds reproduces exactly the book in force
 after that round. A snapshot is therefore just:
 
 ```
@@ -488,7 +488,7 @@ trading days (small), and the read is pure — no writes, no locks, no transacti
   It never held a position, so nothing was lost. The alternative would make an early round look like a
   total loss for every stream that joined later.
 - **Rounds are ordered by `round_seq`, never `created_at`.** With 18 agents inserting concurrently,
-  `created_at` is insertion *finish* time, so it would rank by whichever agent happened to write last.
+  `created_at` is insertion _finish_ time, so it would rank by whichever agent happened to write last.
   A unique index on `(simulation_id, round_seq)` makes `round_seq` a total order.
 - **Undated rounds stay in the list.** A round booked but never reached a dataset date is surfaced with
   `asOfTradeDate: null` rather than filtered out, so it cannot silently vanish from the history.
@@ -544,3 +544,63 @@ self-corrects, so an `AbortController` was judged not worth the added state.
 
 - **Epic**: `model_md-worktree-feat-portfolio-sim-8vg`
 - Backend task `model_md-worktree-feat-portfolio-sim-31w` — closed after commit + verify.
+
+## 12. Rebalance cadence gate
+
+### Overview
+
+Every round was spawning all 18 streams, so a `weekly`/`monthly` stream rebalanced on **every**
+daily round — its window was decorative. The fix makes the window a real decision boundary: a
+stream only decides once enough **trading days** have elapsed since its last decision.
+
+### 12.1 Decision
+
+The gate lives in the **backend launch path**, not the orchestrator. The orchestrator runs as a
+throwaway `docker run --rm -i` container per tool call, so any gate it owned would be bypassable and
+non-durable. The launch gate is server-side and writes the per-stream disposition in the **same
+transaction** as the `round_jobs` row.
+
+### 12.2 Mechanics
+
+- **`computeRosterDue`** (`apps/backend/src/portfolio/carryoverStore.ts`) counts trading days since
+  each stream's last decision from the price calendar (`loadTradingDatesBetween`) — the same
+  calendar the fold marks against, so weekends and holidays never advance the count. The calendar is
+  loaded **once** for the whole roster, not per stream.
+- **`isDecisionDue`** (`carryover.ts`) applies `REBALANCE_CADENCE` (daily = 1, weekly = 5,
+  monthly = 21 trading days). `null` (a stream's first round) is always due.
+- **`round_agent_progress.status`** gains a **`not_due`** value (TS union only; the column is `text`,
+  so no migration). A `not_due` stream is stamped in the launch transaction and **not spawned**; the
+  orchestrator filters it out via **`selectDueJobs`** (`jobs.ts`).
+- **`deriveFinalStatus`** treats `not_due` as settled success — an all-`not_due` round is `done`,
+  never `error`/`partial`.
+- **Backstop**: `POST /portfolio/runs` returns **409 `NOT_DUE`** if a stream the gate marked
+  `not_due` posts a run anyway, so a book can never advance ahead of its cadence.
+- **Takeover / replace bypass** the gate: they are deliberate re-runs, and the stream's state still
+  shows the round's own date (0 trading days), so without the bypass nothing would re-launch.
+- **Equity marking** stays lazy: a carried stream's mark is back-filled across gap days by
+  `computeChainEquitySeries` when it next decides. The UI's existing `behind` affordance
+  (`StreamBoard.tsx`) is the honest read-side signal; no mark-only fold was added, because that
+  would introduce a second writer and break the single-writer invariant.
+
+### 12.3 Supersedes the earlier spec
+
+This reverses **§R1** and uncertainty #2 of `.agents/portfolio-carryover-spec.md`, which chose
+"cadence is advisory; all 18 run every round." That choice was falsified empirically — weekly/monthly
+streams rebalanced daily. The 18-wide persona×window roster is retained; only the **disposition** of
+a non-due stream changed (skip, not decide).
+
+### 12.4 Verification
+
+- `tsc --build` clean on the changed packages.
+- `roundJobs.test.ts` (23), `carryover.test.ts`, and `orchestrator.test.ts` green, including new
+  cases for `statusForAgent`, `selectDueJobs`, and `deriveFinalStatus` with `not_due`.
+- **Not covered:** the DB-touching `computeRosterDue` / launch-gate paths are exercised by the
+  feature lifecycle (`execute_lifecycle(action="verify")`), not by the shell — the agent container
+  cannot reach the database directly.
+
+### 12.5 Beads
+
+- **Epic**: `model_md-worktree-feat-portfolio-sim-ii8`
+- `ii8.1`–`ii8.5`, `ii8.7`: schema, launch gate, 409 backstop, orchestrator status/filter, tests.
+- `ii8.6` (frontend): no change required — the `behind` indicator already reflects a carried book.
+- `ii8.8`: lifecycle verify.

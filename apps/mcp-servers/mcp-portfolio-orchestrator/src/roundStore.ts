@@ -15,7 +15,7 @@
 import type { BackendClient } from "./backendClient.js";
 
 export type RoundJobStatus = "launching" | "running" | "done" | "partial" | "error";
-export type RoundAgentStatus = "pending" | "running" | "inserted" | "failed";
+export type RoundAgentStatus = "pending" | "running" | "inserted" | "failed" | "not_due";
 
 export interface RoundJobWire {
   roundId: string;
@@ -74,9 +74,11 @@ export function deriveFinalStatus(
   agents: readonly Pick<RoundAgentProgressWire, "status">[],
 ): RoundJobStatus {
   if (agents.length === 0) return "error";
-  const inserted = agents.filter((a) => a.status === "inserted").length;
+  // `inserted` and `not_due` are both settled-success: a not-due stream was
+  // deliberately not spawned, so it must not drag the round to `partial`/`error`.
+  const settled = agents.filter((a) => a.status === "inserted" || a.status === "not_due").length;
   const failed = agents.filter((a) => a.status === "failed").length;
-  if (inserted === agents.length) return "done";
+  if (settled === agents.length) return "done";
   if (failed === agents.length) return "error";
   return "partial";
 }
