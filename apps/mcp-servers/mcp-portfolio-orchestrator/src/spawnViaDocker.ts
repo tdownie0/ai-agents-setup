@@ -56,6 +56,13 @@ export interface SpawnViaDockerOptions extends ValidateEnvelopeOptions {
    * first — so they must come from the launch booking, never be assumed.
    */
   roundSeq?: number;
+  /**
+   * The simulation the launch booked this round under (from the booking row,
+   * not the body). Must be forwarded to the prompt: without it the prompt falls
+   * back to `sim-baseline` and the backend's anti-drift check rejects every
+   * envelope against the booked simulation. Undefined means a standalone round.
+   */
+  simulationId?: string;
   priorRoundId?: string | null;
   cash?: number;
   holdingsValue?: number;
@@ -206,6 +213,7 @@ export async function spawnAnalystWithExec(
       portfolioValue: opts.portfolioValue,
       holdings: opts.holdings,
       roundSeq: opts.roundSeq,
+      simulationId: opts.simulationId,
       priorRoundId: opts.priorRoundId,
       cash: opts.cash,
       holdingsValue: opts.holdingsValue,

@@ -553,6 +553,7 @@ describe("runAgents (durable progress)", () => {
     } as never;
     const seen: {
       roundSeq: number;
+      simulationId: string | undefined;
       priorRoundId: string | null;
       cash: number;
       holdingsValue: number;
@@ -568,6 +569,7 @@ describe("runAgents (durable progress)", () => {
       spawn: (async (opts: {
         agentKey: string;
         roundSeq: number;
+        simulationId: string | undefined;
         priorRoundId: string | null;
         cash: number;
         holdingsValue: number;
@@ -575,6 +577,7 @@ describe("runAgents (durable progress)", () => {
       }) => {
         seen.push({
           roundSeq: opts.roundSeq,
+          simulationId: opts.simulationId,
           priorRoundId: opts.priorRoundId,
           cash: opts.cash,
           holdingsValue: opts.holdingsValue,
@@ -587,6 +590,7 @@ describe("runAgents (durable progress)", () => {
     expect(seen).toEqual([
       {
         roundSeq: 7,
+        simulationId: "sim-1",
         priorRoundId: "w6",
         cash: 85840,
         holdingsValue: 120 * 118,

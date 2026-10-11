@@ -157,6 +157,7 @@ async function runOneAgent(roundId: string, job: AgentJob, ctx: RunOneContext): 
       holdings: book.holdings,
       heldSymbols: book.heldSymbols,
       roundSeq: booking.roundSeq,
+      simulationId: booking.simulationId ?? undefined,
       priorRoundId: book.priorRoundId,
       cash: book.cash,
       holdingsValue: book.holdingsValue,
