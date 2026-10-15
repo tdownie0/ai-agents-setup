@@ -107,6 +107,8 @@ registry:
         description: "Reads the round dataset, spawns analyst subagents, collects their envelopes, and inserts them into the backend run API."
       - name: get_round_status
         description: "Returns the current job status of a running round, including per-agent progress and inserted run ids."
+      - name: run_eval_period
+        description: "Walk-forward as-of replay: for each trade date in a window, skip dates where no selected stream is due and otherwise launch a pinned round sequentially, stopping at the first refused date."
 
   git-orchestrator:
     title: "Git Worktree Orchestrator"

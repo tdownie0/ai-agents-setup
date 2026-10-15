@@ -43,6 +43,8 @@ import { createBackendClient, BackendError, isRecord } from "./backendClient.js"
 import { createBookLoader } from "./bookLoader.js";
 import { loadConfig } from "./config.js";
 import type { OrchestratorConfig } from "./config.js";
+import { runEvalPeriod } from "./evalPeriod.js";
+import { RERUN_ACTIONS } from "./rerunActions.js";
 import { createRoundStore, RoundAlreadyLaunchedError } from "./roundStore.js";
 import type { RoundStateWire } from "./roundStore.js";
 import { createSimulationStore } from "./simulationStore.js";
@@ -68,23 +70,6 @@ interface DatasetStatusWire {
 function toolText(payload: unknown): { content: [{ type: "text"; text: string }] } {
   return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
 }
-
-/**
- * Next step for each carryover rerun code. The backend already supplies a `hint`,
- * but these say what to CHANGE, which is the question a caller actually has when a
- * launch is refused.
- */
-const RERUN_ACTIONS: Readonly<Record<string, string>> = {
-  SAME_TRADE_DATE:
-    "That trade date already has a round still running. Wait for it via get_round_status, or re-launch with takeover=true to reset that round.",
-  ROUND_ALREADY_COMPLETE:
-    "That trade date's round is already finished. Use replace=true to deliberately discard its decisions and re-decide, or launch a later trade date.",
-  STALE_TRADE_DATE:
-    "There is no newer price data than the stream's last mark, so a round would decide on a date it has already passed. Ingest market data for a later date, then relaunch.",
-  OUT_OF_SEQUENCE:
-    "The requested date is at or before the stream's last applied round_seq, and the fold is forward-only. Launch a later date, or use replace=true to re-decide that date deliberately.",
-  UNKNOWN_SIMULATION: "Create the simulation before launching a round into it.",
-};
 
 function toolError(err: unknown): { content: [{ type: "text"; text: string }] } {
   const message = err instanceof Error ? err.message : String(err);
@@ -404,6 +389,61 @@ server.registerTool(
       agents: state.agents,
       backendRuns,
     });
+  },
+);
+
+server.registerTool(
+  "run_eval_period",
+  {
+    description:
+      "Drive a walk-forward as-of replay of a carryover simulation over a historical window: fetch the window's trade dates, and for each date in ascending order recompute which selected persona x window streams are due (rebalance cadence in trading days: daily=1, weekly=5, monthly=21; a stream's first round is always due). Dates where no selected stream is due are skipped without booking a round. On a due date, launch a pinned round (roundId `eval-<simId>-<date>`, asOfTradeDate=<date>) with the same flow as start_agent_round — sequentially: each round is fully awaited before the next date is evaluated, and due-ness is recomputed from fresh stream state after every booking. The walk stops at the first backend 409 (OUT_OF_SEQUENCE / STALE_TRADE_DATE / ROUND_ALREADY_COMPLETE / ...) and reports the blocking date, code, hint, and next step — the chain fold is forward-only. Returns the rounds booked ({roundId, asOfTradeDate, status, insertedRuns, totalRuns}), the skipped dates, and stoppedAt when refused. Blocks for the whole window (minutes per round x number of due dates).",
+    inputSchema: z.object({
+      simId: z
+        .string()
+        .min(1)
+        .describe(
+          "Carryover simulation to replay, created via create_simulation; must match /^sim-[a-z0-9][a-z0-9-]{0,46}$/. Round ids minted for the replay are `eval-<simId>-<YYYY-MM-DD>`.",
+        ),
+      start: z.string().min(1).describe("First candidate trade date of the window (YYYY-MM-DD)."),
+      end: z
+        .string()
+        .min(1)
+        .describe("Last candidate trade date of the window (YYYY-MM-DD), inclusive."),
+      agents: z
+        .string()
+        .optional()
+        .describe(
+          `Comma-separated persona keys, or "all". Default "all" (${AGENT_KEYS.join(", ")}). Every selected persona runs on every selected window.`,
+        ),
+      windows: z
+        .string()
+        .optional()
+        .describe(
+          `Comma-separated rebalance windows, or "all". Default "all" (${ANALYST_WINDOWS.join(", ")}).`,
+        ),
+      maxParallel: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Max simultaneous analyst subagents per round. Default 3."),
+      capital: z
+        .number()
+        .positive()
+        .optional()
+        .describe("Starting capital per analyst. Default 100000."),
+    }),
+  },
+  async ({ simId, start, end, agents, windows, maxParallel, capital }) => {
+    try {
+      const result = await runEvalPeriod(
+        { simId, start, end, agents, windows, maxParallel, capital },
+        { backend, store, config },
+      );
+      return toolText(result);
+    } catch (err) {
+      return toolError(err);
+    }
   },
 );
 
