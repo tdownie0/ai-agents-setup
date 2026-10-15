@@ -205,9 +205,25 @@ server.registerTool(
         .describe(
           "Carryover simulation id this round folds into. Without it the round is standalone (roundSeq 1, no chain). With it each persona x window stream carries its own book forward, so this must be a simulation created via POST /api/portfolio/simulations.",
         ),
+      asOfTradeDate: z
+        .string()
+        .optional()
+        .describe(
+          "Pin the round's decision date to a historical trade date (YYYY-MM-DD) for as-of replay. Omit to decide at the global latest trade_date. The dataset, entry fills, and the round booking all use this date.",
+        ),
     }),
   },
-  async ({ roundId, agents, windows, maxParallel, capital, takeover, replace, simulationId }) => {
+  async ({
+    roundId,
+    agents,
+    windows,
+    maxParallel,
+    capital,
+    takeover,
+    replace,
+    simulationId,
+    asOfTradeDate,
+  }) => {
     if (!isValidRoundId(roundId)) {
       return toolText({
         ok: false,
@@ -247,7 +263,13 @@ server.registerTool(
           hint: "Run market-data ingestion first (POST /api/market-data/ingest), then retry this tool.",
         });
       }
-      await backend.post(`/api/portfolio/rounds/${encodeURIComponent(roundId)}/dataset`);
+      // Pin the dataset build when requested; the dataset's resolved
+      // asOfTradeDate is then threaded into store.startRound below, so the
+      // booking date always matches the dataset date (POST /runs enforces this).
+      await backend.post(
+        `/api/portfolio/rounds/${encodeURIComponent(roundId)}/dataset`,
+        asOfTradeDate !== undefined ? { asOfTradeDate } : undefined,
+      );
       dataset = await backend.get<DatasetWire>(
         `/api/portfolio/rounds/${encodeURIComponent(roundId)}/dataset`,
       );

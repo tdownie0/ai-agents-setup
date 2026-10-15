@@ -23,6 +23,8 @@ import roundsApp, {
   RoundIdError,
   toDatasetStatusWire,
   toRunStatusWire,
+  parseAsOfTradeDate,
+  AsOfTradeDateError,
 } from "./rounds.js";
 import portfolioHandler from "./portfolio.js";
 
@@ -327,5 +329,35 @@ describe("rounds mount", () => {
     const app = new Hono().route("/portfolio", roundsApp);
     const res = await app.request("/portfolio/rounds/..%2F..%2Fetc/dataset", { method: "GET" });
     expect(res.status).toBe(400);
+  });
+});
+
+describe("parseAsOfTradeDate", () => {
+  it("returns undefined for absent or null values", () => {
+    expect(parseAsOfTradeDate(undefined)).toBeUndefined();
+    expect(parseAsOfTradeDate(null)).toBeUndefined();
+  });
+
+  it("accepts a strict YYYY-MM-DD string", () => {
+    expect(parseAsOfTradeDate("2026-09-22")).toBe("2026-09-22");
+    expect(parseAsOfTradeDate(" 2026-09-22 ")).toBe("2026-09-22");
+  });
+
+  it("rejects non-string values", () => {
+    expect(() => parseAsOfTradeDate(42)).toThrow(AsOfTradeDateError);
+    expect(() => parseAsOfTradeDate({})).toThrow(AsOfTradeDateError);
+    expect(() => parseAsOfTradeDate([])).toThrow(AsOfTradeDateError);
+  });
+
+  it("rejects malformed formats", () => {
+    expect(() => parseAsOfTradeDate("09/22/2026")).toThrow(AsOfTradeDateError);
+    expect(() => parseAsOfTradeDate("2026-9-22")).toThrow(AsOfTradeDateError);
+    expect(() => parseAsOfTradeDate("2026-09-2")).toThrow(AsOfTradeDateError);
+  });
+
+  it("rejects invalid calendar dates", () => {
+    expect(() => parseAsOfTradeDate("2026-02-30")).toThrow(AsOfTradeDateError);
+    expect(() => parseAsOfTradeDate("2026-13-01")).toThrow(AsOfTradeDateError);
+    expect(() => parseAsOfTradeDate("2026-00-01")).toThrow(AsOfTradeDateError);
   });
 });

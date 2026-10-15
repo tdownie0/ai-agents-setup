@@ -257,11 +257,35 @@ export interface BuildDatasetOptions {
   roundId: string;
   /** Directory that will contain `<roundId>/dataset.json`. Default "./rounds". */
   outDir?: string;
+  /**
+   * Pin the decision date to a historical trade date (strict `YYYY-MM-DD`).
+   * When set, the dataset is built as of that close instead of the global
+   * latest trade_date, so `fetchBars` masks every bar after it and all derived
+   * metrics (returns, SMA, RSI, vol, 52w range) are computed from bars ≤ the
+   * pin. Omit for the live latest date.
+   */
+  asOfTradeDate?: string;
+}
+
+const TRADE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Validate a strict `YYYY-MM-DD` trade date; throws on malformed input. */
+function parseTradeDate(raw: string): string {
+  const value = raw.trim();
+  if (!TRADE_DATE_PATTERN.test(value)) {
+    throw new Error(`asOfTradeDate "${raw}" must be a YYYY-MM-DD date`);
+  }
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+    throw new Error(`asOfTradeDate "${raw}" is not a valid calendar date`);
+  }
+  return value;
 }
 
 /**
- * Build the analyst dataset for a round: resolve the global latest
- * trade_date, compute per-symbol metrics for the full universe, persist
+ * Build the analyst dataset for a round: resolve the decision date (the pinned
+ * `asOfTradeDate`, or the global latest trade_date when omitted), compute
+ * per-symbol metrics for the full universe, persist
  * `rounds/<roundId>/dataset.json`, and return the summary.
  */
 export async function buildDataset(opts: BuildDatasetOptions): Promise<BuildDatasetResult> {
@@ -270,21 +294,37 @@ export async function buildDataset(opts: BuildDatasetOptions): Promise<BuildData
     throw new Error("roundId must be a non-empty string");
   }
 
-  const [maxRow] = await db
-    .select({ maxTradeDate: dailyPrices.tradeDate })
-    .from(dailyPrices)
-    .orderBy(desc(dailyPrices.tradeDate))
-    .limit(1);
+  const pinned = opts.asOfTradeDate === undefined ? undefined : parseTradeDate(opts.asOfTradeDate);
 
-  if (!maxRow?.maxTradeDate) {
-    throw new Error("No daily price data found — run the market-data ingestion pipeline first");
+  let asOfTradeDate: string;
+  if (pinned !== undefined) {
+    asOfTradeDate = pinned;
+  } else {
+    const [maxRow] = await db
+      .select({ maxTradeDate: dailyPrices.tradeDate })
+      .from(dailyPrices)
+      .orderBy(desc(dailyPrices.tradeDate))
+      .limit(1);
+
+    if (!maxRow?.maxTradeDate) {
+      throw new Error("No daily price data found — run the market-data ingestion pipeline first");
+    }
+    asOfTradeDate = maxRow.maxTradeDate;
   }
-  const asOfTradeDate = maxRow.maxTradeDate;
 
   const universe: AnalystSymbolMetrics[] = [];
   for (const entry of DEFAULT_UNIVERSE) {
     const bars = await fetchBars(entry.symbol, asOfTradeDate);
     universe.push(computeMetrics(entry.symbol, entry, bars));
+  }
+
+  const symbolsWithData = universe.filter((u) => u.hasData).length;
+  // A pin before every ingested bar yields an all-empty universe; refuse it the
+  // same way the empty-table path does rather than persisting a useless dataset.
+  if (pinned !== undefined && symbolsWithData === 0) {
+    throw new Error(
+      `No daily price data found on or before ${asOfTradeDate} — the pinned asOfTradeDate predates every ingested bar`,
+    );
   }
 
   const dataset: AnalystDataset = {
@@ -299,8 +339,6 @@ export async function buildDataset(opts: BuildDatasetOptions): Promise<BuildData
   const datasetPath = join(outDir, roundId, "dataset.json");
   await mkdir(join(outDir, roundId), { recursive: true });
   await writeFile(datasetPath, JSON.stringify(dataset, null, 2), "utf8");
-
-  const symbolsWithData = universe.filter((u) => u.hasData).length;
 
   return {
     dataset,

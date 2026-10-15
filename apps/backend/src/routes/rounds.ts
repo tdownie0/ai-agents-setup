@@ -45,7 +45,6 @@ import {
   loadSimulation,
   parseEnvelopeTargets,
   parseEnvelopeTheses,
-  personaKeyOf,
 } from "../portfolio/carryoverStore.js";
 import { BackdatedRoundError, type StreamKey } from "../portfolio/carryoverPlan.js";
 
@@ -70,6 +69,36 @@ export function parseRoundId(raw: unknown): string {
     );
   }
   return roundId;
+}
+
+export class AsOfTradeDateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AsOfTradeDateError";
+  }
+}
+
+const TRADE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Parse the optional `asOfTradeDate` body field of a dataset build. Absent (or
+ * null) means "use the global latest trade_date". A present value must be a
+ * strict `YYYY-MM-DD` calendar date; anything else is a 400.
+ */
+export function parseAsOfTradeDate(raw: unknown): string | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== "string") {
+    throw new AsOfTradeDateError("body.asOfTradeDate must be a YYYY-MM-DD string");
+  }
+  const value = raw.trim();
+  if (!TRADE_DATE_PATTERN.test(value)) {
+    throw new AsOfTradeDateError(`body.asOfTradeDate "${raw}" must be a YYYY-MM-DD date`);
+  }
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+    throw new AsOfTradeDateError(`body.asOfTradeDate "${raw}" is not a valid calendar date`);
+  }
+  return value;
 }
 
 /**
@@ -285,16 +314,41 @@ const roundsApp = new Hono()
     } catch (err) {
       return c.json({ error: messageOf(err) }, 400);
     }
+
+    let asOfTradeDate: string | undefined;
+    const rawBody = await c.req.text();
+    if (rawBody.trim().length > 0) {
+      let body: unknown;
+      try {
+        body = JSON.parse(rawBody);
+      } catch {
+        return c.json({ error: "request body must be valid JSON" }, 400);
+      }
+      if (!isRecord(body)) {
+        return c.json({ error: "request body must be a JSON object" }, 400);
+      }
+      try {
+        asOfTradeDate = parseAsOfTradeDate(body.asOfTradeDate);
+      } catch (err) {
+        return c.json({ error: messageOf(err) }, 400);
+      }
+    }
+
     try {
-      const { summary } = await buildDataset({ roundId, outDir: resolveRoundsDir() });
+      const { summary } = await buildDataset({
+        roundId,
+        outDir: resolveRoundsDir(),
+        ...(asOfTradeDate !== undefined ? { asOfTradeDate } : {}),
+      });
       return c.json({ ok: true, summary }, 201);
     } catch (err) {
       const message = messageOf(err);
       if (message.startsWith("No daily price data found")) {
-        return c.json(
-          { error: message, hint: "Run market-data ingestion before building a round dataset" },
-          409,
-        );
+        const hint =
+          asOfTradeDate !== undefined
+            ? `No price bars exist on or before ${asOfTradeDate}; choose a later asOfTradeDate or ingest earlier data`
+            : "Run market-data ingestion before building a round dataset";
+        return c.json({ error: message, hint }, 409);
       }
       return c.json({ error: message }, 500);
     }
