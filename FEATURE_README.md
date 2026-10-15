@@ -604,3 +604,133 @@ a non-due stream changed (skip, not decide).
 - `ii8.1`–`ii8.5`, `ii8.7`: schema, launch gate, 409 backstop, orchestrator status/filter, tests.
 - `ii8.6` (frontend): no change required — the `behind` indicator already reflects a carried book.
 - `ii8.8`: lifecycle verify.
+
+---
+
+## 13. Portfolio eval harness (as-of replay, on-read scoring, driver)
+
+### Overview
+
+The carryover chain was only ever driven forward from "today". An **eval harness** makes it possible
+to replay a simulation over an arbitrary **historical window** and score the result: rebuild each
+round's dataset as of a pinned past trade date, drive the analyst stream walk-forward across the
+window, and score the materialized equity ledger over any `[start, end]`.
+
+Three phases, all in the `feat-portfolio-sim` worktree:
+
+1. **As-of pinning** (cpn.1): thread an optional `asOfTradeDate` through the dataset build, the round
+   dataset route, and the `start_agent_round` MCP tool so a round can decide as of a historical close.
+2. **Driver** (cpn.3): a `run_eval_period` MCP tool that walks a window, skipping dates where no
+   stream is due, launching one pinned round per due date sequentially.
+3. **Scoring** (cpn.2): on-read backend routes that slice the chain ledger to a window and return
+   per-stream metrics plus an equal-weight benchmark.
+
+**Status**: COMPLETED
+**Feature Branch**: `feat-portfolio-sim`
+**Epic**: `model_md-worktree-feat-portfolio-sim-cpn`
+**Beads**: cpn.1, cpn.2, cpn.3 (closed); cpn.4 (integration/docs)
+
+### 13.1 As-of pinning (cpn.1, commit `16ec9ff`)
+
+- **`buildDataset`** (`packages/agent-orchestrator/src/dataset.ts`) gains an optional
+  `asOfTradeDate`. When set, it is validated as a strict `YYYY-MM-DD` calendar date (rollovers like
+  `2026-02-30` rejected) and used as the decision date instead of the global `MAX(trade_date)`. The
+  existing `fetchBars` already filters `trade_date <= asOf`, so every derived metric (returns, SMA,
+  RSI, volatility, 52-week range) is computed from bars at or before the pin. A pin that predates
+  every ingested bar yields an empty universe and is refused the same way the empty-table path is —
+  no useless dataset is persisted.
+- **`POST /api/portfolio/rounds/:roundId/dataset`** (`apps/backend/src/routes/rounds.ts`) accepts an
+  optional `{ asOfTradeDate }` body. `parseAsOfTradeDate` (exported, unit-tested) returns `undefined`
+  for absent/null, a validated date string otherwise, and throws `AsOfTradeDateError` → 400 for
+  anything malformed. The no-data 409 now carries a pin-aware hint
+  (`no price bars exist on or before <date>`).
+- **`start_agent_round`** (`apps/mcp-servers/mcp-portfolio-orchestrator/src/index.ts`) gains an
+  optional `asOfTradeDate` param and forwards it to the dataset POST. The dataset's **resolved**
+  `asOfTradeDate` is what is threaded into `store.startRound`, so the booking date always equals the
+  dataset date (the `POST /runs` consistency invariant is preserved).
+
+### 13.2 Driver — `run_eval_period` (cpn.3, commit `3aadf57`)
+
+An MCP tool on the portfolio-orchestrator server. Inputs: `simId`, `start`, `end`, plus the
+`start_agent_round` roster options (`agents`, `windows`, `maxParallel`, `capital`).
+
+1. Fetch the window's trade dates (`GET /api/portfolio/trading-dates`).
+2. Read each stream's last decision date from `GET /api/portfolio/simulations/:simId/streams`
+   (`lastTradeDate`) — the same field the backend's `computeRosterDue` counts from, so client and
+   launch gate agree. A stream absent from the summary has not folded yet, so its first round is due.
+3. Walk dates **ascending**; **skip** any date where no selected stream is due. Due-ness mirrors the
+   cadence: daily = 1, weekly = 5, monthly = 21 trading days in `(lastDecision, date]`. The calendar
+   is extended back to the earliest selected stream's last decision so an elapsed count never reads
+   short.
+4. On each due date, launch a **pinned round** (`roundId` `eval-<simId>-<date>`,
+   `asOfTradeDate = date`) with the same flow as `start_agent_round` (build dataset → book round →
+   run only the streams the launch gate left `pending`). Rounds run **sequentially** — a date's
+   due-ness depends on the marks the previous round wrote — and stream state is refetched after every
+   fold.
+5. **Fail-stop**: the first backend 409 (`OUT_OF_SEQUENCE` / `STALE_TRADE_DATE` /
+   `ROUND_ALREADY_COMPLETE` / …) stops the walk and reports the blocking date, code, hint, and next
+   step (the fold is forward-only, so continuing past a refusal would book later rounds on a chain
+   that never advanced).
+
+New modules: `src/evalPeriod.ts` (orchestration), `src/evalCadence.ts` (cadence mirror + calendar +
+round-id), `src/pinnedRound.ts` (one pinned round), `src/rerunActions.ts` (the rerun-action map,
+now shared with `start_agent_round`). The tool is registered in `index.ts` and allow-listed in
+`infra/bin/mcp-gateway-setup/local-mcp.yaml.template`. The tool blocks for the whole window (minutes
+per round × number of due dates).
+
+### 13.3 On-read scoring (cpn.2, commit `4b8515a`)
+
+Two public backend reads, computed on demand from the materialized chain ledger — **no new tables,
+no stored metrics** (the same no-snapshot-table philosophy as §11.2):
+
+| Method | Path                                              | Request                                        | Response                                                                                                                                                  |
+| ------ | ------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/portfolio/trading-dates`                    | optional `?start=&end=` (`YYYY-MM-DD`)         | `{ tradeDates: string[] }` — distinct `daily_prices.trade_date`, ascending                                                                               |
+| GET    | `/api/portfolio/evals/:simId`                     | required `?start=&end=` (`YYYY-MM-DD`)         | `{ simId, start, end, tradingDays, benchmark, streams[] }`                                                                                               |
+
+- **`apps/backend/src/portfolio/evalMetrics.ts`** is the pure math layer (no DB, no env):
+  `sliceStreamEquity` slices a stream's equity rows to `(start, end]` with the baseline being the
+  last row at or before `start` (a stream that began inside the window uses its first in-window row
+  and is flagged). `computeStreamEvalMetrics` reuses `computeRanking` with the slice's baseline as the
+  basis, and returns `null` risk metrics (Sharpe, annualized vol) when the slice has fewer than two
+  rows — no fabricated volatility from a single point. `computeEqualWeightBenchmark` is the mean
+  per-symbol `adjClose(last) / adjClose(first) − 1` over the 49-symbol `DEFAULT_UNIVERSE`, method
+  tagged `equal-weight buy-and-hold on adjClose`.
+- A stream with no book in the period reports `"no book in period"` rather than a flat 0%.
+- **`apps/backend/src/routes/portfolioEvals.ts`** is the thin edge: parse → load → call the pure
+  functions → respond. `parseRequiredDate` / `parseOptionalDate` are exported and unit-tested;
+  required dates are 400 when absent or malformed, and an unknown simulation is 404. Per-stream
+  decision counts come from `agent_runs ⋈ round_jobs` filtered by `as_of_trade_date ∈ [start, end]`.
+- Mounted in `apps/backend/src/index.ts` (`portfolioEvalsHandler` under `/portfolio`).
+
+### 13.4 Semantics worth knowing
+
+- **A pin changes the decision date, not the calendar.** `asOfTradeDate` selects the bar window and
+  the booking date; it does not fabricate bars or shift `trade_date`.
+- **Due-date jumping avoids empty rounds.** The driver never books a round on a date where every
+  selected stream is not-due, so a weekly/monthly stream is not re-run daily during a replay.
+- **The reader is independent of the driver.** Scoring reads whatever the chain ledger already holds
+  for `[start, end]`; a partial replay scores the rounds that exist.
+- **Benchmark has no SPY.** The universe is US large-caps; the benchmark is equal-weight buy-and-hold
+  **across those 49 symbols**, method string returned for transparency.
+
+### 13.5 Verification
+
+- **Lifecycle**: `execute_lifecycle(action="verify")` SUCCESS on the integration worktree.
+- **Test counts**: `packages/agent-orchestrator` **92/92** (7 new dataset as-of tests);
+  `apps/backend` **185/185** (17 new `evalMetrics` tests + `rounds.test.ts` as-of cases);
+  `mcp-portfolio-orchestrator` **86/86** (17 new `evalPeriod` tests, existing 69 intact).
+- **Typecheck**: `tsc --noEmit` clean on `agent-orchestrator`, `apps/backend`, and the MCP package.
+- **Lint**: `oxlint` 0 warnings / 0 errors on every changed file.
+- **Commits**: `16ec9ff` (as-of pinning), `4b8515a` (on-read eval routes), `3aadf57` (`run_eval_period`).
+- **Not covered:** the replay driver has not been exercised against a live backend/DB end-to-end —
+  its due-date and sequencing logic is proven by unit tests against a stub that plays the backend's
+  cadence gate; the DB-touching scoring paths are covered by `verify` and unit tests only.
+
+### 13.6 Beads
+
+- **Epic**: `model_md-worktree-feat-portfolio-sim-cpn`
+- `cpn.1` — as-of pinning (closed)
+- `cpn.2` — on-read eval metrics routes (closed)
+- `cpn.3` — `run_eval_period` driver (closed)
+- `cpn.4` — integration: lifecycle verify + this documentation + epic close
