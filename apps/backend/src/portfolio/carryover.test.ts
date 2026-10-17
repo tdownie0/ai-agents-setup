@@ -293,6 +293,68 @@ describe("applyDecision", () => {
     );
     expect(result.nextBook.cash + holdings).toBeCloseTo(11000, 6);
   });
+
+  it("rescales an over-allocated book so cash lands on 0, not negative", () => {
+    // Σ = 1.001, the top of the admitted [0.99, 1.01] band. Unscaled this would
+    // size 100100 of a 100000 mark and leave cash at −100.
+    const result = applyDecision(
+      decision({
+        openingBook: book({ cash: BASIS }),
+        targets: [
+          { symbol: "AAPL", targetWeight: 0.5005 },
+          { symbol: "MSFT", targetWeight: 0.5005 },
+        ],
+        prices: { AAPL: 100, MSFT: 200 },
+      }),
+    );
+
+    expect(result.totalValue).toBeCloseTo(BASIS, 6);
+    expect(result.nextBook.cash).toBeCloseTo(0, 9);
+    const holdings = [...result.nextBook.shares].reduce(
+      (acc, [symbol, shares]) =>
+        acc + shares * (result.fills.find((f) => f.symbol === symbol)?.price ?? 0),
+      0,
+    );
+    expect(result.nextBook.cash + holdings).toBeCloseTo(BASIS, 9);
+    // Every stored weight is the rescaled one, so the persisted book is
+    // self-consistent with the shares it sized.
+    expect(result.nextBook.targetWeights.get("AAPL")).toBeCloseTo(0.5005 / 1.001, 9);
+    expect(result.nextBook.targetWeights.get("MSFT")).toBeCloseTo(0.5005 / 1.001, 9);
+  });
+
+  it("preserves residual cash when the book is under-allocated", () => {
+    // Σ = 0.99 ≤ 1: no rescale, so 1% of the mark stays in cash.
+    const result = applyDecision(
+      decision({
+        openingBook: book({ cash: BASIS }),
+        targets: [
+          { symbol: "AAPL", targetWeight: 0.495 },
+          { symbol: "MSFT", targetWeight: 0.495 },
+        ],
+        prices: { AAPL: 100, MSFT: 200 },
+      }),
+    );
+
+    expect(result.nextBook.cash).toBeCloseTo(BASIS * 0.01, 6);
+    expect(result.nextBook.targetWeights.get("AAPL")).toBeCloseTo(0.495, 9);
+  });
+
+  it("leaves an exactly-fully-invested book unchanged", () => {
+    // Σ = 1.0: scale is 1, so the fold is byte-for-byte the pre-rescale behavior.
+    const result = applyDecision(
+      decision({
+        openingBook: book({ cash: BASIS }),
+        targets: [
+          { symbol: "AAPL", targetWeight: 0.5 },
+          { symbol: "MSFT", targetWeight: 0.5 },
+        ],
+        prices: { AAPL: 100, MSFT: 200 },
+      }),
+    );
+
+    expect(result.nextBook.cash).toBeCloseTo(0, 9);
+    expect(result.nextBook.targetWeights.get("AAPL")).toBeCloseTo(0.5, 9);
+  });
 });
 
 // ---------------------------------------------------------------------------

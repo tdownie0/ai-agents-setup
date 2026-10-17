@@ -121,11 +121,14 @@ export interface ApplyDecisionResult {
  * `targetShares = 0` and a full liquidation, whose proceeds land in cash; a
  * zero delta is a `hold` with no trade and no realized P&L.
  *
- * There is deliberately NO cash-sufficiency check. Every target is a fraction
- * of the same mark, so the sum of all buys is bounded by that mark and cash
- * cannot go negative by construction. That property is the entire reason this
- * design carries target weights instead of `side`/`quantity`; a solvency check
- * here would be dead code guarding an impossible state.
+ * Envelope validation admits Σ targetWeight ∈ [0.99, 1.01] (WEIGHT_SUM_MIN /
+ * WEIGHT_SUM_MAX). A sum above 1 would size the book past the mark and drive
+ * cash negative, so `applyDecision` rescales every positive weight by `1 / Σ`
+ * before sizing: cash is then `totalValue × (1 − Σ × scale) ≥ 0` by
+ * construction, and the identity `cash + Σ shares × price = totalValue` holds
+ * in every case. That property is the entire reason this design carries target
+ * weights instead of `side`/`quantity`; clamping cash instead would mint
+ * `totalValue × (Σ − 1)` out of nothing.
  */
 export function applyDecision(input: ApplyDecisionInput): ApplyDecisionResult {
   const { openingBook, targets, prices } = input;
@@ -134,6 +137,15 @@ export function applyDecision(input: ApplyDecisionInput): ApplyDecisionResult {
   const markCloses = new Map<string, number>();
   for (const symbol of openingBook.shares.keys()) markCloses.set(symbol, closeOf.get(symbol) ?? 0);
   const { totalValue } = markBook(openingBook.cash, openingBook.shares, markCloses);
+
+  // Rescale an over-allocated book back onto the mark. Σ ≤ 1 is left untouched
+  // (residual cash is intentional); Σ > 1 is scaled so the buys sum to exactly
+  // the mark and cash lands on 0 rather than negative.
+  const weightSum = targets.reduce(
+    (sum, { targetWeight }) => sum + (targetWeight > 0 ? targetWeight : 0),
+    0,
+  );
+  const scale = weightSum > 1 ? 1 / weightSum : 1;
 
   const nextShares = new Map<string, number>();
   const nextCostBasis = new Map<string, number>();
@@ -144,7 +156,8 @@ export function applyDecision(input: ApplyDecisionInput): ApplyDecisionResult {
 
   for (const { symbol, targetWeight } of targets) {
     const price = closeOf.get(symbol) ?? 0;
-    const targetShares = price > 0 ? (totalValue * targetWeight) / price : 0;
+    const effectiveWeight = targetWeight * scale;
+    const targetShares = price > 0 ? (totalValue * effectiveWeight) / price : 0;
     const heldShares = openingBook.shares.get(symbol) ?? 0;
     const unitCost = openingBook.costBasis.get(symbol) ?? 0;
     const deltaShares = targetShares - heldShares;
@@ -164,7 +177,7 @@ export function applyDecision(input: ApplyDecisionInput): ApplyDecisionResult {
 
     if (targetShares > 0) {
       nextShares.set(symbol, targetShares);
-      nextTargetWeights.set(symbol, targetWeight);
+      nextTargetWeights.set(symbol, effectiveWeight);
       // Only a bought quantity can move the shares-weighted average: a hold and
       // a trim both leave the retained unit cost exactly as it was.
       let unitCostNext: number;
@@ -175,9 +188,10 @@ export function applyDecision(input: ApplyDecisionInput): ApplyDecisionResult {
     }
   }
 
-  // Cash is the residual of the SAME mark the weights applied to, so
+  // Cash is the residual of the SAME mark the (rescaled) weights applied to, so
   // `cash + Σ shares × price` is the pre-decision total by construction.
-  // Non-negative whenever Σ targetWeight ≤ 1, which envelope validation enforces.
+  // Non-negative for every admitted envelope: Σ ≤ 1 leaves cash at
+  // `totalValue × (1 − Σ)`, and Σ > 1 is rescaled to exactly 1 above.
   return {
     nextBook: {
       cash: totalValue - invested,

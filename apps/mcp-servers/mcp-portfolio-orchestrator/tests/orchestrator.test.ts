@@ -1056,13 +1056,22 @@ describe("createBookLoader", () => {
     expect(book.holdings[0]?.unrealizedPnlPct).toBe(0);
   });
 
-  it("falls back to the opening book when the stream summary carries no cash", async () => {
-    const book = await bookLoader(() =>
-      fakeResponse(200, { stream: { cash: null, lastRoundId: null }, lots: [lot] }),
-    )({ personaKey: "dr-value", window: "monthly" });
+  it("rejects when the stream summary carries no cash instead of dropping its lots", async () => {
+    await expect(
+      bookLoader(() =>
+        fakeResponse(200, { stream: { cash: null, lastRoundId: null }, lots: [lot] }),
+      )({ personaKey: "dr-value", window: "monthly" }),
+    ).rejects.toThrow(/invalid cash/);
+  });
 
-    expect(book.holdings).toEqual([]);
-    expect(book.portfolioValue).toBe(100000);
+  it("rejects negative stream cash instead of masking it as an empty book", async () => {
+    const load = bookLoader(() =>
+      fakeResponse(200, { stream: { cash: -100, lastRoundId: "w1" }, lots: [lot] }),
+    );
+
+    await expect(load({ personaKey: "dr-value", window: "monthly" })).rejects.toThrow(
+      /dr-value\/monthly of simulation sim-1 reported invalid cash -100/,
+    );
   });
 
   it("excludes closed lots and ignores non-409 failures", async () => {

@@ -8,6 +8,10 @@
  *     genuinely holds nothing. This is the opening book, not a failure.
  *   - 200 — carry the open lots and the last recorded cash.
  *
+ * A 200 whose summary is missing or whose cash is null / non-finite / negative
+ * is corruption, not an empty book: throwing keeps the open lots from being
+ * silently dropped (which would hand the analyst a book it does not hold).
+ *
  * Marks come from the dataset the round is being decided against, not from the
  * API: `LotWire` carries no price, and the target weights the analyst returns
  * apply to this round's universe.
@@ -102,7 +106,11 @@ export function createBookLoader(deps: BookLoaderDeps): (stream: StreamRef) => P
       !Number.isFinite(summary.cash) ||
       summary.cash < 0
     ) {
-      return streamBook([], capital);
+      throw new Error(
+        `bookLoader: stream ${personaKey}/${window} of simulation ${simulationId} ` +
+          `reported invalid cash ${String(summary?.cash)}; refusing to drop its ` +
+          `${holdings.length} open holding(s) as an empty book`,
+      );
     }
 
     const book = streamBook(holdings, summary.cash, summary.lastRoundId);

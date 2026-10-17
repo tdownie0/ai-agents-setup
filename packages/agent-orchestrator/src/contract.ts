@@ -17,7 +17,8 @@
  * `targetWeight` ("halve JNJ" is `jnjWeight / 2`). A second sizing primitive
  * would add share/cash math, rounding, and a cash-solvency validation model for
  * zero added expressiveness. Because every target is a fraction of the same
- * mark, cash solvency cannot be violated by construction.
+ * mark, the fold rescales any Σ targetWeight > 1 back to 1 before sizing, so
+ * cash solvency cannot be violated by construction.
  *
  * Sells are exempt from universe and price membership so a name that stopped
  * trading or left the feed can still be exited — a deliberate relaxation.
@@ -132,8 +133,6 @@ export interface ValidateEnvelopeOptions {
    * strategy x window cross product.
    */
   expectedWindow?: DecisionWindow;
-  /** Value the weights must sum against. Enables the cash-solvency check. */
-  portfolioValue?: number;
   expectedSimulationId?: string;
   expectedRoundSeq?: number;
 }
