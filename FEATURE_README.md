@@ -683,10 +683,10 @@ per round × number of due dates).
 Two public backend reads, computed on demand from the materialized chain ledger — **no new tables,
 no stored metrics** (the same no-snapshot-table philosophy as §11.2):
 
-| Method | Path                                              | Request                                        | Response                                                                                                                                                  |
-| ------ | ------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/portfolio/trading-dates`                    | optional `?start=&end=` (`YYYY-MM-DD`)         | `{ tradeDates: string[] }` — distinct `daily_prices.trade_date`, ascending                                                                               |
-| GET    | `/api/portfolio/evals/:simId`                     | required `?start=&end=` (`YYYY-MM-DD`)         | `{ simId, start, end, tradingDays, benchmark, streams[] }`                                                                                               |
+| Method | Path                           | Request                                | Response                                                                   |
+| ------ | ------------------------------ | -------------------------------------- | -------------------------------------------------------------------------- |
+| GET    | `/api/portfolio/trading-dates` | optional `?start=&end=` (`YYYY-MM-DD`) | `{ tradeDates: string[] }` — distinct `daily_prices.trade_date`, ascending |
+| GET    | `/api/portfolio/evals/:simId`  | required `?start=&end=` (`YYYY-MM-DD`) | `{ simId, start, end, tradingDays, benchmark, streams[] }`                 |
 
 - **`apps/backend/src/portfolio/evalMetrics.ts`** is the pure math layer (no DB, no env):
   `sliceStreamEquity` slices a stream's equity rows to `(start, end]` with the baseline being the
@@ -734,3 +734,47 @@ no stored metrics** (the same no-snapshot-table philosophy as §11.2):
 - `cpn.2` — on-read eval metrics routes (closed)
 - `cpn.3` — `run_eval_period` driver (closed)
 - `cpn.4` — integration: lifecycle verify + this documentation + epic close
+
+---
+
+## 14. Replay efficiency: reduced-roster evals + per-date dataset cache
+
+### Overview
+
+Two low-risk levers cut the opencode token / API-call cost of replaying a fixed historical window. Neither changes any simulation semantics: the fold, bookkeeping, cadence gate, and scoring are untouched — only _which streams decide_ and _how often a dataset is recomputed_.
+
+### 14.1 Reduced-roster eval convention
+
+Every round spawns one cold `opencode run --format json` session per selected `(persona × window)` stream — the full roster is 6 personas × 3 windows = **18 sessions per round**, and a week-long `run_eval_period` replay multiplies that by the number of due dates. Each session cold-loads the worktree instructions plus its persona prompt, so the roster width is the dominant cost.
+
+When the goal is prompt/process refinement rather than a full-court read, pass an explicit subset instead of `all`:
+
+```text
+run_eval_period(simId, start, end, agents="dr-value,dr-momentum", windows="daily")
+```
+
+- `agents` accepts `"all"`, a comma-separated persona list, or an array.
+- `windows` accepts `"all"`, `"daily"`, `"weekly"`, `"monthly"` (comma-separated).
+
+Selecting 2 personas instead of 6 cuts the session count ~3×; pairing it with `windows="daily"` reduces the 3 rebalance windows to 1 for another ~3×. Nothing about the fold, the book, or scoring changes — only which streams run.
+
+### 14.2 Dataset cache by `asOfTradeDate`
+
+`buildDataset` (`packages/agent-orchestrator/src/dataset.ts`) caches the computed per-symbol universe under `<outDir>/.dataset-cache/<asOfTradeDate>.json`, keyed by decision date. A pinned replay rebuilds each date's dataset once per simulation; on the second and later builds the 49-symbol `fetchBars` loop is skipped and the cached universe is reused (`summary.cached === true`).
+
+- **Pinned builds only.** The unpinned live path always rebuilds, because bars for the current trade date can still accrue within the day — caching it would silently serve a stale, partial universe.
+- **Invalidation is a miss, never an error.** A bump to `DATASET_SCHEMA_VERSION`, an `asOfTradeDate` mismatch, or a changed `DEFAULT_UNIVERSE` fingerprint (sha256 of the serialized universe) all fall through to a fresh DB build. A corrupt cache file is a miss.
+- **Escape hatch:** set env `DATASET_CACHE=off` or pass `useCache: false` to disable the read and the write.
+- The per-round `rounds/<roundId>/dataset.json` is still written on every build, with a fresh `generatedAt` and its own `roundId` — it remains the round's source of truth for entry fills and validation.
+- Writes are atomic (temp file + rename); any cache I/O failure is swallowed so a build can never fail because of the cache.
+
+### 14.3 Verification
+
+- `packages/agent-orchestrator`: **100/100** (tests include 8 dataset-cache cases), `tsc --build` exit 0.
+- `apps/backend`: **188/188** unaffected (the added `cached` summary field is additive).
+- `execute_lifecycle(action="verify")` SUCCESS on the `model_md-worktree-feat-portfolio-sim` worktree (job `01a14f0b-be6b-743a-923d-6cb3973f7f52`).
+
+### 14.4 Beads
+
+- `model_md-worktree-feat-portfolio-sim-2pc` — per-date dataset cache.
+- `model_md-worktree-feat-portfolio-sim-8f2` — this documentation.

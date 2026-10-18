@@ -12,8 +12,9 @@
  * `Number()` BEFORE any arithmetic (the documented wire convention).
  */
 
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { and, desc, eq, lte } from "drizzle-orm";
 import { dailyPrices, db, instruments } from "@model_md/database";
 import { DEFAULT_UNIVERSE } from "@model_md/market-data";
@@ -78,7 +79,23 @@ export interface BuildDatasetResult {
     symbols: number;
     symbolsWithData: number;
     datasetPath: string;
+    /** True when the universe was reused from the per-date disk cache. */
+    cached: boolean;
   };
+}
+
+/**
+ * On-disk shape of the per-date universe cache at
+ * `<outDir>/.dataset-cache/<asOfTradeDate>.json`. The fingerprint pins the
+ * cached universe to the exact `DEFAULT_UNIVERSE` it was computed from, so a
+ * universe change invalidates every entry.
+ */
+export interface DatasetCacheFile {
+  schemaVersion: number;
+  asOfTradeDate: string;
+  universeFingerprint: string;
+  generatedAt: string;
+  universe: AnalystSymbolMetrics[];
 }
 
 const round = (value: number, digits: number): number => {
@@ -265,6 +282,13 @@ export interface BuildDatasetOptions {
    * pin. Omit for the live latest date.
    */
   asOfTradeDate?: string;
+  /**
+   * Read/write the per-`asOfTradeDate` universe cache under
+   * `<outDir>/.dataset-cache/`. Applies to PINNED builds only: the unpinned
+   * live path always rebuilds, because bars for the current date can still
+   * accrue. Defaults to enabled unless `DATASET_CACHE` is `"off"`.
+   */
+  useCache?: boolean;
 }
 
 const TRADE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -280,6 +304,64 @@ function parseTradeDate(raw: string): string {
     throw new Error(`asOfTradeDate "${raw}" is not a valid calendar date`);
   }
   return value;
+}
+
+/** sha256 over the serialized universe — recomputed on every cache read. */
+function universeFingerprint(): string {
+  return createHash("sha256").update(JSON.stringify(DEFAULT_UNIVERSE)).digest("hex");
+}
+
+/**
+ * Narrow a parsed cache payload to a reusable universe. Anything that does
+ * not exactly match the requested date, schema version, and universe
+ * fingerprint — or carries an empty universe — is a cache miss, never an
+ * error.
+ */
+function validateCachePayload(
+  payload: unknown,
+  asOfTradeDate: string,
+  fingerprint: string,
+): AnalystSymbolMetrics[] | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  if (!("schemaVersion" in payload)) return null;
+  if (!("asOfTradeDate" in payload)) return null;
+  if (!("universeFingerprint" in payload)) return null;
+  if (!("universe" in payload)) return null;
+  if (payload.schemaVersion !== DATASET_SCHEMA_VERSION) return null;
+  if (payload.asOfTradeDate !== asOfTradeDate) return null;
+  if (payload.universeFingerprint !== fingerprint) return null;
+  if (!Array.isArray(payload.universe) || payload.universe.length === 0) return null;
+  return payload.universe;
+}
+
+/** Best-effort cache read: any I/O or parse failure is a miss, not an error. */
+async function readDatasetCache(
+  cachePath: string,
+  asOfTradeDate: string,
+  fingerprint: string,
+): Promise<AnalystSymbolMetrics[] | null> {
+  try {
+    const raw = await readFile(cachePath, "utf8");
+    return validateCachePayload(JSON.parse(raw), asOfTradeDate, fingerprint);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Best-effort cache write via temp-file + rename so a reader never observes
+ * a half-written file. Failures are swallowed: the build must survive a full
+ * disk or a read-only cache directory.
+ */
+async function writeDatasetCache(cachePath: string, entry: DatasetCacheFile): Promise<void> {
+  const tmpPath = `${cachePath}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await mkdir(dirname(cachePath), { recursive: true });
+    await writeFile(tmpPath, JSON.stringify(entry, null, 2), "utf8");
+    await rename(tmpPath, cachePath);
+  } catch {
+    await unlink(tmpPath).catch(() => undefined);
+  }
 }
 
 /**
@@ -312,10 +394,27 @@ export async function buildDataset(opts: BuildDatasetOptions): Promise<BuildData
     asOfTradeDate = maxRow.maxTradeDate;
   }
 
-  const universe: AnalystSymbolMetrics[] = [];
-  for (const entry of DEFAULT_UNIVERSE) {
-    const bars = await fetchBars(entry.symbol, asOfTradeDate);
-    universe.push(computeMetrics(entry.symbol, entry, bars));
+  const outDir = opts.outDir ?? "./rounds";
+  const cacheEnabled =
+    pinned !== undefined && (opts.useCache ?? process.env.DATASET_CACHE !== "off");
+  const cachePath = join(outDir, ".dataset-cache", `${asOfTradeDate}.json`);
+
+  let universe: AnalystSymbolMetrics[] | null = null;
+  let cached = false;
+  if (cacheEnabled) {
+    const hit = await readDatasetCache(cachePath, asOfTradeDate, universeFingerprint());
+    if (hit !== null) {
+      universe = structuredClone(hit);
+      cached = true;
+    }
+  }
+
+  if (universe === null) {
+    universe = [];
+    for (const entry of DEFAULT_UNIVERSE) {
+      const bars = await fetchBars(entry.symbol, asOfTradeDate);
+      universe.push(computeMetrics(entry.symbol, entry, bars));
+    }
   }
 
   const symbolsWithData = universe.filter((u) => u.hasData).length;
@@ -327,6 +426,16 @@ export async function buildDataset(opts: BuildDatasetOptions): Promise<BuildData
     );
   }
 
+  if (cacheEnabled && !cached && symbolsWithData > 0) {
+    await writeDatasetCache(cachePath, {
+      schemaVersion: DATASET_SCHEMA_VERSION,
+      asOfTradeDate,
+      universeFingerprint: universeFingerprint(),
+      generatedAt: new Date().toISOString(),
+      universe,
+    });
+  }
+
   const dataset: AnalystDataset = {
     schemaVersion: DATASET_SCHEMA_VERSION,
     roundId,
@@ -335,7 +444,6 @@ export async function buildDataset(opts: BuildDatasetOptions): Promise<BuildData
     universe,
   };
 
-  const outDir = opts.outDir ?? "./rounds";
   const datasetPath = join(outDir, roundId, "dataset.json");
   await mkdir(join(outDir, roundId), { recursive: true });
   await writeFile(datasetPath, JSON.stringify(dataset, null, 2), "utf8");
@@ -348,6 +456,7 @@ export async function buildDataset(opts: BuildDatasetOptions): Promise<BuildData
       symbols: universe.length,
       symbolsWithData,
       datasetPath,
+      cached,
     },
   };
 }

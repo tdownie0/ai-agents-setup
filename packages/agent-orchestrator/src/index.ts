@@ -17,6 +17,7 @@ export {
   type AnalystSymbolMetrics,
   type BuildDatasetOptions,
   type BuildDatasetResult,
+  type DatasetCacheFile,
   type EntryContext,
 } from "./dataset.js";
 export {
