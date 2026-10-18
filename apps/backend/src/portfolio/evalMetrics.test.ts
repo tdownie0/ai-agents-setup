@@ -148,14 +148,20 @@ describe("computeStreamEvalMetrics", () => {
 describe("computeEqualWeightBenchmark", () => {
   it("averages per-symbol total returns from string adjClose values", () => {
     const bars = new Map([
-      ["AAA", [
-        { tradeDate: "2026-01-02", adjClose: "100.0000" },
-        { tradeDate: "2026-01-07", adjClose: "110.0000" },
-      ]],
-      ["BBB", [
-        { tradeDate: "2026-01-02", adjClose: "50.0000" },
-        { tradeDate: "2026-01-07", adjClose: "45.0000" },
-      ]],
+      [
+        "AAA",
+        [
+          { tradeDate: "2026-01-02", adjClose: "100.0000" },
+          { tradeDate: "2026-01-07", adjClose: "110.0000" },
+        ],
+      ],
+      [
+        "BBB",
+        [
+          { tradeDate: "2026-01-02", adjClose: "50.0000" },
+          { tradeDate: "2026-01-07", adjClose: "45.0000" },
+        ],
+      ],
     ]);
     const result = computeEqualWeightBenchmark(bars, "2026-01-02", "2026-01-07");
     // AAA +10%, BBB −10% → mean 0
@@ -167,11 +173,14 @@ describe("computeEqualWeightBenchmark", () => {
 
   it("uses the first bar at/after start, not a bar before it", () => {
     const bars = new Map([
-      ["AAA", [
-        { tradeDate: "2026-01-01", adjClose: "90.0000" },
-        { tradeDate: "2026-01-02", adjClose: "100.0000" },
-        { tradeDate: "2026-01-07", adjClose: "110.0000" },
-      ]],
+      [
+        "AAA",
+        [
+          { tradeDate: "2026-01-01", adjClose: "90.0000" },
+          { tradeDate: "2026-01-02", adjClose: "100.0000" },
+          { tradeDate: "2026-01-07", adjClose: "110.0000" },
+        ],
+      ],
     ]);
     const result = computeEqualWeightBenchmark(bars, "2026-01-02", "2026-01-07");
     expect(result.returnPct).toBeCloseTo(110 / 100 - 1, 10);
@@ -181,19 +190,25 @@ describe("computeEqualWeightBenchmark", () => {
   it("skips symbols missing either endpoint", () => {
     const bars = new Map([
       // qualifies
-      ["AAA", [
-        { tradeDate: "2026-01-02", adjClose: "100.0000" },
-        { tradeDate: "2026-01-07", adjClose: "110.0000" },
-      ]],
+      [
+        "AAA",
+        [
+          { tradeDate: "2026-01-02", adjClose: "100.0000" },
+          { tradeDate: "2026-01-07", adjClose: "110.0000" },
+        ],
+      ],
       // only a bar before start → no bar at/after start
       ["BBB", [{ tradeDate: "2026-01-01", adjClose: "50.0000" }]],
       // only a bar after end → no bar at/before end
       ["CCC", [{ tradeDate: "2026-01-08", adjClose: "50.0000" }]],
       // first endpoint has a null adjClose → unusable
-      ["DDD", [
-        { tradeDate: "2026-01-02", adjClose: null },
-        { tradeDate: "2026-01-07", adjClose: "60.0000" },
-      ]],
+      [
+        "DDD",
+        [
+          { tradeDate: "2026-01-02", adjClose: null },
+          { tradeDate: "2026-01-07", adjClose: "60.0000" },
+        ],
+      ],
     ]);
     const result = computeEqualWeightBenchmark(bars, "2026-01-02", "2026-01-07");
     expect(result.returnPct).toBeCloseTo(0.1, 10);
@@ -220,14 +235,20 @@ describe("computeEqualWeightBenchmark", () => {
 
   it("skips symbols with a non-positive adjClose endpoint", () => {
     const bars = new Map([
-      ["AAA", [
-        { tradeDate: "2026-01-02", adjClose: "0.0000" },
-        { tradeDate: "2026-01-07", adjClose: "110.0000" },
-      ]],
-      ["BBB", [
-        { tradeDate: "2026-01-02", adjClose: "100.0000" },
-        { tradeDate: "2026-01-07", adjClose: "105.0000" },
-      ]],
+      [
+        "AAA",
+        [
+          { tradeDate: "2026-01-02", adjClose: "0.0000" },
+          { tradeDate: "2026-01-07", adjClose: "110.0000" },
+        ],
+      ],
+      [
+        "BBB",
+        [
+          { tradeDate: "2026-01-02", adjClose: "100.0000" },
+          { tradeDate: "2026-01-07", adjClose: "105.0000" },
+        ],
+      ],
     ]);
     const result = computeEqualWeightBenchmark(bars, "2026-01-02", "2026-01-07");
     expect(result.symbolsUsed).toBe(1);

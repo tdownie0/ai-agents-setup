@@ -35,7 +35,11 @@ import {
   computeStreamEvalMetrics,
   sliceStreamEquity,
 } from "../portfolio/evalMetrics.js";
-import type { BenchmarkBar, BenchmarkBarsBySymbol, BenchmarkResult } from "../portfolio/evalMetrics.js";
+import type {
+  BenchmarkBar,
+  BenchmarkBarsBySymbol,
+  BenchmarkResult,
+} from "../portfolio/evalMetrics.js";
 import { parseSimId } from "./portfolioCarryover.js";
 
 /** `GET /portfolio/trading-dates` response. */
@@ -90,7 +94,10 @@ export function parseRequiredDate(
   const text = raw?.trim() ?? "";
   if (text.length === 0) {
     return {
-      error: { error: `${name} query param is required`, hint: `${name} must be a YYYY-MM-DD date` },
+      error: {
+        error: `${name} query param is required`,
+        hint: `${name} must be a YYYY-MM-DD date`,
+      },
     };
   }
   if (!isValidDate(text)) {

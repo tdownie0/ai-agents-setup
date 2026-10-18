@@ -246,11 +246,10 @@ function makeHarness(opts: HarnessOptions) {
     return json(404, { error: `unhandled ${method} ${path}` });
   };
 
-  const backend = createBackendClient(
-    "http://backend:3000",
-    (async (url: RequestInfo | URL, init?: RequestInit) =>
-      handler(String(url), init)) as unknown as typeof fetch,
-  );
+  const backend = createBackendClient("http://backend:3000", (async (
+    url: RequestInfo | URL,
+    init?: RequestInit,
+  ) => handler(String(url), init)) as unknown as typeof fetch);
   const store = createRoundStore(backend);
 
   const spawn = (async (options: {
@@ -360,7 +359,13 @@ describe("runEvalPeriod", () => {
     });
 
     const result = await runEvalPeriod(
-      { simId: "sim-baseline", start: "2026-09-01", end: "2026-09-11", agents: "dr-value", windows: "daily,weekly" },
+      {
+        simId: "sim-baseline",
+        start: "2026-09-01",
+        end: "2026-09-11",
+        agents: "dr-value",
+        windows: "daily,weekly",
+      },
       harness.deps,
     );
 
@@ -395,7 +400,13 @@ describe("runEvalPeriod", () => {
     });
 
     await runEvalPeriod(
-      { simId: "sim-baseline", start: "2026-09-01", end: "2026-09-03", agents: "dr-value", windows: "daily" },
+      {
+        simId: "sim-baseline",
+        start: "2026-09-01",
+        end: "2026-09-03",
+        agents: "dr-value",
+        windows: "daily",
+      },
       harness.deps,
     );
 
@@ -430,7 +441,13 @@ describe("runEvalPeriod", () => {
     });
 
     const result = await runEvalPeriod(
-      { simId: "sim-baseline", start: "2026-09-01", end: "2026-09-02", agents: "dr-value", windows: "daily" },
+      {
+        simId: "sim-baseline",
+        start: "2026-09-01",
+        end: "2026-09-02",
+        agents: "dr-value",
+        windows: "daily",
+      },
       harness.deps,
     );
 
@@ -438,10 +455,7 @@ describe("runEvalPeriod", () => {
     if (!result.ok) return;
     // Without the extension the 09-01 count would read 0 and the date would be
     // skipped; the extension makes it 5 trading days, so it is due.
-    expect(result.rounds.map((round) => round.asOfTradeDate)).toEqual([
-      "2026-09-01",
-      "2026-09-02",
-    ]);
+    expect(result.rounds.map((round) => round.asOfTradeDate)).toEqual(["2026-09-01", "2026-09-02"]);
     expect(
       harness.requestedUrls.some((url) =>
         url.includes("/api/portfolio/trading-dates?start=2026-08-25&end=2026-09-02"),
@@ -457,7 +471,13 @@ describe("runEvalPeriod", () => {
     });
 
     const result = await runEvalPeriod(
-      { simId: "sim-baseline", start: "2026-09-01", end: "2026-09-11", agents: "dr-value", windows: "daily,weekly" },
+      {
+        simId: "sim-baseline",
+        start: "2026-09-01",
+        end: "2026-09-11",
+        agents: "dr-value",
+        windows: "daily,weekly",
+      },
       harness.deps,
     );
 
@@ -467,10 +487,7 @@ describe("runEvalPeriod", () => {
     expect(result.code).toBe("OUT_OF_SEQUENCE");
     expect(result.hint).toBe("Launch a later date.");
     expect(result.nextStep).toBe(RERUN_ACTIONS.OUT_OF_SEQUENCE);
-    expect(result.rounds.map((round) => round.asOfTradeDate)).toEqual([
-      "2026-09-02",
-      "2026-09-03",
-    ]);
+    expect(result.rounds.map((round) => round.asOfTradeDate)).toEqual(["2026-09-02", "2026-09-03"]);
     expect(result.skippedDates).toEqual(["2026-09-01"]);
     // Nothing past the refusal was attempted.
     expect(harness.jobPosts.map((post) => post.asOfTradeDate)).toEqual([
@@ -487,7 +504,13 @@ describe("runEvalPeriod", () => {
     });
 
     const result = await runEvalPeriod(
-      { simId: "sim-bad/id", start: "2026-09-01", end: "2026-09-11", agents: "dr-value", windows: "daily" },
+      {
+        simId: "sim-bad/id",
+        start: "2026-09-01",
+        end: "2026-09-11",
+        agents: "dr-value",
+        windows: "daily",
+      },
       harness.deps,
     );
 
@@ -506,7 +529,13 @@ describe("runEvalPeriod", () => {
     });
 
     const result = await runEvalPeriod(
-      { simId: "sim-baseline", start: "2026-09-01", end: "2026-09-11", agents: "dr-value", windows: "daily" },
+      {
+        simId: "sim-baseline",
+        start: "2026-09-01",
+        end: "2026-09-11",
+        agents: "dr-value",
+        windows: "daily",
+      },
       harness.deps,
     );
 

@@ -64,9 +64,7 @@ export function streamDueAt(
   calendar: readonly string[],
 ): boolean {
   if (lastTradeDate === null) return true;
-  const elapsed = calendar.filter(
-    (date) => date > lastTradeDate && date <= asOfTradeDate,
-  ).length;
+  const elapsed = calendar.filter((date) => date > lastTradeDate && date <= asOfTradeDate).length;
   return elapsed >= REBALANCE_CADENCE[window];
 }
 
@@ -76,9 +74,7 @@ export async function fetchTradingDates(
   end: string,
 ): Promise<string[]> {
   const query = `?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
-  const res = await backend.get<{ tradeDates: string[] }>(
-    `/api/portfolio/trading-dates${query}`,
-  );
+  const res = await backend.get<{ tradeDates: string[] }>(`/api/portfolio/trading-dates${query}`);
   return res.tradeDates;
 }
 

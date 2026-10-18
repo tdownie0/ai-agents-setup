@@ -124,7 +124,11 @@ export async function runEvalPeriod(
 
   const startDate = parseYmd(start);
   if (startDate === null) {
-    return stopResult(base(), null, `start must be a YYYY-MM-DD date, got ${JSON.stringify(start)}`);
+    return stopResult(
+      base(),
+      null,
+      `start must be a YYYY-MM-DD date, got ${JSON.stringify(start)}`,
+    );
   }
   const endDate = parseYmd(end);
   if (endDate === null) {
