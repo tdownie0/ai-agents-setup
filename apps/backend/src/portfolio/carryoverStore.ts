@@ -770,6 +770,13 @@ export interface InsertRunAndFoldInput {
     decisionJson: unknown;
     replicateOf: string | null;
     startedAt: Date;
+    /**
+     * Prompt-set stamps (see `PROMPT_SET_VERSION` / `buildAnalystPrompt`).
+     * Optional so a caller without stamping — an older orchestrator — still
+     * inserts; absent stores NULL.
+     */
+    promptSetVersion?: string | null;
+    promptHash?: string | null;
   };
 }
 
@@ -834,6 +841,8 @@ export async function insertRunAndFold(
           replicateOf: run.replicateOf,
           startedAt: run.startedAt,
           completedAt,
+          promptSetVersion: run.promptSetVersion ?? null,
+          promptHash: run.promptHash ?? null,
         })
         .returning({ id: agentRuns.id });
       if (inserted === undefined) throw new Error("insert of agent_runs returned no row");

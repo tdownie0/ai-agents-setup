@@ -18,7 +18,7 @@
 import { getTableName, type SQL, type Table } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
-import { agentPortfolioState, portfolioPositionLots } from "@model_md/database";
+import { agentPortfolioState, agentRuns, portfolioPositionLots } from "@model_md/database";
 import type { DbClient } from "@model_md/market-data";
 import {
   applyStreamPlan,
@@ -31,6 +31,7 @@ import type { StreamWritePlan } from "./carryoverPlan.js";
 const dialect = new PgDialect();
 const LOTS = getTableName(portfolioPositionLots);
 const STATE = getTableName(agentPortfolioState);
+const RUNS = getTableName(agentRuns);
 
 interface Statement {
   table: string;
@@ -57,6 +58,7 @@ type Op = "select" | "insert" | "delete";
  */
 class FakeTx {
   readonly deletes: Statement[] = [];
+  readonly inserts: { table: string; values: unknown }[] = [];
   readonly #results: Record<string, unknown[]>;
   readonly #returningIds: Record<string, number>;
   readonly #failOn: FakeOptions["failOn"];
@@ -95,7 +97,10 @@ class FakeTx {
     return this;
   }
 
-  values(): this {
+  values(values?: unknown): this {
+    if (this.#op === "insert") {
+      this.inserts.push({ table: this.#table, values });
+    }
     return this;
   }
 
@@ -374,5 +379,35 @@ describe("insertRunAndFold", () => {
 
     await expect(insertRunAndFold(asDbClient(db), runInput())).rejects.toThrow(/as_of_trade_date/);
     expect(db.log).toEqual(["begin", "rollback"]);
+  });
+
+  it("carries the prompt-set stamps onto the agent_runs insert", async () => {
+    const tx = new FakeTx({ results: emptyStreamRows(), returningIds: { agent_runs: 7 } });
+    const db = new FakeDb(tx);
+    const input = runInput();
+
+    await insertRunAndFold(asDbClient(db), {
+      ...input,
+      run: { ...input.run, promptSetVersion: "v1", promptHash: "e3b0c44298fc" },
+    });
+
+    const runInsert = tx.inserts.find((statement) => statement.table === RUNS);
+    expect(runInsert).toBeDefined();
+    const values = runInsert?.values as Record<string, unknown>;
+    expect(values.promptSetVersion).toBe("v1");
+    expect(values.promptHash).toBe("e3b0c44298fc");
+  });
+
+  it("stores NULL stamps when the caller omits them, so unstamped orchestrators still insert", async () => {
+    const tx = new FakeTx({ results: emptyStreamRows(), returningIds: { agent_runs: 7 } });
+    const db = new FakeDb(tx);
+
+    await insertRunAndFold(asDbClient(db), runInput());
+
+    const runInsert = tx.inserts.find((statement) => statement.table === RUNS);
+    expect(runInsert).toBeDefined();
+    const values = runInsert?.values as Record<string, unknown>;
+    expect(values.promptSetVersion).toBeNull();
+    expect(values.promptHash).toBeNull();
   });
 });

@@ -224,14 +224,36 @@ export async function loadDatasetForRound(
   return parsed as unknown as AnalystDataset;
 }
 
-export function parseRunInsertBody(value: unknown): { envelope: unknown } {
+export interface RunInsertBody {
+  envelope: unknown;
+  /** Optional top-level prompt-set stamps — NOT part of the v2 envelope. */
+  promptSetVersion?: string;
+  promptHash?: string;
+}
+
+/**
+ * Parse the run-insert body: `envelope` is required; `promptSetVersion` and
+ * `promptHash` are optional top-level prompt-set stamps (the envelope contract
+ * itself is unchanged). A present stamp must be a non-empty string; an absent
+ * stamp falls through as `undefined` and is stored NULL.
+ */
+export function parseRunInsertBody(value: unknown): RunInsertBody {
   if (!isRecord(value)) {
     throw new Error("request body must be a JSON object");
   }
   if (!("envelope" in value)) {
     throw new Error("body.envelope is required — the decision envelope from one analyst subagent");
   }
-  return { envelope: value.envelope };
+  const parsed: RunInsertBody = { envelope: value.envelope };
+  for (const field of ["promptSetVersion", "promptHash"] as const) {
+    const raw = value[field];
+    if (raw === undefined) continue;
+    if (typeof raw !== "string" || raw.length === 0) {
+      throw new Error(`body.${field} must be a non-empty string when present`);
+    }
+    parsed[field] = raw;
+  }
+  return parsed;
 }
 
 /**
@@ -398,7 +420,7 @@ const roundsApp = new Hono()
     } catch {
       return c.json({ error: "request body must be valid JSON" }, 400);
     }
-    let body: { envelope: unknown };
+    let body: RunInsertBody;
     try {
       body = parseRunInsertBody(rawBody);
     } catch (err) {
@@ -523,6 +545,8 @@ const roundsApp = new Hono()
           expectedStrategy: persona.strategy,
           roundSeq: booking.roundSeq,
           simulationId: null,
+          promptSetVersion: body.promptSetVersion,
+          promptHash: body.promptHash,
         });
         return c.json({ ok: true, ...inserted }, 201);
       } catch (err) {
@@ -614,6 +638,8 @@ const roundsApp = new Hono()
           decisionJson: envelope,
           replicateOf: envelope.agent.replicateOf ?? null,
           startedAt: new Date(),
+          promptSetVersion: body.promptSetVersion,
+          promptHash: body.promptHash,
         },
       });
       return c.json(

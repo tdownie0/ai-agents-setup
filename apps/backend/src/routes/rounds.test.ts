@@ -120,6 +120,8 @@ describe("toRunStatusWire", () => {
       decisionJson: { schemaVersion: 1 },
       error: null,
       replicateOf: null,
+      promptSetVersion: null,
+      promptHash: null,
       startedAt,
       completedAt,
       createdAt: startedAt,
@@ -230,6 +232,43 @@ describe("parseRunInsertBody", () => {
   it("returns the raw envelope untouched", () => {
     const envelope = { schemaVersion: 1 };
     expect(parseRunInsertBody({ envelope })).toEqual({ envelope });
+  });
+
+  it("passes the prompt-set stamps through alongside the envelope", () => {
+    const envelope = { schemaVersion: 1 };
+    expect(
+      parseRunInsertBody({ envelope, promptSetVersion: "v1", promptHash: "e3b0c44298fc" }),
+    ).toEqual({
+      envelope,
+      promptSetVersion: "v1",
+      promptHash: "e3b0c44298fc",
+    });
+  });
+
+  it("parses a legacy wire body with no stamps and leaves the keys absent", () => {
+    const parsed = parseRunInsertBody({ envelope: { schemaVersion: 1 } });
+    expect("promptSetVersion" in parsed).toBe(false);
+    expect("promptHash" in parsed).toBe(false);
+  });
+
+  it("rejects a stamp that is present but empty", () => {
+    const envelope = { schemaVersion: 1 };
+    expect(() => parseRunInsertBody({ envelope, promptSetVersion: "" })).toThrow(
+      "body.promptSetVersion must be a non-empty string when present",
+    );
+    expect(() => parseRunInsertBody({ envelope, promptHash: "" })).toThrow(
+      "body.promptHash must be a non-empty string when present",
+    );
+  });
+
+  it("rejects a stamp that is present but not a string", () => {
+    const envelope = { schemaVersion: 1 };
+    expect(() => parseRunInsertBody({ envelope, promptSetVersion: 42 })).toThrow(
+      "body.promptSetVersion must be a non-empty string when present",
+    );
+    expect(() => parseRunInsertBody({ envelope, promptHash: null })).toThrow(
+      "body.promptHash must be a non-empty string when present",
+    );
   });
 });
 
