@@ -778,3 +778,137 @@ Selecting 2 personas instead of 6 cuts the session count ~3×; pairing it with `
 
 - `model_md-worktree-feat-portfolio-sim-2pc` — per-date dataset cache.
 - `model_md-worktree-feat-portfolio-sim-8f2` — this documentation.
+
+---
+
+## 15. Prompt-set versioning, blind process judge, compare report
+
+### Overview
+
+Editing an analyst prompt and replaying a window used to leave no trail of which runs came from which prompt text. This section documents the three pieces that close that gap:
+
+1. **Version stamping**: every analyst run persists a human label (`prompt_set_version`) and a sha256 digest (`prompt_hash`) of the prompt template it was built from.
+2. **Blind process judge**: an LLM rubric scores each run's reasoning process, never its outcome, into `run_eval_scores`, one row per `(agent_run_id, judge_key, judge_version)`.
+3. **Compare report**: `GET /api/portfolio/evals/report` groups runs by `(personaKey, promptSetVersion)` across replicates and a decide-date range, so one payload puts a v1 simulation and a v2 simulation side by side, with warnings when the sample is too small to mean anything.
+
+### 15.1 The versioning recipe
+
+**Where the constant lives.** `PROMPT_SET_VERSION` (currently `"v1"`) is the single exported constant in `packages/agent-orchestrator/src/promptVersion.ts`. One label covers the whole prompt set: the six persona mandates in `personas.ts` (their prose, not the per-window/per-book substitutions), the complete-book rule, the envelope schema text, the example envelope, and the assembly scaffolding in `buildAnalystPrompt` (section headers, separators, fixed instruction sentences).
+
+**Cutting a new version.** Change the prompts, bump the constant from `"v1"` to `"v2"`, done. The label is coarse by design: it names the family, while the per-run hash pins the exact bytes an individual run saw.
+
+**What the hash covers.** `buildAnalystPrompt` (`packages/agent-orchestrator/src/spawn.ts`) hashes the STATIC template from `buildPromptTemplate` through `hashPromptTemplate`: sha256 hex, 64 chars, utf8. The locked recipe:
+
+- **Hashed**: the persona mandate with only `{{cadence}}` substituted (`{{holdings}}` stays literal, and cadence is a per-window template input), `COMPLETE_BOOK_RULE`, `ENVELOPE_SCHEMA_JSON`, the example envelope with its run-state pinned to canonical values (roundId `prompt-template`, portfolioValue `100000`, no exit line; persona and window identity come from the caller and count as template input), and the literal scaffolding strings both assemblies read.
+- **Never hashed**: the volatile per-run inputs, meaning the holdings digest, `portfolioValue`, `roundId`, `simulationId`, `correctionHint`, and `asOfTradeDate`. The full prompt is the template with those sections interleaved back in.
+
+Both assemblies read the same shared constants, so editing a literal there changes the prompt and its hash together.
+
+**What gets persisted.** Only the digest and the label; the built prompt text is never stored. The stamps travel through the spawners (`spawnAnalyst` in `spawn.ts`, the docker runner in `apps/mcp-servers/mcp-portfolio-orchestrator/src/runner.ts`, and the orchestrator CLI in `cli.ts`) and land via `POST /api/portfolio/runs`, whose body carries `promptSetVersion` and `promptHash` as optional top-level fields beside the envelope (`parseRunInsertBody` in `apps/backend/src/routes/rounds.ts`: a present stamp must be a non-empty string, an absent one stores NULL). The carryover fold accepts the same optional stamps inside its one-transaction insert (`insertRunAndFold` in `apps/backend/src/portfolio/carryoverStore.ts`).
+
+**Columns.** `agent_runs.prompt_set_version` (`varchar(40)`) and `agent_runs.prompt_hash` (`varchar(64)`), both nullable, in `packages/database/src/schema/portfolio.ts`; migration `packages/database/drizzle/0006_add_prompt_version_columns.sql`. Runs written before this feature existed keep NULL in both columns and group under a null `promptSetVersion` in the report.
+
+**Drift detection.** Each report group carries `promptHashes`, the sorted distinct non-null digests among its runs. More than one entry means the group mixed template bytes: a bump or edit reached some runs but not others.
+
+### 15.2 The blind process judge
+
+Files: `apps/backend/src/evaluation/rubric.ts`, `scoreRun.ts`, `llmClient.ts`, `judgeBatch.ts`.
+
+**Identity.** `judgeKey` is `"process"` (`PROCESS_JUDGE_KEY`) and `judgeVersion` is `"1"` (`RUBRIC_VERSION`), both defined in `rubric.ts` and persisted to `run_eval_scores.judge_key` and `run_eval_scores.judge_version`.
+
+**The rubric.** Every score is an integer anchored 1 (worst) to 5 (best):
+
+| id                           | name                       | question                                                                                                            |
+| ---------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `c1_thesis_evidence_fit`     | Thesis-evidence fit        | Does each position's thesis bind to facts the analyst actually had at decision time?                                |
+| `c2_internal_consistency`    | Internal consistency       | Do the rationale, the per-position theses, and the target weights agree, and is the complete-book rule honored?     |
+| `c3_risk_logic_coherence`    | Risk-logic coherence       | Is the concentration, downside-risk, and rebalance-cadence reasoning sound and matched to the stated risk posture?  |
+| `c4_position_sizing_logic`   | Position-sizing logic      | Do the target weights follow the analyst's own conviction ranking and relative magnitude?                           |
+| `c5_macro_context_reasoning` | Macro-context reasoning    | Does the run engage the market regime and context for its window appropriately, without inventing facts?            |
+| `overall`                    | Holistic reasoning quality | Given the five criteria, what single integer 1-5 best captures the overall quality of this run's reasoning process? |
+
+On top of the six scores the judge writes a `verdict`: one short paragraph of 3 to 5 sentences that summarizes strengths and weaknesses, references criteria by id where useful, and judges only the reasoning process on the page. `validScores` (`rubric.ts`) accepts exactly the five criterion ids plus `overall`, each an integer 1-5, with no extra or missing keys.
+
+**Blindness is a contract.** `buildBlindContext` (`scoreRun.ts`) assembles the judge input from an explicit whitelist only: `personaKey` (the `agentKey` up to its last `--`), `window`, `roundId`, `simulationId`, `asOfTradeDate`, `roundSeq`, `rationale`, and each position as `{symbol, targetWeight, thesis}`. No prices or OHLC, no fills, no PnL, no returns or equity curves, no benchmark or drawdown figures, no Sharpe or other risk metric, and no `decision_json` ever reach the judge; the theses already carry the evidence the analyst relied on. The system prompt states the same rule on the wire: the judge is shown no market outcomes, scores the quality of the reasoning process only, and must never speculate about how the decisions performed.
+
+**Output handling.** The judge must answer with one JSON object shaped `{"scores": {...five criterion ids...}, "overall", "verdict"}`. `parseJudgeOutput` validates it and throws `JudgeOutputError` on anything malformed or off-rubric, and a throw persists nothing: the run comes back in the batch as `status: "error"` with the message.
+
+**Idempotent batch semantics.** `run_eval_scores` carries a unique index on `(agent_run_id, judge_key, judge_version)` (migration `0007_add_run_eval_scores.sql`). Inside `runJudgeBatch` (`judgeBatch.ts`):
+
+- A run already scored under the same `judgeKey` at the current `RUBRIC_VERSION` is skipped (`status: "skipped"`), so re-posting a batch is safe. Rows under an older rubric version do not count as scored and get re-scored at the current one.
+- Scoring upserts with `onConflictDoUpdate` on that same triple, so `"force": true` deliberately overwrites the stored row.
+- Runs are judged sequentially, because free-tier judge models rate-limit aggressively.
+- Targets resolve through an INNER JOIN to `round_jobs`, which supplies the decide date; a run whose round was never booked is not addressable.
+- Positions are loaded only for `{symbol, targetWeight, thesis}`, never their prices.
+
+### 15.3 Endpoint reference
+
+| Method | Path                          | Auth                                       | Request                                                                                                                                                                                                                                                                                     | Response                                                                                                                                                    | Status codes                                                                                                         |
+| ------ | ----------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/portfolio/evals/judge`  | Supabase Bearer (`authMiddleware`)         | JSON body with exactly one of `simulationId` (must match `/^sim-[a-z0-9][a-z0-9-]{0,46}$/`) or `roundIds` (non-empty string array); optional `judgeKey` (non-empty, at most 64 chars, default `process`), `judgeModel` (non-empty, default `JUDGE_MODEL`), `force` (boolean, default false) | `{ judgeKey, judgeVersion, model, results: [{ runId, agentKey, status: "scored" \| "skipped" \| "error", error? }], summary: { scored, skipped, errors } }` | 200; 400 invalid JSON, body shape, or target; 503 missing key with `{ error, hint: "set JUDGE_API_KEY" }`; 500 other |
+| GET    | `/api/portfolio/evals/report` | none (read-only, like the other eval GETs) | `simIds` required: comma-separated list of 1 to 10 unique simulation ids; `start` and `end` optional inclusive `YYYY-MM-DD` decide-date bounds (`start` must not be after `end`); `judgeKey` optional, default `process`                                                                    | `EvalReport` payload described below                                                                                                                        | 200; 400 missing/empty/invalid/duplicate/too-many `simIds`, malformed dates, or `start` after `end`; 500 `{ error }` |
+
+**Judge response fields.** `judgeKey` and `judgeVersion` echo the effective keys, `model` is the judge model actually used, `results` is one entry per target run in insertion order (`runId` is the `agent_runs.id`), and `summary` counts the three statuses.
+
+**Report response shape.** Loaded by `buildEvalReport` (`apps/backend/src/evaluation/report.ts`), assembled by the pure `assembleEvalReport` (`reportAggregates.ts`):
+
+- `start`, `end`: the effective inclusive bounds actually applied. An omitted side defaults to the min or max decide date among matched runs; both are `null` only when nothing matched and neither was given.
+- `judgeKey`, `simIds`: echoed back as processed.
+- `groups[]`, sorted by `personaKey` then `promptSetVersion` (a null version sorts as an empty string). Each group holds:
+  - `personaKey`, `promptSetVersion`: the group key. `personaKey` is the `agentKey` up to its last `--` (`personaKeyOf`).
+  - `runs`, `scoredRuns`, `unscoredRuns`: matched runs, how many have a `run_eval_scores` row for the requested `judgeKey`, and the remainder.
+  - `replicates`: distinct simulations among the group's runs. `tradingDays`: distinct round decide dates.
+  - `promptHashes`: sorted distinct non-null digests, the drift check from §15.1.
+  - `judge`: `{ judgeModels, criteria }` where `criteria` maps each of the five criterion ids plus `overall` to `{ mean, median, min, max }`, all `null` when nobody scored. Means are rounded to 4 decimals; rows whose JSONB fails `validScores` contribute nothing.
+  - `windows`: `daily`, `weekly`, `monthly`, each `{ runs, replicates, metrics: { totalReturnPct, annualizedVolPct, sharpe, maxDrawdownPct, simCount } }`. The metric values are means across the group's replicate streams sliced to the effective range, `null` when no stream contributed; `simCount` counts the contributing streams.
+  - `warnings`: the warning codes fired for this group.
+- `warnings[]`: one entry per (group, code) as `{ group: { personaKey, promptSetVersion }, code, message }`.
+
+When several `judgeVersion` rows exist for a run under the requested `judgeKey`, the report prefers `RUBRIC_VERSION`, else the highest version lexicographically (the unique index allows at most one row per triple, so the version alone decides). A run whose round has no decide date, or whose `simulation_id` is NULL, cannot be placed in the range or counted as a replicate, so it is dropped from the report.
+
+**Warning codes:**
+
+| code                 | fires when                             | message                                                            |
+| -------------------- | -------------------------------------- | ------------------------------------------------------------------ |
+| `replicates_lt_3`    | the group's distinct simulations < 3   | `replicates=<n> below 3: deltas below 3 replicates are noise`      |
+| `trading_days_lt_20` | the group's distinct decide dates < 20 | `tradingDays=<n> below 20: deltas below 20 trading days are noise` |
+
+**Mount order.** In `apps/backend/src/index.ts` the report app registers before `portfolioEvals`, because Hono matches registration order first and the static `/evals/report` path has to win over that app's `/evals/:simId` param route.
+
+### 15.4 The compare loop
+
+How to A/B two prompt versions end to end:
+
+1. **Baseline.** Leave `PROMPT_SET_VERSION` at its current label, create a simulation (`POST /api/portfolio/simulations`), and replay a date window into it with the `run_eval_period` MCP tool (`simId`, `start`, `end`, plus the roster options; mechanics in §13.2). A reduced roster (`agents=`, `windows=`) keeps cost sane when the goal is prompt refinement (§14.1).
+2. **Edit and bump.** Change the prompt set, then bump `PROMPT_SET_VERSION` to the next label.
+3. **Candidate.** Create a second simulation with a fresh `simId` and replay the SAME window with the same roster. Use a fresh sim: the group key is the stamp on each run, so bumping mid-replay would split one simulation's runs across version groups.
+4. **Judge both.** Call `POST /api/portfolio/evals/judge` with `{ "simulationId": "<sim-a>" }` and a Supabase Bearer token, then the same for sim B. Re-posting is safe because already-scored runs are skipped; pass `"force": true` only when a deliberate re-score is wanted.
+5. **Compare.** `GET /api/portfolio/evals/report?simIds=sim-a,sim-b&start=<YYYY-MM-DD>&end=<YYYY-MM-DD>`. Groups arrive one per `(personaKey, promptSetVersion)`, so each persona's v1 and v2 rows sit next to each other: judge criterion means, per-window return and risk means across replicates, and the warning codes on each group.
+
+**Low-n caveat.** `replicates` counts distinct simulations in a group and `tradingDays` counts distinct decide dates. One sim per version over a short window lands below both thresholds by construction, and the report says exactly that through `replicates_lt_3` and `trading_days_lt_20`: deltas at that size are noise. For a comparison worth trusting, run at least 3 fresh simulations per prompt version over a window spanning at least 20 decide dates before reading any score gap.
+
+The judge compares process quality only. Window metrics in the same payload (returns, Sharpe, drawdown) are outcome numbers grouped alongside it, but the judge never sees them (§15.2), and the low-n rule applies to those deltas too.
+
+### 15.5 Environment configuration
+
+| Variable         | Default                                  | Role                                                                                                                                                                                                                                        |
+| ---------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JUDGE_API_KEY`  | (unset)                                  | OpenRouter-compatible chat-completions key. Absent or blank makes the judge route answer 503 (`{ error: "judge model API key not configured", hint: "set JUDGE_API_KEY" }`); the report route is unaffected and still serves stored scores. |
+| `JUDGE_API_BASE` | `https://openrouter.ai/api/v1`           | Chat-completions base URL. The client posts to `<base>/chat/completions` with trailing slashes stripped.                                                                                                                                    |
+| `JUDGE_MODEL`    | `nvidia/nemotron-3-super-120b-a12b:free` | Default judge model; a per-request `judgeModel` in the batch body overrides it.                                                                                                                                                             |
+
+All three are read in `apps/backend/src/env.ts`. The feature stack (`infra/docker-compose.feature.yml`) passes `JUDGE_API_KEY=${OPENROUTER_API_KEY}` into the backend container, so the key itself comes from the host `.env` as `OPENROUTER_API_KEY`. `JUDGE_API_BASE` and `JUDGE_MODEL` are not set there, so their defaults apply.
+
+Free-tier behavior: `llmClient.ts` calls at temperature 0 with `max_tokens` 4000, retries 429, 5xx, and network failures with 1s/3s/9s backoff that honors `Retry-After`, times each call out at 90 seconds, and gives up with a typed error carrying the last HTTP detail. The batch feeds runs to it one at a time for the same reason, and the rubric JSON is demanded through the prompt rather than a `response_format` parameter, because free-tier reasoning models do not consistently support structured-output parameters.
+
+### 15.6 Beads
+
+- `model_md-worktree-feat-portfolio-sim-85f`: DB, prompt_set_version and prompt_hash columns on agent_runs.
+- `model_md-worktree-feat-portfolio-sim-a8w`: DB, run_eval_scores table.
+- `model_md-worktree-feat-portfolio-sim-cjd`: orchestrator, PROMPT_SET_VERSION constant and prompt_hash threading.
+- `model_md-worktree-feat-portfolio-sim-5uc`: backend, rubric v1, blind scoreRun, judge batch route.
+- `model_md-worktree-feat-portfolio-sim-ijg`: backend, report aggregation with low-n warnings.
+- `model_md-worktree-feat-portfolio-sim-176`: tests, hash stability, version threading, judge idempotency, blind context, report low-n.
+- `model_md-worktree-feat-portfolio-sim-o7x`: this documentation.
+
+Dependency chain: `85f` blocks `cjd`; `cjd` and `a8w` block `5uc`; `5uc` blocks `ijg`; `ijg` blocks `176`; `176` blocks `o7x`.
