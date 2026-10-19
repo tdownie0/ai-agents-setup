@@ -79,6 +79,10 @@ export const agentRuns = pgTable(
     decisionJson: jsonb("decision_json"),
     error: text("error"),
     replicateOf: varchar("replicate_of", { length: 120 }),
+    /** Human label of the prompt template version used for this run (e.g. "v1"). */
+    promptSetVersion: varchar("prompt_set_version", { length: 40 }),
+    /** sha256 hex of the rendered prompt template. */
+    promptHash: varchar("prompt_hash", { length: 64 }),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

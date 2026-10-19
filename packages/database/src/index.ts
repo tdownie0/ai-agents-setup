@@ -9,6 +9,7 @@ import * as roundJobs from "./schema/roundJobs.js";
 import * as relations from "./schema/relations.js";
 import * as simulations from "./schema/simulations.js";
 import * as portfolioCarryover from "./schema/portfolioCarryover.js";
+import * as evalScores from "./schema/evalScores.js";
 
 export const schema = {
   ...users,
@@ -19,6 +20,7 @@ export const schema = {
   ...relations,
   ...simulations,
   ...portfolioCarryover,
+  ...evalScores,
 };
 
 // Using 'prepare: false' prevents "prepared statement" errors when using
@@ -37,3 +39,4 @@ export * from "./schema/roundJobs.js";
 export * from "./schema/relations.js";
 export * from "./schema/simulations.js";
 export * from "./schema/portfolioCarryover.js";
+export * from "./schema/evalScores.js";
