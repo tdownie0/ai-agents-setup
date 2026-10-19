@@ -8,7 +8,9 @@ import authHandler from "./routes/auth.js";
 import marketDataHandler from "./routes/marketData.js";
 import portfolioHandler from "./routes/portfolio.js";
 import portfolioCarryoverHandler from "./routes/portfolioCarryover.js";
+import portfolioEvalReportHandler from "./routes/portfolioEvalReport.js";
 import portfolioEvalsHandler from "./routes/portfolioEvals.js";
+import portfolioJudgeHandler from "./routes/portfolioJudge.js";
 import roundsHandler from "./routes/rounds.js";
 import roundJobsHandler from "./routes/roundJobs.js";
 
@@ -26,7 +28,11 @@ const routes = app
   .route("/market-data", marketDataHandler)
   .route("/portfolio", portfolioHandler)
   .route("/portfolio", portfolioCarryoverHandler)
+  // Before portfolioEvals: Hono prefers the first-registered match, and this
+  // static path must win over that app's /evals/:simId param route.
+  .route("/portfolio", portfolioEvalReportHandler)
   .route("/portfolio", portfolioEvalsHandler)
+  .route("/portfolio", portfolioJudgeHandler)
   .route("/portfolio", roundsHandler)
   .route("/portfolio", roundJobsHandler);
 
