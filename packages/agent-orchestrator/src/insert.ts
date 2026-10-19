@@ -99,6 +99,13 @@ export interface InsertRunOptions {
   simulationId: string | null;
   /** When the analyst run started. Defaults to now. */
   startedAt?: Date;
+  /**
+   * Prompt-set stamp: `PROMPT_SET_VERSION` of the prompt that produced this
+   * run; `null`/omitted stores NULL (legacy callers without stamping).
+   */
+  promptSetVersion?: string | null;
+  /** Prompt-set stamp: sha256 hex of the static prompt template; NULL when absent. */
+  promptHash?: string | null;
 }
 
 export interface InsertRunResult {
@@ -180,6 +187,8 @@ export async function insertRun(opts: InsertRunOptions): Promise<InsertRunResult
           replicateOf: agent.replicateOf ?? null,
           startedAt,
           completedAt,
+          promptSetVersion: opts.promptSetVersion ?? null,
+          promptHash: opts.promptHash ?? null,
         })
         .returning({ id: agentRuns.id });
 

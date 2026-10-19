@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import type { DecisionHolding } from "./contract.js";
 import { getPersona, WINDOW_CADENCE } from "./personas.js";
+import { PROMPT_SET_VERSION } from "./promptVersion.js";
 import {
   buildAnalystPrompt,
   buildSpawnArgs,
@@ -30,7 +31,7 @@ describe("buildSpawnArgs — the proven headless invocation", () => {
 describe("buildAnalystPrompt", () => {
   it("embeds the persona mandate, dataset path, asOf date, and strict output instruction", () => {
     const persona = getPersona("dr-value");
-    const prompt = buildAnalystPrompt({
+    const { prompt } = buildAnalystPrompt({
       persona,
       window: "monthly",
       agentKey: "dr-value--monthly",
@@ -54,7 +55,7 @@ describe("buildAnalystPrompt", () => {
 
   it("substitutes the assigned window cadence and pins agent.window in the example", () => {
     for (const window of ["daily", "weekly", "monthly"] as const) {
-      const prompt = buildAnalystPrompt({
+      const { prompt } = buildAnalystPrompt({
         persona: getPersona("dr-value"),
         window,
         agentKey: `dr-value--${window}`,
@@ -73,7 +74,7 @@ describe("buildAnalystPrompt", () => {
   });
 
   it("annotates a replica run with replicateOf", () => {
-    const prompt = buildAnalystPrompt({
+    const { prompt } = buildAnalystPrompt({
       persona: getPersona("dr-value"),
       window: "monthly",
       agentKey: "dr-value--monthly#rep1",
@@ -87,7 +88,7 @@ describe("buildAnalystPrompt", () => {
   });
 
   it("appends the correction hint on retry", () => {
-    const prompt = buildAnalystPrompt({
+    const { prompt } = buildAnalystPrompt({
       persona: getPersona("dr-value"),
       window: "daily",
       agentKey: "dr-value--daily",
@@ -219,7 +220,7 @@ describe("buildAnalystPrompt — the carried book reaches the analyst", () => {
   };
 
   it("states the carried book, its mark, and the chain position", () => {
-    const prompt = buildAnalystPrompt(carriedOpts);
+    const { prompt } = buildAnalystPrompt(carriedOpts);
 
     expect(prompt).toContain("HOLDINGS (your carried book, marked at this decision date)");
     expect(prompt).toContain("ACME");
@@ -231,7 +232,7 @@ describe("buildAnalystPrompt — the carried book reaches the analyst", () => {
   });
 
   it("tells a first-round analyst it holds nothing instead of silently omitting the book", () => {
-    const prompt = buildAnalystPrompt({ ...base, portfolioValue: 100000, holdings: [] });
+    const { prompt } = buildAnalystPrompt({ ...base, portfolioValue: 100000, holdings: [] });
 
     expect(prompt).toContain("This is its first decision round");
     expect(prompt).toContain("roundSeq=1");
@@ -249,11 +250,89 @@ describe("buildAnalystPrompt — the carried book reaches the analyst", () => {
       portfolioValue: 102800,
     };
 
-    const withBook = buildAnalystPrompt({ ...pinned, holdings: carried });
-    const withoutBook = buildAnalystPrompt({ ...pinned, holdings: [] });
+    const withBook = buildAnalystPrompt({ ...pinned, holdings: carried }).prompt;
+    const withoutBook = buildAnalystPrompt({ ...pinned, holdings: [] }).prompt;
 
     expect(withBook).not.toEqual(withoutBook);
     expect(withBook).toContain("ACME");
     expect(withoutBook).not.toContain("ACME");
+  });
+});
+
+/**
+ * The prompt-set stamp: every run records WHICH prompt produced it — a global
+ * version label plus a content hash of the static rendered template. The hash
+ * must be stable across runs of the same prompt set and sensitive to any
+ * prompt-set change, while staying blind to per-run inputs.
+ */
+describe("buildAnalystPrompt — prompt-set stamping", () => {
+  const base = {
+    persona: getPersona("dr-value"),
+    window: "daily",
+    agentKey: "dr-value--daily",
+    roundId: "round-1",
+    datasetPath: "/rounds/round-1/dataset.json",
+    asOfTradeDate: "2026-09-24",
+    portfolioValue: 100000,
+  } as const;
+
+  const otherHolding: DecisionHolding = {
+    symbol: "ACME",
+    shares: 600,
+    costBasis: 100,
+    lastPrice: 104,
+    marketValue: 62400,
+    weight: 0.6,
+    holdingDays: 4,
+    unrealizedPnlPct: 4,
+  };
+
+  it("stamps a non-empty PROMPT_SET_VERSION matching /^v\\d+$/", () => {
+    expect(PROMPT_SET_VERSION).toMatch(/^v\d+$/);
+    expect(PROMPT_SET_VERSION.length).toBeGreaterThan(0);
+    expect(buildAnalystPrompt(base).promptSetVersion).toBe(PROMPT_SET_VERSION);
+  });
+
+  it("returns a 64-char lowercase hex sha256", () => {
+    expect(buildAnalystPrompt(base).promptHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("produces an identical hash when the inputs are identical", () => {
+    const first = buildAnalystPrompt(base);
+    const second = buildAnalystPrompt(base);
+    expect(second.promptHash).toBe(first.promptHash);
+    expect(second.prompt).toBe(first.prompt);
+  });
+
+  it("produces different hashes for different personas", () => {
+    const other = buildAnalystPrompt({
+      ...base,
+      persona: getPersona("dr-momentum"),
+      agentKey: "dr-momentum--daily",
+    });
+    expect(other.promptHash).not.toBe(buildAnalystPrompt(base).promptHash);
+  });
+
+  it("produces different hashes when the window (and therefore cadence) differs", () => {
+    const weekly = buildAnalystPrompt({ ...base, window: "weekly", agentKey: "dr-value--weekly" });
+    expect(weekly.promptHash).not.toBe(buildAnalystPrompt(base).promptHash);
+  });
+
+  it("excludes volatile per-run inputs from the hash while the prompt itself changes", () => {
+    const first = buildAnalystPrompt(base);
+    const variant = buildAnalystPrompt({
+      ...base,
+      roundId: "round-99",
+      portfolioValue: 250000,
+      asOfTradeDate: "2026-10-01",
+      simulationId: "sim-other",
+      roundSeq: 7,
+      holdings: [otherHolding],
+      correctionHint: "Your previous output failed validation: weight sum was 0.5",
+    });
+
+    expect(variant.promptHash).toBe(first.promptHash);
+    expect(variant.prompt).not.toBe(first.prompt);
+    expect(variant.prompt).toContain("round-99");
   });
 });

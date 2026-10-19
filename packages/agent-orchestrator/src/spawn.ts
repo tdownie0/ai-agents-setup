@@ -12,6 +12,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   DecisionValidationError,
   validateEnvelope,
@@ -22,6 +23,7 @@ import {
 import { renderHoldingsDigest, renderHoldingsSection } from "./holdings.js";
 import { WINDOW_CADENCE } from "./personas.js";
 import type { AnalystPersona, AnalystWindow } from "./personas.js";
+import { PROMPT_SET_VERSION } from "./promptVersion.js";
 
 export const DEFAULT_AGENT_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -53,6 +55,10 @@ export interface SpawnAnalystResult {
   envelope: DecisionEnvelope;
   rawOutput: string;
   attempts: number;
+  /** sha256 hex (64 chars) of the static prompt template this run was produced from. */
+  promptHash: string;
+  /** `PROMPT_SET_VERSION` of the prompt set this run was produced from. */
+  promptSetVersion: string;
 }
 
 export class SpawnAnalystError extends Error {
@@ -241,8 +247,134 @@ const COMPLETE_BOOK_RULE = [
   "- between 5 and 10 lines must have targetWeight > 0, and those weights must sum to 1.0 (±0.01). Zero-weight exit lines are unlimited and count toward neither bound.",
 ].join("\n");
 
-/** Build the full prompt handed to the headless analyst subagent. */
-export function buildAnalystPrompt(opts: BuildAnalystPromptOptions): string {
+/**
+ * Literal scaffolding shared by the hashed template and the full prompt
+ * assembly below. Both assemblies read these constants — editing a value here
+ * changes the prompt AND its hash together.
+ */
+const SECTION_SEPARATOR = "---";
+const DATASET_HEADING = "DATASET";
+const HOLDINGS_HEADING = "HOLDINGS";
+const OUTPUT_HEADING = "OUTPUT FORMAT (STRICT)";
+const EXAMPLE_HEADING = "Example of a valid envelope:";
+
+const DATASET_GUIDANCE_LINES = [
+  "Read it with your file-read tool. The earliest row in dataset.json is the decision-date context.",
+  "Do not fetch anything from the network or the database — dataset.json is the only truth.",
+  "Only consider symbols where hasData is true. Pick 5–10 symbols. Equal-weight or your own weighting allowed; weights MUST sum to 1.0 (±0.01).",
+];
+
+const OUTPUT_SCHEMA_INSTRUCTION =
+  "Output ONLY a single JSON object matching this exact schema (schemaVersion 2). No prose, no markdown fences, no commentary before or after — the entire response must be parseable as one JSON object:";
+
+/** The window-pinning sentence; only the window varies (a per-window template input). */
+function windowPinLine(window: AnalystWindow): string {
+  return `Your assigned rebalance window is "${window}". This is the only window you are running — the cadence described in your mandate above applies. You MUST set agent.window to exactly "${window}" in your envelope; any other value is rejected.`;
+}
+
+/**
+ * Canonical run-state pinned into the template's example envelope so the hash
+ * never sees per-run values (see `hashPromptTemplate`). Everything else the
+ * example carries — agentKey, persona, strategy, window — is template input.
+ */
+const TEMPLATE_EXAMPLE_ROUND_ID = "prompt-template";
+const TEMPLATE_EXAMPLE_PORTFOLIO_VALUE = 100000;
+
+/**
+ * The STATIC rendered template — the hash input for `promptHash`.
+ *
+ * Assembles exactly the prompt-set content named in `hashPromptTemplate`'s
+ * locked recipe: the persona mandate with ONLY `{{cadence}}` substituted (the
+ * `{{holdings}}` token stays literal), the shared scaffolding, the
+ * complete-book rule, the envelope schema, and the example envelope with its
+ * run-state pinned to canonical values. `buildAnalystPrompt` renders the full
+ * prompt from the same constants, interleaving the volatile per-run sections —
+ * edit BOTH assemblies together.
+ */
+function buildPromptTemplate(opts: BuildAnalystPromptOptions): string {
+  const mandate = opts.persona.phdSystemPrompt
+    .split(CADENCE_TOKEN)
+    .join(WINDOW_CADENCE[opts.window]);
+
+  return [
+    mandate,
+    "",
+    SECTION_SEPARATOR,
+    DATASET_HEADING,
+    ...DATASET_GUIDANCE_LINES,
+    "",
+    windowPinLine(opts.window),
+    "",
+    SECTION_SEPARATOR,
+    HOLDINGS_HEADING,
+    "",
+    COMPLETE_BOOK_RULE,
+    "",
+    SECTION_SEPARATOR,
+    OUTPUT_HEADING,
+    OUTPUT_SCHEMA_INSTRUCTION,
+    ENVELOPE_SCHEMA_JSON,
+    "",
+    EXAMPLE_HEADING,
+    buildEnvelopeExample({
+      agentKey: opts.agentKey,
+      persona: opts.persona.displayName,
+      strategy: opts.persona.strategy,
+      window: opts.window,
+      roundId: TEMPLATE_EXAMPLE_ROUND_ID,
+      portfolioValue: TEMPLATE_EXAMPLE_PORTFOLIO_VALUE,
+    }),
+  ].join("\n");
+}
+
+/**
+ * sha256 hex (64 chars, utf8) of the STATIC rendered template — the
+ * `promptHash` stamped on every agent run.
+ *
+ * LOCKED RECIPE — the hashed payload is the template from
+ * `buildPromptTemplate`:
+ *
+ * IN (hashed):
+ * - the persona mandate with ONLY `{{cadence}}` substituted (cadence is the
+ *   per-window template input; `{{holdings}}` stays literal),
+ * - `COMPLETE_BOOK_RULE`,
+ * - `ENVELOPE_SCHEMA_JSON`,
+ * - the example envelope, with its run-state pinned to canonical values
+ *   (roundId, simulationId, roundSeq, priorRoundId, portfolioValue, cash,
+ *   holdingsValue, holdings → no exit line) and its persona/window identity
+ *   taken from the caller — persona and window are template inputs, not run
+ *   state,
+ * - the literal scaffolding strings used by `buildAnalystPrompt` (section
+ *   headers, separators, fixed instruction sentences).
+ *
+ * OUT (volatile per-run inputs, never hashed): the holdings digest,
+ * portfolioValue, roundId, simulationId, correctionHint, asOfTradeDate —
+ * anything that varies run-to-run for the same prompt set. The full prompt is
+ * rendered from the template by interleaving those sections.
+ *
+ * Only this digest and `PROMPT_SET_VERSION` are persisted — never the built
+ * prompt text itself.
+ */
+function hashPromptTemplate(template: string): string {
+  return createHash("sha256").update(template, "utf8").digest("hex");
+}
+
+export interface BuildAnalystPromptResult {
+  /** The full prompt text handed to the analyst subagent. */
+  prompt: string;
+  /** sha256 hex (64 chars) of the static rendered template — see `hashPromptTemplate`. */
+  promptHash: string;
+  /** `PROMPT_SET_VERSION` of the prompt set this prompt was assembled from. */
+  promptSetVersion: string;
+}
+
+/**
+ * Build the full prompt handed to the headless analyst subagent, plus the
+ * prompt-set stamp (`promptHash`, `promptSetVersion`) recorded with the run.
+ */
+export function buildAnalystPrompt(opts: BuildAnalystPromptOptions): BuildAnalystPromptResult {
+  const promptHash = hashPromptTemplate(buildPromptTemplate(opts));
+
   const replicateLine =
     opts.replicateOf !== undefined
       ? `\nYou are a consistency replica of "${opts.replicateOf}": apply the SAME methodology and reach your own independent conclusion — do not copy, but stay methodologically faithful.`
@@ -268,33 +400,31 @@ export function buildAnalystPrompt(opts: BuildAnalystPromptOptions): string {
     .split(HOLDINGS_TOKEN)
     .join(renderHoldingsDigest(holdings, opts.portfolioValue));
 
-  return [
+  const prompt = [
     mandate,
     "",
-    "---",
-    "DATASET",
+    SECTION_SEPARATOR,
+    DATASET_HEADING,
     `You are analyzing data as of ${opts.asOfTradeDate}. The dataset file is at:`,
     opts.datasetPath,
-    "Read it with your file-read tool. The earliest row in dataset.json is the decision-date context.",
-    "Do not fetch anything from the network or the database — dataset.json is the only truth.",
-    "Only consider symbols where hasData is true. Pick 5–10 symbols. Equal-weight or your own weighting allowed; weights MUST sum to 1.0 (±0.01).",
+    ...DATASET_GUIDANCE_LINES,
     "",
     `Your identity for this run: agentKey="${opts.agentKey}", roundId="${opts.roundId}", portfolioValue=${opts.portfolioValue}.${replicateLine}`,
-    `Your assigned rebalance window is "${opts.window}". This is the only window you are running — the cadence described in your mandate above applies. You MUST set agent.window to exactly "${opts.window}" in your envelope; any other value is rejected.`,
+    windowPinLine(opts.window),
     `Your stream state, which you must echo verbatim into the envelope: ${streamState}.`,
     "",
-    "---",
-    "HOLDINGS",
+    SECTION_SEPARATOR,
+    HOLDINGS_HEADING,
     renderHoldingsSection(holdings, opts.portfolioValue),
     "",
     COMPLETE_BOOK_RULE,
     "",
-    "---",
-    "OUTPUT FORMAT (STRICT)",
-    "Output ONLY a single JSON object matching this exact schema (schemaVersion 2). No prose, no markdown fences, no commentary before or after — the entire response must be parseable as one JSON object:",
+    SECTION_SEPARATOR,
+    OUTPUT_HEADING,
+    OUTPUT_SCHEMA_INSTRUCTION,
     ENVELOPE_SCHEMA_JSON,
     "",
-    "Example of a valid envelope:",
+    EXAMPLE_HEADING,
     buildEnvelopeExample({
       agentKey: opts.agentKey,
       persona: opts.persona.displayName,
@@ -311,6 +441,8 @@ export function buildAnalystPrompt(opts: BuildAnalystPromptOptions): string {
     }),
     correction,
   ].join("\n");
+
+  return { prompt, promptHash, promptSetVersion: PROMPT_SET_VERSION };
 }
 
 function holdingsValue(holdings: readonly DecisionHolding[]): number {
@@ -457,7 +589,7 @@ export async function spawnAnalyst(opts: SpawnAnalystOptions): Promise<SpawnAnal
   let lastStderr = "";
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const prompt = buildAnalystPrompt({
+    const { prompt, promptHash, promptSetVersion } = buildAnalystPrompt({
       persona: opts.persona,
       window: opts.window,
       agentKey: opts.agentKey,
@@ -483,7 +615,7 @@ export async function spawnAnalyst(opts: SpawnAnalystOptions): Promise<SpawnAnal
         heldSymbols: opts.heldSymbols,
         expectedWindow: opts.window,
       });
-      return { envelope, rawOutput: stdout, attempts: attempt };
+      return { envelope, rawOutput: stdout, attempts: attempt, promptHash, promptSetVersion };
     } catch (err) {
       lastFailure = err;
       if (attempt === maxAttempts) {

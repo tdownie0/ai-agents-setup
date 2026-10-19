@@ -9,6 +9,7 @@
  */
 
 export * from "./personas.js";
+export { PROMPT_SET_VERSION } from "./promptVersion.js";
 export {
   buildDataset,
   DATASET_SCHEMA_VERSION,
@@ -49,6 +50,7 @@ export {
   parseAnalystOutput,
   spawnAnalyst,
   type BuildAnalystPromptOptions,
+  type BuildAnalystPromptResult,
   type SpawnAnalystOptions,
   type SpawnAnalystResult,
 } from "./spawn.js";

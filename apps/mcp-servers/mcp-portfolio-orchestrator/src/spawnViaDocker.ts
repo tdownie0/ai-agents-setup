@@ -203,7 +203,7 @@ export async function spawnAnalystWithExec(
   let lastStderr = "";
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const prompt = buildAnalystPrompt({
+    const { prompt, promptHash, promptSetVersion } = buildAnalystPrompt({
       persona: opts.persona,
       window: opts.window,
       agentKey: opts.agentKey,
@@ -257,7 +257,13 @@ export async function spawnAnalystWithExec(
         heldSymbols: opts.heldSymbols,
         expectedWindow: opts.window,
       });
-      return { envelope, rawOutput: result.stdout, attempts: attempt };
+      return {
+        envelope,
+        rawOutput: result.stdout,
+        attempts: attempt,
+        promptHash,
+        promptSetVersion,
+      };
     } catch (err) {
       lastFailure = err;
       if (attempt === maxAttempts) {

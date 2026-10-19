@@ -217,6 +217,8 @@ async function main(): Promise<void> {
         // the chain position it was launched at.
         simulationId: booking?.simulationId ?? null,
         startedAt,
+        promptSetVersion: spawned.promptSetVersion,
+        promptHash: spawned.promptHash,
       });
 
       results.push({

@@ -170,6 +170,8 @@ async function runOneAgent(roundId: string, job: AgentJob, ctx: RunOneContext): 
     });
     const inserted = await backend.post<InsertRunWire>("/api/portfolio/runs", {
       envelope: spawned.envelope,
+      promptHash: spawned.promptHash,
+      promptSetVersion: spawned.promptSetVersion,
     });
     await store.setAgentProgress(roundId, job.agentKey, {
       status: "inserted",
