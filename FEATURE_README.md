@@ -912,3 +912,86 @@ Free-tier behavior: `llmClient.ts` calls at temperature 0 with `max_tokens` 4000
 - `model_md-worktree-feat-portfolio-sim-o7x`: this documentation.
 
 Dependency chain: `85f` blocks `cjd`; `cjd` and `a8w` block `5uc`; `5uc` blocks `ijg`; `ijg` blocks `176`; `176` blocks `o7x`.
+
+---
+
+## 16. Prompt-suggestion critic (non-blind)
+
+### Overview
+
+The blind process judge (§15) scores runs without ever seeing the prompt that produced them. This section documents its deliberate complement: a second, **non-blind** critic that reads the full prompt set for one `(persona, window)` stream plus a digest of that stream's failure error strings, and persists structured improvement proposals to `prompt_suggestions`. It never edits a prompt — a human reads the proposals and decides what to change. The two reviewers are intentionally asymmetric: the judge is blinded so its score cannot be contaminated by outcomes; the critic is unblinded because its whole job is to read the prompt text and propose edits to it.
+
+### 16.1 Identity and files
+
+`judgeKey` is `"prompt-critic"` (`PROMPT_CRITIC_KEY`) and `judgeVersion` is `"1"` (`CRITIC_VERSION`), persisted to `prompt_suggestions.judge_key` / `prompt_suggestions.judge_version`.
+
+- `apps/backend/src/evaluation/promptCritic.ts` — the context/prompt builder, the strict output parser, and the single-set critiquer.
+- `apps/backend/src/evaluation/promptSuggestions.ts` — batch orchestration, persistence, and the list query (the structural mirror of `judgeBatch.ts`, minus the blindness contract).
+- `apps/backend/src/routes/portfolioPromptSuggestions.ts` — the HTTP boundary.
+
+### 16.2 What the critic sees (and what it must not)
+
+The input is assembled by `buildCriticContext` from `getPromptSetDefinition(personaKey, window)` (§15.1 accessor):
+
+- **Prompt-set metadata**: `personaKey`, `window`, `agentKey`, `promptSetVersion`, `promptHash`.
+- **The labeled components**: `persona_mandate`, `complete_book_rule`, `envelope_schema`, `example_envelope`, plus the full rendered `template` (every component's text is an exact substring of it).
+- **An optional failure digest**: the `agent_runs.error` strings of failed runs belonging to the same stream — same `agentKey` or its `#`-replica suffix, same `promptSetVersion`, `status = 'failed'` — aggregated to a total count plus up to 10 DISTINCT samples truncated to 300 chars each.
+
+**Never passed**: holdings, positions, prices/OHLC, fills, PnL, returns, equity curves, dataset paths, or `decision_json`. The template carries only its canonical, per-run-independent example state. This is the same whitelist discipline as the blind judge (§15.2), with two intentional differences: the critic is shown the prompt text itself (the judge is not), and it is shown failure error strings (the judge never is).
+
+### 16.3 Output contract
+
+Validation is strict and all-or-nothing. `parseCriticOutput` accepts fenced or prose-wrapped JSON, and rejects: no JSON, empty/missing `critiques`, a non-array or empty `proposals`, more than 15 proposals, unknown enum values, and empty `problem`/`proposedText`/`rationale`. Any rejection throws `CriticOutputError` and **nothing is persisted**.
+
+A result is `{ critiques: string, proposals: PromptProposal[] }`. Each proposal is one structured edit:
+
+| field          | type                                                                                                  |
+| -------------- | ----------------------------------------------------------------------------------------------------- |
+| `component`    | `persona_mandate` \| `complete_book_rule` \| `envelope_schema` \| `example_envelope` \| `scaffolding` |
+| `kind`         | `correct` \| `clarify` \| `strengthen` \| `simplify` \| `add`                                         |
+| `severity`     | `high` \| `medium` \| `low`                                                                           |
+| `problem`      | string — what is wrong with the current text                                                          |
+| `currentText`  | string — the excerpt being criticized                                                                 |
+| `proposedText` | string — the suggested replacement                                                                    |
+| `rationale`    | string — why the change should help                                                                   |
+
+`scaffolding` covers the shared headers, separators, and fixed instruction sentences that are not one of the four named components.
+
+### 16.4 Persistence
+
+One row per `(persona_key, window, prompt_set_version, source_prompt_hash, judge_key, judge_version)` in `prompt_suggestions`, enforced by the unique index `prompt_suggestions_identity_unique_idx`. The batch writes with `onConflictDoUpdate` on that same six-column key, so a re-run with `"force": true` deliberately overwrites the stored `critiques`/`proposals`. `proposals` is stored as `jsonb`; the built prompt text is never stored (only `source_prompt_hash` and the label). Table and migration: `packages/database/src/schema/promptSuggestions.ts`, `packages/database/drizzle/0008_add_prompt_suggestions.sql`.
+
+### 16.5 Batch semantics
+
+`runSuggestionBatch` critiques one persona across either one explicit `window` or all three (`daily`, `weekly`, `monthly`), processing windows **sequentially** because free-tier critic models rate-limit aggressively. A window whose full unique key already has a row is skipped (`status: "skipped"`) unless `force` is set. A failure in one window is recorded as `status: "error"` for that window and never propagates — the remaining windows still run.
+
+Result shape: `{ judgeKey, judgeVersion, model, promptSetVersion, results: [{ personaKey, window, promptHash, status: "generated" | "skipped" | "error", suggestionId?, error? }], summary: { generated, skipped, errors } }`.
+
+### 16.6 Endpoint reference
+
+| Method | Path                                | Auth                               | Request                                                                                                                                                                   | Response                                              | Status codes                                                                                                                                    |
+| ------ | ----------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/portfolio/prompt-suggestions` | Supabase Bearer (`authMiddleware`) | JSON body: `personaKey` (required, must be a KNOWN persona), optional `window` (`daily` \| `weekly` \| `monthly`), `force` (boolean), `model` (non-empty string override) | `SuggestionBatchResult` (above)                       | 200; 400 invalid JSON, missing/unknown persona, bad `window`/`force`/`model`; 503 missing key `{ error, hint: "set JUDGE_API_KEY" }`; 500 other |
+| GET    | `/api/portfolio/prompt-suggestions` | Supabase Bearer (`authMiddleware`) | Query: optional `personaKey`, `window`, `promptSetVersion` (each applied only when present and non-empty)                                                                 | `{ suggestions: SuggestionListItem[] }`, newest first | 200; 401; 500 other. An unknown `window` filter is not an error — it simply matches nothing and returns `[]`                                    |
+
+`SuggestionListItem` is the wire shape: `id`, `personaKey`, `window`, `promptSetVersion`, `sourcePromptHash`, `judgeKey`, `judgeVersion`, `critiques`, `proposals[]`, `judgeModel`, `createdAt` (ISO-8601), and `isCurrent` — true when the row's `promptSetVersion` and `sourcePromptHash` both match the current rendered prompt set for its `(personaKey, window)`, i.e. the proposal still applies to the prompt as it stands now.
+
+### 16.7 Environment configuration
+
+The critic shares the blind judge's configuration (§15.5): `JUDGE_API_KEY` (falling back to `OPENROUTER_API_KEY`), `JUDGE_API_BASE` (default `https://openrouter.ai/api/v1`), and `JUDGE_MODEL` (default `nvidia/nemotron-3-super-120b-a12b:free`). It calls through the same `llmClient.ts` (temperature 0, `max_tokens` 4000, 429/5xx/network retries with 1s/3s/9s backoff honoring `Retry-After`, 90-second per-call timeout). A per-request `model` in the POST body overrides `JUDGE_MODEL`.
+
+### 16.8 Verification
+
+- `apps/backend`: **300/300** tests (18 files), `tsc --noEmit` exit 0. New coverage: 15 `promptCritic` tests, 7 `promptSuggestions` tests, 17 route tests.
+- `execute_lifecycle(action="format")` and `execute_lifecycle(action="verify")` SUCCESS on the `model_md-worktree-feat-portfolio-sim` worktree (jobs `01a15945-4293-7129-a8b8-30bcdb9e21bf` and `01a15945-c217-71ba-82bd-739fbacb51ba`).
+
+### 16.9 Beads
+
+- `model_md-worktree-feat-portfolio-sim-e4e`: epic, prompt-suggestion critic.
+- `model_md-worktree-feat-portfolio-sim-e4e.1`: DB, `prompt_suggestions` table + migration 0008.
+- `model_md-worktree-feat-portfolio-sim-e4e.2`: orchestrator, `getPromptSetDefinition` accessor.
+- `model_md-worktree-feat-portfolio-sim-e4e.3`: backend, `prompt-critic` service + `env.ts` fallback.
+- `model_md-worktree-feat-portfolio-sim-e4e.4`: backend, prompt-suggestions route + mount.
+- `model_md-worktree-feat-portfolio-sim-e4e.5`: tests, verification, and this documentation.
+
+Dependency chain: `.1` and `.2` block `.3`; `.3` blocks `.4`; `.4` blocks `.5`.

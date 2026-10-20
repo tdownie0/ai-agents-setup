@@ -21,7 +21,7 @@ import {
   type ValidateEnvelopeOptions,
 } from "./contract.js";
 import { renderHoldingsDigest, renderHoldingsSection } from "./holdings.js";
-import { WINDOW_CADENCE } from "./personas.js";
+import { WINDOW_CADENCE, agentKeyFor, getPersona } from "./personas.js";
 import type { AnalystPersona, AnalystWindow } from "./personas.js";
 import { PROMPT_SET_VERSION } from "./promptVersion.js";
 
@@ -291,7 +291,9 @@ const TEMPLATE_EXAMPLE_PORTFOLIO_VALUE = 100000;
  * prompt from the same constants, interleaving the volatile per-run sections —
  * edit BOTH assemblies together.
  */
-function buildPromptTemplate(opts: BuildAnalystPromptOptions): string {
+function buildPromptTemplate(
+  opts: Pick<BuildAnalystPromptOptions, "persona" | "window" | "agentKey">,
+): string {
   const mandate = opts.persona.phdSystemPrompt
     .split(CADENCE_TOKEN)
     .join(WINDOW_CADENCE[opts.window]);
@@ -357,6 +359,72 @@ function buildPromptTemplate(opts: BuildAnalystPromptOptions): string {
  */
 function hashPromptTemplate(template: string): string {
   return createHash("sha256").update(template, "utf8").digest("hex");
+}
+
+/** One named piece of the static prompt template, as fed to a prompt-critic judge. */
+export interface PromptSetComponent {
+  id: "persona_mandate" | "complete_book_rule" | "envelope_schema" | "example_envelope";
+  label: string;
+  text: string;
+}
+
+/**
+ * The full static prompt set for one (persona, window) stream: the rendered
+ * template bytes, their named components, and the prompt-set stamp. Every
+ * component's `text` is an exact substring of `template`.
+ */
+export interface PromptSetDefinition {
+  personaKey: string;
+  window: AnalystWindow;
+  agentKey: string;
+  promptSetVersion: string;
+  promptHash: string;
+  template: string;
+  components: readonly PromptSetComponent[];
+}
+
+/**
+ * Accessor for the static prompt set a (personaKey, window) stream is produced
+ * from. `promptHash` is identical to what `buildAnalystPrompt` stamps on runs
+ * for the same pair — the accessor and the builder share `buildPromptTemplate`.
+ */
+export function getPromptSetDefinition(
+  personaKey: string,
+  window: AnalystWindow,
+): PromptSetDefinition {
+  const persona = getPersona(personaKey);
+  const agentKey = agentKeyFor(personaKey, window);
+  const template = buildPromptTemplate({ persona, window, agentKey });
+
+  const mandate = persona.phdSystemPrompt.split(CADENCE_TOKEN).join(WINDOW_CADENCE[window]);
+
+  const components: readonly PromptSetComponent[] = [
+    { id: "persona_mandate", label: "Persona mandate ({{cadence}} substituted)", text: mandate },
+    { id: "complete_book_rule", label: "Complete-book rule", text: COMPLETE_BOOK_RULE },
+    { id: "envelope_schema", label: "Envelope schema", text: ENVELOPE_SCHEMA_JSON },
+    {
+      id: "example_envelope",
+      label: "Example envelope (canonical run-state)",
+      text: buildEnvelopeExample({
+        agentKey,
+        persona: persona.displayName,
+        strategy: persona.strategy,
+        window,
+        roundId: TEMPLATE_EXAMPLE_ROUND_ID,
+        portfolioValue: TEMPLATE_EXAMPLE_PORTFOLIO_VALUE,
+      }),
+    },
+  ];
+
+  return {
+    personaKey,
+    window,
+    agentKey,
+    promptSetVersion: PROMPT_SET_VERSION,
+    promptHash: hashPromptTemplate(template),
+    template,
+    components,
+  };
 }
 
 export interface BuildAnalystPromptResult {

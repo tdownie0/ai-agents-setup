@@ -11,6 +11,7 @@ import {
   buildAnalystPrompt,
   buildSpawnArgs,
   extractJsonFromText,
+  getPromptSetDefinition,
   parseAnalystOutput,
 } from "./spawn.js";
 
@@ -334,5 +335,64 @@ describe("buildAnalystPrompt — prompt-set stamping", () => {
     expect(variant.promptHash).toBe(first.promptHash);
     expect(variant.prompt).not.toBe(first.prompt);
     expect(variant.prompt).toContain("round-99");
+  });
+});
+
+/**
+ * The prompt-set accessor feeds the prompt-critic judge: it must expose the
+ * exact static template bytes and their named pieces for any (persona,
+ * window). The load-bearing invariant is that its hash equals the one
+ * `buildAnalystPrompt` stamps on real runs — any divergence would let the
+ * judge approve a prompt set the run never used.
+ */
+describe("getPromptSetDefinition", () => {
+  const combos = [
+    { personaKey: "dr-value", window: "daily" },
+    { personaKey: "dr-momentum", window: "weekly" },
+    { personaKey: "dr-macro", window: "monthly" },
+  ] as const;
+
+  it("matches the promptHash buildAnalystPrompt stamps for the same (persona, window)", () => {
+    for (const { personaKey, window } of combos) {
+      const definition = getPromptSetDefinition(personaKey, window);
+      const { promptHash } = buildAnalystPrompt({
+        persona: getPersona(personaKey),
+        window,
+        agentKey: `${personaKey}--${window}`,
+        roundId: "round-1",
+        datasetPath: "/rounds/round-1/dataset.json",
+        asOfTradeDate: "2026-09-24",
+        portfolioValue: 100000,
+      });
+      expect(definition.promptHash).toBe(promptHash);
+    }
+  });
+
+  it("returns a 64-char lowercase hex sha256 and the current PROMPT_SET_VERSION", () => {
+    for (const { personaKey, window } of combos) {
+      const definition = getPromptSetDefinition(personaKey, window);
+      expect(definition.promptHash).toMatch(/^[0-9a-f]{64}$/);
+      expect(definition.promptSetVersion).toBe(PROMPT_SET_VERSION);
+      expect(definition.agentKey).toBe(`${personaKey}--${window}`);
+    }
+  });
+
+  it("includes every component as an exact substring of the template", () => {
+    for (const { personaKey, window } of combos) {
+      const definition = getPromptSetDefinition(personaKey, window);
+      expect(definition.components.map((c) => c.id)).toEqual([
+        "persona_mandate",
+        "complete_book_rule",
+        "envelope_schema",
+        "example_envelope",
+      ]);
+      for (const component of definition.components) {
+        expect(definition.template).toContain(component.text);
+      }
+    }
+  });
+
+  it("throws on an unknown personaKey", () => {
+    expect(() => getPromptSetDefinition("dr-nope", "daily")).toThrow(/Unknown analyst persona/);
   });
 });

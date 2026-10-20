@@ -57,6 +57,13 @@
       "when": 1792335878411,
       "tag": "0007_add_run_eval_scores",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792422686535,
+      "tag": "0008_add_prompt_suggestions",
+      "breakpoints": true
     }
   ]
 }

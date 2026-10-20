@@ -11,6 +11,7 @@ import portfolioCarryoverHandler from "./routes/portfolioCarryover.js";
 import portfolioEvalReportHandler from "./routes/portfolioEvalReport.js";
 import portfolioEvalsHandler from "./routes/portfolioEvals.js";
 import portfolioJudgeHandler from "./routes/portfolioJudge.js";
+import portfolioPromptSuggestionsHandler from "./routes/portfolioPromptSuggestions.js";
 import roundsHandler from "./routes/rounds.js";
 import roundJobsHandler from "./routes/roundJobs.js";
 
@@ -33,6 +34,7 @@ const routes = app
   .route("/portfolio", portfolioEvalReportHandler)
   .route("/portfolio", portfolioEvalsHandler)
   .route("/portfolio", portfolioJudgeHandler)
+  .route("/portfolio", portfolioPromptSuggestionsHandler)
   .route("/portfolio", roundsHandler)
   .route("/portfolio", roundJobsHandler);
 

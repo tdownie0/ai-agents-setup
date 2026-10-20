@@ -47,10 +47,13 @@ export {
   buildSpawnArgs,
   extractJsonFromText,
   formatFailureHint,
+  getPromptSetDefinition,
   parseAnalystOutput,
   spawnAnalyst,
   type BuildAnalystPromptOptions,
   type BuildAnalystPromptResult,
+  type PromptSetComponent,
+  type PromptSetDefinition,
   type SpawnAnalystOptions,
   type SpawnAnalystResult,
 } from "./spawn.js";
