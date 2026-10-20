@@ -895,7 +895,7 @@ The judge compares process quality only. Window metrics in the same payload (ret
 | ---------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `JUDGE_API_KEY`  | (unset)                                  | OpenRouter-compatible chat-completions key. Absent or blank makes the judge route answer 503 (`{ error: "judge model API key not configured", hint: "set JUDGE_API_KEY" }`); the report route is unaffected and still serves stored scores. |
 | `JUDGE_API_BASE` | `https://openrouter.ai/api/v1`           | Chat-completions base URL. The client posts to `<base>/chat/completions` with trailing slashes stripped.                                                                                                                                    |
-| `JUDGE_MODEL`    | `nvidia/nemotron-3-super-120b-a12b:free` | Default judge model; a per-request `judgeModel` in the batch body overrides it.                                                                                                                                                             |
+| `JUDGE_MODEL`    | `nvidia/nemotron-3-ultra-550b-a55b:free` | Default judge model; a per-request `judgeModel` in the batch body overrides it.                                                                                                                                                             |
 
 All three are read in `apps/backend/src/env.ts`. The feature stack (`infra/docker-compose.feature.yml`) passes `JUDGE_API_KEY=${OPENROUTER_API_KEY}` into the backend container, so the key itself comes from the host `.env` as `OPENROUTER_API_KEY`. `JUDGE_API_BASE` and `JUDGE_MODEL` are not set there, so their defaults apply.
 
@@ -978,7 +978,7 @@ Result shape: `{ judgeKey, judgeVersion, model, promptSetVersion, results: [{ pe
 
 ### 16.7 Environment configuration
 
-The critic shares the blind judge's configuration (§15.5): `JUDGE_API_KEY` (falling back to `OPENROUTER_API_KEY`), `JUDGE_API_BASE` (default `https://openrouter.ai/api/v1`), and `JUDGE_MODEL` (default `nvidia/nemotron-3-super-120b-a12b:free`). It calls through the same `llmClient.ts` (temperature 0, `max_tokens` 4000, 429/5xx/network retries with 1s/3s/9s backoff honoring `Retry-After`, 90-second per-call timeout). A per-request `model` in the POST body overrides `JUDGE_MODEL`.
+The critic shares the blind judge's configuration (§15.5): `JUDGE_API_KEY` (falling back to `OPENROUTER_API_KEY`), `JUDGE_API_BASE` (default `https://openrouter.ai/api/v1`), and `JUDGE_MODEL` (default `nvidia/nemotron-3-ultra-550b-a55b:free`). It calls through the same `llmClient.ts` (temperature 0, `max_tokens` 4000, 429/5xx/network retries with 1s/3s/9s backoff honoring `Retry-After`, 90-second per-call timeout). A per-request `model` in the POST body overrides `JUDGE_MODEL`.
 
 ### 16.8 Verification
 

@@ -20,5 +20,5 @@ export const env = {
    */
   JUDGE_API_BASE: process.env.JUDGE_API_BASE ?? "https://openrouter.ai/api/v1",
   /** Default model for the judge models (process judge + prompt critic). */
-  JUDGE_MODEL: process.env.JUDGE_MODEL ?? "nvidia/nemotron-3-super-120b-a12b:free",
+  JUDGE_MODEL: process.env.JUDGE_MODEL ?? "nvidia/nemotron-3-ultra-550b-a55b:free",
 };
