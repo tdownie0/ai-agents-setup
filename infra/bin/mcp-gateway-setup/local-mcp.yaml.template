@@ -98,6 +98,8 @@ registry:
         value: "100000"
       - name: AGENT_TIMEOUT_MS
         value: "600000"
+      - name: JUDGE_MODEL
+        value: "opencode/big-pickle"
     tools:
       - name: round_dataset_status
         description: "Queries the backend for the current round dataset (asOfTradeDate, universe, dataReady)."
@@ -109,6 +111,8 @@ registry:
         description: "Returns the current job status of a running round, including per-agent progress and inserted run ids."
       - name: run_eval_period
         description: "Walk-forward as-of replay: for each trade date in a window, skip dates where no selected stream is due and otherwise launch a pinned round sequentially, stopping at the first refused date."
+      - name: run_prompt
+        description: "Run a single blind, tool-less LLM completion inside opencode_agent via `opencode run --pure` (restricted config: no tools, no MCP, no plugins) and return the raw text."
 
   git-orchestrator:
     title: "Git Worktree Orchestrator"
@@ -150,6 +154,8 @@ registry:
         value: ${TASKFILE_DATABASE_URL}
       - name: DOCKER_HOST
         value: "tcp://mcp-socket-proxy:2375"
+      - name: MCP_GATEWAY_AUTH_TOKEN
+        value: "${MCP_GATEWAY_AUTH_TOKEN}"
     tools:
       - name: initialize_worktree
         description: "Creates a new git worktree, allocates ports, and starts the feature Docker environment."

@@ -1,9 +1,10 @@
 /**
  * promptSuggestions tests over an in-memory Drizzle double and a mocked
- * `fetch` — no live network, no live DB. The double answers the reads
- * (existing suggestion, failure digest, list) by table name and applies the
- * insert/upsert by the full unique key, which is exactly the behavior the
- * generated → skipped → force-regenerated lifecycle depends on.
+ * `runPrompt` (the MCP `run_prompt` transport) — no live network, no live DB.
+ * The double answers the reads (existing suggestion, failure digest, list) by
+ * table name and applies the insert/upsert by the full unique key, which is
+ * exactly the behavior the generated → skipped → force-regenerated lifecycle
+ * depends on.
  */
 
 import { getTableName, type Table } from "drizzle-orm";
@@ -14,6 +15,7 @@ import type { DbClient } from "@model_md/market-data";
 import { getPromptSetDefinition, PROMPT_SET_VERSION } from "@model_md/agent-orchestrator";
 import type { AnalystWindow } from "@model_md/agent-orchestrator";
 import { listSuggestions, runSuggestionBatch } from "./promptSuggestions.js";
+import { runPrompt } from "./mcpClient.js";
 
 vi.mock("../env.js", () => ({
   env: {
@@ -21,11 +23,13 @@ vi.mock("../env.js", () => ({
     SUPABASE_ANON_KEY: "anon-key",
     SUPABASE_SERVICE_ROLE_KEY: "service-key",
     DECISION_PROVIDER: "deterministic",
-    JUDGE_API_KEY: "test-judge-key",
-    JUDGE_API_BASE: "https://judge.test/api/v1",
     JUDGE_MODEL: "test/critic-model",
+    MCP_GATEWAY_URL: "http://mcp-gateway:8811/mcp",
+    MCP_GATEWAY_AUTH_TOKEN: "test-token",
   },
 }));
+
+vi.mock("./mcpClient.js", () => ({ runPrompt: vi.fn() }));
 
 const COMPLETION = {
   critiques: "The complete-book rule leaves an omission ambiguous.",
@@ -246,21 +250,13 @@ function asDbClient(fake: FakeSuggestionDb): DbClient {
   return fake as unknown as DbClient;
 }
 
-function okCompletion(): Response {
-  return new Response(
-    JSON.stringify({ choices: [{ message: { content: JSON.stringify(COMPLETION) } }] }),
-    { status: 200, headers: { "content-type": "application/json" } },
-  );
-}
-
-const fetchMock = vi.fn(async (_input: unknown, _init?: unknown) => okCompletion());
+const runPromptMock = vi.mocked(runPrompt);
 
 beforeEach(() => {
-  vi.stubGlobal("fetch", fetchMock);
+  runPromptMock.mockResolvedValue({ text: JSON.stringify(COMPLETION), attempts: 1 });
 });
 
 afterEach(() => {
-  vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
 
@@ -299,7 +295,10 @@ describe("runSuggestionBatch", () => {
     expect(result.promptSetVersion).toBe(PROMPT_SET_VERSION);
     expect(result.summary).toEqual({ generated: 3, skipped: 0, errors: 0 });
     expect(result.results.map((entry) => entry.window)).toEqual(["daily", "weekly", "monthly"]);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(runPromptMock).toHaveBeenCalledTimes(3);
+    expect(runPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "test/critic-model" }),
+    );
     expect(fake.suggestions).toHaveLength(3);
     for (const row of fake.suggestions) {
       expect(row.judgeKey).toBe("prompt-critic");
@@ -322,7 +321,7 @@ describe("runSuggestionBatch", () => {
   it("skips an existing row on a repeat without calling the model", async () => {
     const fake = new FakeSuggestionDb();
     await runSuggestionBatch(asDbClient(fake), { personaKey: "dr-value", window: "weekly" });
-    const callsAfterFirst = fetchMock.mock.calls.length;
+    const callsAfterFirst = runPromptMock.mock.calls.length;
 
     const second = await runSuggestionBatch(asDbClient(fake), {
       personaKey: "dr-value",
@@ -332,7 +331,7 @@ describe("runSuggestionBatch", () => {
     expect(second.summary).toEqual({ generated: 0, skipped: 1, errors: 0 });
     expect(second.results[0]?.status).toBe("skipped");
     expect(second.results[0]?.suggestionId).toBeDefined();
-    expect(fetchMock.mock.calls.length).toBe(callsAfterFirst);
+    expect(runPromptMock.mock.calls.length).toBe(callsAfterFirst);
     expect(fake.suggestions).toHaveLength(1);
   });
 
@@ -355,13 +354,13 @@ describe("runSuggestionBatch", () => {
 
   it("records one window's failure as an error without aborting the others", async () => {
     const fake = new FakeSuggestionDb();
-    fetchMock.mockResolvedValueOnce(new Response("bad request", { status: 400 }));
+    runPromptMock.mockRejectedValueOnce(new Error("run_prompt failed: bad request"));
 
     const result = await runSuggestionBatch(asDbClient(fake), { personaKey: "dr-value" });
 
     expect(result.summary).toEqual({ generated: 2, skipped: 0, errors: 1 });
     expect(result.results[0]?.status).toBe("error");
-    expect(result.results[0]?.error).toContain("HTTP 400");
+    expect(result.results[0]?.error).toContain("bad request");
     expect(result.results[1]?.status).toBe("generated");
     expect(result.results[2]?.status).toBe("generated");
     expect(fake.suggestions).toHaveLength(2);
@@ -372,11 +371,8 @@ describe("runSuggestionBatch", () => {
     seedFailure(fake, "dr-value", "weekly");
     await runSuggestionBatch(asDbClient(fake), { personaKey: "dr-value", window: "weekly" });
 
-    const call = fetchMock.mock.calls[0]?.[1] as unknown as RequestInit | undefined;
-    const body = JSON.parse(String(call?.body)) as {
-      messages: { role: string; content: string }[];
-    };
-    const user = body.messages.find((message) => message.role === "user")?.content ?? "";
+    const input = runPromptMock.mock.calls[0]?.[0];
+    const user = input?.user ?? "";
     expect(user).toContain("positions must sum to 1.0");
     expect(user).toContain("missing exit line for held symbol KO");
     expect(user).toContain("totalFailures");

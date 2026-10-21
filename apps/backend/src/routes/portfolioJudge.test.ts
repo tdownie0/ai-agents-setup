@@ -4,7 +4,8 @@
  * Supabase is faked so authMiddleware runs for real (401s happen before any
  * network call), and `runJudgeBatch` is replaced so no database is touched —
  * these cases pin the wire contract only: 401 auth, 400 parse/target, 503
- * missing model key, 200 batch result passthrough, 500 unexpected failure.
+ * missing MCP gateway config, 200 batch result passthrough, 500 unexpected
+ * failure.
  */
 
 import { Hono } from "hono";
@@ -20,7 +21,9 @@ vi.mock("../env.js", () => ({
   env: {
     SUPABASE_URL: "http://supabase.test",
     SUPABASE_ANON_KEY: "anon-key",
-    JUDGE_API_KEY: undefined as string | undefined,
+    JUDGE_MODEL: "test/judge-model",
+    MCP_GATEWAY_URL: "",
+    MCP_GATEWAY_AUTH_TOKEN: undefined as string | undefined,
   },
 }));
 
@@ -62,10 +65,16 @@ function post(body: unknown, token?: string): Promise<Response> {
 }
 
 beforeEach(() => {
-  env.JUDGE_API_KEY = undefined;
+  env.MCP_GATEWAY_URL = "";
+  env.MCP_GATEWAY_AUTH_TOKEN = undefined;
   mockedRun.mockReset();
   getUserMock.mockResolvedValue({ data: { user: { id: "user-1" } }, error: null });
 });
+
+function configureGateway(): void {
+  env.MCP_GATEWAY_URL = "http://mcp-gateway:8811/mcp";
+  env.MCP_GATEWAY_AUTH_TOKEN = "test-token";
+}
 
 describe("POST /portfolio/evals/judge auth", () => {
   it("rejects a request with no Authorization header with 401", async () => {
@@ -103,21 +112,28 @@ describe("POST /portfolio/evals/judge body validation", () => {
   });
 });
 
-describe("POST /portfolio/evals/judge model key configuration", () => {
-  it("answers 503 with a setup hint when JUDGE_API_KEY is not configured", async () => {
+describe("POST /portfolio/evals/judge gateway configuration", () => {
+  it("answers 503 with a setup hint when the MCP gateway is not configured", async () => {
     const res = await post(VALID_BODY, "valid-token");
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({
-      error: "judge model API key not configured",
-      hint: "set JUDGE_API_KEY",
+      error: "judge not configured",
+      hint: "set MCP_GATEWAY_URL and MCP_GATEWAY_AUTH_TOKEN",
     });
+    expect(mockedRun).not.toHaveBeenCalled();
+  });
+
+  it("answers 503 when the gateway auth token is blank", async () => {
+    env.MCP_GATEWAY_URL = "http://mcp-gateway:8811/mcp";
+    const res = await post(VALID_BODY, "valid-token");
+    expect(res.status).toBe(503);
     expect(mockedRun).not.toHaveBeenCalled();
   });
 });
 
 describe("POST /portfolio/evals/judge success and failure", () => {
-  it("returns the batch result with 200 once the key is configured", async () => {
-    env.JUDGE_API_KEY = "test-key";
+  it("returns the batch result with 200 once the gateway is configured", async () => {
+    configureGateway();
     mockedRun.mockResolvedValue(BATCH_RESULT);
 
     const res = await post(VALID_BODY, "valid-token");
@@ -129,7 +145,7 @@ describe("POST /portfolio/evals/judge success and failure", () => {
   });
 
   it("forwards an explicit judge model override to the batch", async () => {
-    env.JUDGE_API_KEY = "test-key";
+    configureGateway();
     mockedRun.mockResolvedValue(BATCH_RESULT);
 
     const res = await post({ ...VALID_BODY, judgeModel: "alt/judge-model" }, "valid-token");
@@ -142,7 +158,7 @@ describe("POST /portfolio/evals/judge success and failure", () => {
   });
 
   it("maps a target validation failure raised by the batch to 400", async () => {
-    env.JUDGE_API_KEY = "test-key";
+    configureGateway();
     mockedRun.mockRejectedValue(new JudgeTargetError("no runs matched the target"));
 
     const res = await post(VALID_BODY, "valid-token");
@@ -152,7 +168,7 @@ describe("POST /portfolio/evals/judge success and failure", () => {
   });
 
   it("maps an unexpected batch failure to 500 with the message", async () => {
-    env.JUDGE_API_KEY = "test-key";
+    configureGateway();
     mockedRun.mockRejectedValue(new Error("database unreachable"));
 
     const res = await post(VALID_BODY, "valid-token");

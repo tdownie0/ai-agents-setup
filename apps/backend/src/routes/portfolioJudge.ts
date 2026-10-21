@@ -6,14 +6,15 @@
  *
  * Response is the `runJudgeBatch` result: per-run status (scored/skipped/error)
  * plus a summary. Runs are processed sequentially at the service layer because
- * free-tier judge models rate-limit; a missing `JUDGE_API_KEY` is a 503 (the
- * service is configured-but-unavailable, not a caller mistake).
+ * judge model calls are serialized through the MCP gateway; a missing gateway
+ * config (URL/token) is a 503 (the service is configured-but-unavailable, not a
+ * caller mistake).
  */
 
 import { Hono } from "hono";
 import { db } from "@model_md/database";
-import { env } from "../env.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
+import { isJudgeConfigured } from "../evaluation/llmClient.js";
 import { assertJudgeTarget, JudgeTargetError, runJudgeBatch } from "../evaluation/judgeBatch.js";
 import type { JudgeBatchOpts } from "../evaluation/judgeBatch.js";
 
@@ -82,8 +83,11 @@ const portfolioJudgeApp = new Hono().post("/evals/judge", authMiddleware, async 
   } catch (err) {
     return c.json({ error: messageOf(err) }, 400);
   }
-  if (env.JUDGE_API_KEY === undefined || env.JUDGE_API_KEY.trim().length === 0) {
-    return c.json({ error: "judge model API key not configured", hint: "set JUDGE_API_KEY" }, 503);
+  if (!isJudgeConfigured()) {
+    return c.json(
+      { error: "judge not configured", hint: "set MCP_GATEWAY_URL and MCP_GATEWAY_AUTH_TOKEN" },
+      503,
+    );
   }
   try {
     const result = await runJudgeBatch(db, opts);

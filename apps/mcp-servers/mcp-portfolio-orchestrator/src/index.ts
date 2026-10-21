@@ -10,6 +10,9 @@
  *                          via the backend
  *   get_round_status     — read the durable round job + per-agent progress,
  *                          plus the inserted agent runs
+ *   run_prompt           — blind, tool-less LLM completion inside opencode_agent
+ *                          (opencode run --pure, restricted judge config) for
+ *                          the backend's process judge / prompt critic
  *
  * DATA SURFACE = the feature backend HTTP API ONLY (no database credentials in
  * this container). Subagents are spawned through the docker CLI against the
@@ -48,6 +51,7 @@ import { RERUN_ACTIONS } from "./rerunActions.js";
 import { createRoundStore, RoundAlreadyLaunchedError } from "./roundStore.js";
 import type { RoundStateWire } from "./roundStore.js";
 import { createSimulationStore } from "./simulationStore.js";
+import { DEFAULT_PROMPT_TIMEOUT_MS, runPrompt } from "./runPrompt.js";
 import { runAgents } from "./runner.js";
 import type { DatasetWire, RoundBooking } from "./runner.js";
 
@@ -443,6 +447,49 @@ server.registerTool(
       return toolText(result);
     } catch (err) {
       return toolError(err);
+    }
+  },
+);
+
+server.registerTool(
+  "run_prompt",
+  {
+    description:
+      "Run a single blind, tool-less LLM completion inside opencode_agent via `opencode run --pure` (restricted config: no tools, no MCP, no plugins) and return the raw text. Used by the backend process judge / prompt critic.",
+    inputSchema: z.object({
+      system: z.string().min(1).describe("System message for the completion."),
+      user: z.string().min(1).describe("User message for the completion."),
+      model: z.string().optional().describe(`Model id override. Default ${config.judgeModel}.`),
+      timeoutMs: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(`Per-attempt timeout in ms. Default ${DEFAULT_PROMPT_TIMEOUT_MS}.`),
+      expectJson: z
+        .boolean()
+        .optional()
+        .describe("Retry once when the reply contains no JSON object. Default true."),
+    }),
+  },
+  async ({ system, user, model, timeoutMs, expectJson }) => {
+    try {
+      const result = await runPrompt(
+        { system, user, model, timeoutMs, expectJson },
+        {
+          agentContainer: config.agentContainer,
+          judgeConfigPath: config.judgeConfigPath,
+          model: config.judgeModel,
+          timeoutMs: DEFAULT_PROMPT_TIMEOUT_MS,
+          dockerHost: config.dockerHost,
+        },
+      );
+      return toolText({ ok: true, text: result.text, attempts: result.attempts });
+    } catch (err) {
+      return toolText({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   },
 );

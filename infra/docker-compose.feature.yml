@@ -34,7 +34,12 @@ services:
       - TEST_USER_ID=${TEST_USER_ID}
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - JUDGE_API_KEY=${OPENROUTER_API_KEY}
+      # The backend reaches the mcp-gateway over the shared supabase_network,
+      # where the gateway service name resolves. MCP_GATEWAY_AUTH_TOKEN is
+      # supplied by the container env of whoever runs `docker compose up` —
+      # never stored in the worktree .env, which is credential-scrubbed.
+      - MCP_GATEWAY_URL=http://mcp-gateway:8811/mcp
+      - MCP_GATEWAY_AUTH_TOKEN=${MCP_GATEWAY_AUTH_TOKEN}
       - PNPM_CONFIG_STORE_DIR=/pnpm-store
     volumes:
       - ${HOST_WORKTREE_PATH}:/app

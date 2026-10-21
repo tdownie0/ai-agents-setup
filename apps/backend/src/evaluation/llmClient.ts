@@ -1,16 +1,17 @@
 /**
- * Direct chat-completions client for the blind process judge.
+ * Judge LLM client — the blind process judge and the prompt critic.
  *
- * Plain `fetch` against an OpenRouter-compatible endpoint — deliberately no
- * SDK dependency. Free-tier reasoning models rate-limit aggressively, so the
- * client bounds retries on 429/5xx/network failure with exponential backoff
- * (honoring `Retry-After`), applies a per-call timeout, and fails with typed
- * errors that carry HTTP status detail.
+ * Transport is MCP, not HTTP chat-completions: `chatComplete` delegates to the
+ * gateway's `run_prompt` tool (see `mcpClient.ts`), where the gateway's
+ * `opencode_agent` container executes the model. There is no local retry loop,
+ * token cap, or HTTP status anymore — failures surface as `JudgeApiError` with
+ * `status: null` and the attempt count reported by the tool payload.
  */
 
 import { env } from "../env.js";
+import { runPrompt } from "./mcpClient.js";
 
-/** Thrown when `JUDGE_API_KEY` is absent or blank — callers map it to 503. */
+/** Thrown when the MCP gateway URL/token is absent or blank — callers map it to 503. */
 export class JudgeConfigError extends Error {
   constructor(message: string) {
     super(message);
@@ -18,7 +19,7 @@ export class JudgeConfigError extends Error {
   }
 }
 
-/** A judge API call that failed after retries, with the last HTTP detail. */
+/** A judge LLM call that failed at the MCP gateway, with the tool's attempt count. */
 export class JudgeApiError extends Error {
   readonly status: number | null;
   readonly attempts: number;
@@ -35,121 +36,55 @@ export interface ChatCompleteInput {
   system: string;
   user: string;
   model?: string;
+  /**
+   * Ignored: `opencode run` (the gateway's executor) has no output-token cap.
+   * Kept for source compatibility with existing callers.
+   */
   maxTokens?: number;
 }
 
-/** Initial attempt plus one retry per entry: 1s, 3s, 9s. */
-const RETRY_DELAYS_MS = [1_000, 3_000, 9_000] as const;
-const REQUEST_TIMEOUT_MS = 90_000;
+/** Whether the MCP gateway transport (URL + bearer token) is configured. */
+export function isJudgeConfigured(): boolean {
+  return (
+    (env.MCP_GATEWAY_URL ?? "").trim().length > 0 &&
+    (env.MCP_GATEWAY_AUTH_TOKEN ?? "").trim().length > 0
+  );
+}
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/** Attempt count carried on a failed `run_prompt` payload, else 1. */
+function attemptsOf(err: unknown): number {
+  if (err instanceof Error && "attempts" in err && typeof err.attempts === "number") {
+    return err.attempts;
+  }
+  return 1;
 }
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** `Retry-After` in ms (delta-seconds or HTTP-date), or null when unusable. */
-function retryAfterMs(response: Response): number | null {
-  const raw = response.headers.get("retry-after");
-  if (raw === null) return null;
-  const seconds = Number(raw);
-  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
-  const at = Date.parse(raw);
-  if (Number.isNaN(at)) return null;
-  return Math.max(0, at - Date.now());
-}
-
-async function errorDetail(response: Response): Promise<string> {
-  const body = await response.text().catch(() => "");
-  const snippet = body.slice(0, 300);
-  return snippet.length > 0 ? `HTTP ${response.status}: ${snippet}` : `HTTP ${response.status}`;
-}
-
 /**
- * One chat completion at temperature 0. JSON is demanded by the prompt (no
- * `response_format`), because free-tier reasoning models do not consistently
- * support structured-output parameters.
+ * One judge completion through the MCP gateway's `run_prompt` tool. JSON is
+ * demanded by the prompt; the model is `input.model` or `env.JUDGE_MODEL`.
+ *
+ * @throws {JudgeConfigError} when the gateway URL/token is blank.
+ * @throws {JudgeApiError} on any gateway/tool failure (`status` is always null).
  */
 export async function chatComplete(input: ChatCompleteInput): Promise<string> {
-  const apiKey = env.JUDGE_API_KEY?.trim();
-  if (apiKey === undefined || apiKey.length === 0) {
-    throw new JudgeConfigError("judge model API key not configured — set JUDGE_API_KEY");
+  if (!isJudgeConfigured()) {
+    throw new JudgeConfigError(
+      "judge transport not configured — set MCP_GATEWAY_URL and MCP_GATEWAY_AUTH_TOKEN",
+    );
   }
 
-  const url = `${env.JUDGE_API_BASE.replace(/\/+$/, "")}/chat/completions`;
-  const payload = JSON.stringify({
-    model: input.model ?? env.JUDGE_MODEL,
-    temperature: 0,
-    max_tokens: input.maxTokens ?? 4_000,
-    messages: [
-      { role: "system", content: input.system },
-      { role: "user", content: input.user },
-    ],
-  });
-
-  let lastDetail = "";
-  let lastStatus: number | null = null;
-  let attempts = 0;
-
-  for (let attempt = 1; attempt <= RETRY_DELAYS_MS.length + 1; attempt++) {
-    attempts = attempt;
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${apiKey}`,
-        },
-        body: payload,
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
-    } catch (err) {
-      lastDetail = `network error: ${errorMessage(err)}`;
-      lastStatus = null;
-      if (attempt > RETRY_DELAYS_MS.length) break;
-      await sleep(RETRY_DELAYS_MS[attempt - 1]);
-      continue;
-    }
-
-    if (response.ok) {
-      const raw = await response.json().catch((err: unknown) => {
-        throw new JudgeApiError(
-          `judge API returned unparseable JSON: ${errorMessage(err)}`,
-          response.status,
-          attempt,
-        );
-      });
-      const content =
-        typeof raw === "object" && raw !== null && "choices" in raw && Array.isArray(raw.choices)
-          ? (raw.choices[0] as { message?: { content?: unknown } } | undefined)?.message?.content
-          : undefined;
-      if (typeof content !== "string" || content.trim().length === 0) {
-        throw new JudgeApiError(
-          "judge API completion carried no message content (reasoning exhausted max_tokens?)",
-          response.status,
-          attempt,
-        );
-      }
-      return content;
-    }
-
-    lastDetail = await errorDetail(response);
-    lastStatus = response.status;
-    const retryable = response.status === 429 || response.status >= 500;
-    if (!retryable) {
-      throw new JudgeApiError(lastDetail, lastStatus, attempt);
-    }
-    if (attempt > RETRY_DELAYS_MS.length) break;
-    const delay = retryAfterMs(response) ?? RETRY_DELAYS_MS[attempt - 1];
-    await sleep(delay);
+  try {
+    const { text } = await runPrompt({
+      system: input.system,
+      user: input.user,
+      model: input.model ?? env.JUDGE_MODEL,
+    });
+    return text;
+  } catch (err) {
+    throw new JudgeApiError(errorMessage(err), null, attemptsOf(err));
   }
-
-  throw new JudgeApiError(
-    `judge API request failed after ${attempts} attempts: ${lastDetail}`,
-    lastStatus,
-    attempts,
-  );
 }

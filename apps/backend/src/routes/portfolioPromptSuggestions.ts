@@ -11,16 +11,16 @@
  * Unlike the blind process-judge, this critic SEES the prompt text by design.
  * An unknown `personaKey` is rejected at the boundary (400) because the batch
  * resolves the prompt-set definition outside its per-window error handling; a
- * missing `JUDGE_API_KEY` is a 503 (configured-but-unavailable, not a caller
- * mistake).
+ * missing MCP gateway config (URL/token) is a 503 (configured-but-unavailable,
+ * not a caller mistake).
  */
 
 import { Hono } from "hono";
 import { db } from "@model_md/database";
 import { ANALYST_WINDOWS, getPersona } from "@model_md/agent-orchestrator";
 import type { AnalystWindow } from "@model_md/agent-orchestrator";
-import { env } from "../env.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
+import { isJudgeConfigured } from "../evaluation/llmClient.js";
 import { listSuggestions, runSuggestionBatch } from "../evaluation/promptSuggestions.js";
 import type {
   SuggestionBatchOpts,
@@ -89,9 +89,9 @@ const portfolioPromptSuggestionsApp = new Hono()
     } catch (err) {
       return c.json({ error: messageOf(err) }, 400);
     }
-    if (env.JUDGE_API_KEY === undefined || env.JUDGE_API_KEY.trim().length === 0) {
+    if (!isJudgeConfigured()) {
       return c.json(
-        { error: "judge model API key not configured", hint: "set JUDGE_API_KEY" },
+        { error: "judge not configured", hint: "set MCP_GATEWAY_URL and MCP_GATEWAY_AUTH_TOKEN" },
         503,
       );
     }

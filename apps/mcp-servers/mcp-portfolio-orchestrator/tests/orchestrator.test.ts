@@ -402,6 +402,9 @@ describe("runAgents (durable progress)", () => {
     maxParallel: 2,
     capital: 100000,
     timeoutMs: 1000,
+    judgeConfigPath:
+      "/app/worktrees/model_md-worktree-feat-portfolio-sim/infra/opencode.judge.json",
+    judgeModel: "opencode/big-pickle",
   };
 
   const dataset: DatasetWire = {

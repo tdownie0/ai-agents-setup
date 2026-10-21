@@ -1,9 +1,9 @@
 /**
- * judgeBatch tests over an in-memory Drizzle double and a mocked `fetch` —
- * no live network, no live DB. The double answers the three reads (runs,
- * positions, already-scored keys) by table name and applies the
- * insert/upsert by its natural key, which is exactly the behavior the
- * scored → skipped → force-rescored lifecycle depends on.
+ * judgeBatch tests over an in-memory Drizzle double and a mocked `runPrompt`
+ * (the MCP `run_prompt` transport) — no live network, no live DB. The double
+ * answers the three reads (runs, positions, already-scored keys) by table name
+ * and applies the insert/upsert by its natural key, which is exactly the
+ * behavior the scored → skipped → force-rescored lifecycle depends on.
  */
 
 import { getTableName, type Table } from "drizzle-orm";
@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { agentRuns, portfolioPositions, runEvalScores } from "@model_md/database";
 import type { DbClient } from "@model_md/market-data";
 import { assertJudgeTarget, JudgeTargetError, runJudgeBatch } from "./judgeBatch.js";
+import { runPrompt } from "./mcpClient.js";
 
 vi.mock("../env.js", () => ({
   env: {
@@ -18,11 +19,13 @@ vi.mock("../env.js", () => ({
     SUPABASE_ANON_KEY: "anon-key",
     SUPABASE_SERVICE_ROLE_KEY: "service-key",
     DECISION_PROVIDER: "deterministic",
-    JUDGE_API_KEY: "test-judge-key",
-    JUDGE_API_BASE: "https://judge.test/api/v1",
     JUDGE_MODEL: "test/judge-model",
+    MCP_GATEWAY_URL: "http://mcp-gateway:8811/mcp",
+    MCP_GATEWAY_AUTH_TOKEN: "test-token",
   },
 }));
+
+vi.mock("./mcpClient.js", () => ({ runPrompt: vi.fn() }));
 
 const COMPLETION = {
   scores: {
@@ -194,24 +197,17 @@ function runRow(id: number, agentKey: string): RunRow {
   };
 }
 
-function okCompletion(): Response {
-  return new Response(
-    JSON.stringify({ choices: [{ message: { content: JSON.stringify(COMPLETION) } }] }),
-    {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    },
-  );
+function okRunPrompt(): { text: string; attempts: number } {
+  return { text: JSON.stringify(COMPLETION), attempts: 1 };
 }
 
-const fetchMock = vi.fn(async () => okCompletion());
+const runPromptMock = vi.mocked(runPrompt);
 
 beforeEach(() => {
-  vi.stubGlobal("fetch", fetchMock);
+  runPromptMock.mockResolvedValue(okRunPrompt());
 });
 
 afterEach(() => {
-  vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
 
@@ -252,7 +248,10 @@ describe("runJudgeBatch", () => {
     expect(result.model).toBe("test/judge-model");
     expect(result.summary).toEqual({ scored: 2, skipped: 0, errors: 0 });
     expect(result.results.map((entry) => entry.status)).toEqual(["scored", "scored"]);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(runPromptMock).toHaveBeenCalledTimes(2);
+    expect(runPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "test/judge-model" }),
+    );
 
     expect(fake.scores).toHaveLength(2);
     for (const row of fake.scores) {
@@ -267,13 +266,13 @@ describe("runJudgeBatch", () => {
   it("skips already-scored runs on a repeat of the same batch without calling the model", async () => {
     const fake = seededDb();
     await runJudgeBatch(asDbClient(fake), { simulationId: "sim-t1" });
-    const callsAfterFirst = fetchMock.mock.calls.length;
+    const callsAfterFirst = runPromptMock.mock.calls.length;
 
     const second = await runJudgeBatch(asDbClient(fake), { simulationId: "sim-t1" });
 
     expect(second.summary).toEqual({ scored: 0, skipped: 2, errors: 0 });
     expect(second.results.every((entry) => entry.status === "skipped")).toBe(true);
-    expect(fetchMock.mock.calls.length).toBe(callsAfterFirst);
+    expect(runPromptMock.mock.calls.length).toBe(callsAfterFirst);
     expect(fake.scores).toHaveLength(2);
   });
 
@@ -309,15 +308,15 @@ describe("runJudgeBatch", () => {
     }
   });
 
-  it("records a non-retryable judge API failure as an error without persisting", async () => {
+  it("records a failed gateway run as an error without persisting", async () => {
     const fake = seededDb();
-    fetchMock.mockResolvedValueOnce(new Response("bad request", { status: 400 }));
+    runPromptMock.mockRejectedValueOnce(new Error("run_prompt failed: bad request"));
 
     const result = await runJudgeBatch(asDbClient(fake), { roundIds: ["round-1", "round-2"] });
 
     expect(result.summary).toEqual({ scored: 1, skipped: 0, errors: 1 });
     expect(result.results[0]?.status).toBe("error");
-    expect(result.results[0]?.error).toContain("HTTP 400");
+    expect(result.results[0]?.error).toContain("bad request");
     expect(fake.scores).toHaveLength(1);
     expect(fake.scores[0]?.agentRunId).toBe(2);
   });

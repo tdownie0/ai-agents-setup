@@ -837,16 +837,16 @@ On top of the six scores the judge writes a `verdict`: one short paragraph of 3 
 
 - A run already scored under the same `judgeKey` at the current `RUBRIC_VERSION` is skipped (`status: "skipped"`), so re-posting a batch is safe. Rows under an older rubric version do not count as scored and get re-scored at the current one.
 - Scoring upserts with `onConflictDoUpdate` on that same triple, so `"force": true` deliberately overwrites the stored row.
-- Runs are judged sequentially, because free-tier judge models rate-limit aggressively.
+- Runs are judged sequentially, because each call is a `docker exec`-spawned `opencode run` inside the shared `opencode_agent` container (§17) and the batch does not interleave them.
 - Targets resolve through an INNER JOIN to `round_jobs`, which supplies the decide date; a run whose round was never booked is not addressable.
 - Positions are loaded only for `{symbol, targetWeight, thesis}`, never their prices.
 
 ### 15.3 Endpoint reference
 
-| Method | Path                          | Auth                                       | Request                                                                                                                                                                                                                                                                                     | Response                                                                                                                                                    | Status codes                                                                                                         |
-| ------ | ----------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/api/portfolio/evals/judge`  | Supabase Bearer (`authMiddleware`)         | JSON body with exactly one of `simulationId` (must match `/^sim-[a-z0-9][a-z0-9-]{0,46}$/`) or `roundIds` (non-empty string array); optional `judgeKey` (non-empty, at most 64 chars, default `process`), `judgeModel` (non-empty, default `JUDGE_MODEL`), `force` (boolean, default false) | `{ judgeKey, judgeVersion, model, results: [{ runId, agentKey, status: "scored" \| "skipped" \| "error", error? }], summary: { scored, skipped, errors } }` | 200; 400 invalid JSON, body shape, or target; 503 missing key with `{ error, hint: "set JUDGE_API_KEY" }`; 500 other |
-| GET    | `/api/portfolio/evals/report` | none (read-only, like the other eval GETs) | `simIds` required: comma-separated list of 1 to 10 unique simulation ids; `start` and `end` optional inclusive `YYYY-MM-DD` decide-date bounds (`start` must not be after `end`); `judgeKey` optional, default `process`                                                                    | `EvalReport` payload described below                                                                                                                        | 200; 400 missing/empty/invalid/duplicate/too-many `simIds`, malformed dates, or `start` after `end`; 500 `{ error }` |
+| Method | Path                          | Auth                                       | Request                                                                                                                                                                                                                                                                                     | Response                                                                                                                                                    | Status codes                                                                                                                                                                               |
+| ------ | ----------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| POST   | `/api/portfolio/evals/judge`  | Supabase Bearer (`authMiddleware`)         | JSON body with exactly one of `simulationId` (must match `/^sim-[a-z0-9][a-z0-9-]{0,46}$/`) or `roundIds` (non-empty string array); optional `judgeKey` (non-empty, at most 64 chars, default `process`), `judgeModel` (non-empty, default `JUDGE_MODEL`), `force` (boolean, default false) | `{ judgeKey, judgeVersion, model, results: [{ runId, agentKey, status: "scored" \| "skipped" \| "error", error? }], summary: { scored, skipped, errors } }` | 200; 400 invalid JSON, body shape, or target; 503 missing gateway config with `{ error: "judge not configured", hint: "set MCP_GATEWAY_URL and MCP_GATEWAY_AUTH_TOKEN" }` (§17); 500 other |
+| GET    | `/api/portfolio/evals/report` | none (read-only, like the other eval GETs) | `simIds` required: comma-separated list of 1 to 10 unique simulation ids; `start` and `end` optional inclusive `YYYY-MM-DD` decide-date bounds (`start` must not be after `end`); `judgeKey` optional, default `process`                                                                    | `EvalReport` payload described below                                                                                                                        | 200; 400 missing/empty/invalid/duplicate/too-many `simIds`, malformed dates, or `start` after `end`; 500 `{ error }`                                                                       |
 
 **Judge response fields.** `judgeKey` and `judgeVersion` echo the effective keys, `model` is the judge model actually used, `results` is one entry per target run in insertion order (`runId` is the `agent_runs.id`), and `summary` counts the three statuses.
 
@@ -891,15 +891,15 @@ The judge compares process quality only. Window metrics in the same payload (ret
 
 ### 15.5 Environment configuration
 
-| Variable         | Default                                  | Role                                                                                                                                                                                                                                        |
-| ---------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `JUDGE_API_KEY`  | (unset)                                  | OpenRouter-compatible chat-completions key. Absent or blank makes the judge route answer 503 (`{ error: "judge model API key not configured", hint: "set JUDGE_API_KEY" }`); the report route is unaffected and still serves stored scores. |
-| `JUDGE_API_BASE` | `https://openrouter.ai/api/v1`           | Chat-completions base URL. The client posts to `<base>/chat/completions` with trailing slashes stripped.                                                                                                                                    |
-| `JUDGE_MODEL`    | `nvidia/nemotron-3-ultra-550b-a55b:free` | Default judge model; a per-request `judgeModel` in the batch body overrides it.                                                                                                                                                             |
+| Variable                 | Default               | Role                                                                                                                                                                                                                                                                                  |
+| ------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MCP_GATEWAY_URL`        | (unset)               | Streamable HTTP endpoint of the mcp-gateway that the backend's `run_prompt` client calls (the feature stack sets `http://mcp-gateway:8811/mcp`). Absent or blank makes the judge route answer 503 (`{ error, hint }`); the report route is unaffected and still serves stored scores. |
+| `MCP_GATEWAY_AUTH_TOKEN` | (unset)               | Bearer token sent as `Authorization: Bearer …` on every `run_prompt` call. It is supplied by the container env of whoever started the stack — it is never present in the worktree `.env`, which is credential-scrubbed.                                                               |
+| `JUDGE_MODEL`            | `opencode/big-pickle` | Default judge model (passed as `-m` to `opencode run`); a per-request `judgeModel` in the batch body overrides it.                                                                                                                                                                    |
 
-All three are read in `apps/backend/src/env.ts`. The feature stack (`infra/docker-compose.feature.yml`) passes `JUDGE_API_KEY=${OPENROUTER_API_KEY}` into the backend container, so the key itself comes from the host `.env` as `OPENROUTER_API_KEY`. `JUDGE_API_BASE` and `JUDGE_MODEL` are not set there, so their defaults apply.
+The transport itself — and why it exists — is documented in §17. The feature stack (`infra/docker-compose.feature.yml`) passes `MCP_GATEWAY_URL=http://mcp-gateway:8811/mcp` and `MCP_GATEWAY_AUTH_TOKEN=${MCP_GATEWAY_AUTH_TOKEN}` into the backend container; because the worktree `.env` is credential-scrubbed, the token must be in the env of whoever runs the stack (see the §17.4 checklist). `JUDGE_MODEL` is not set there, so its default applies. `JUDGE_API_KEY`, `OPENROUTER_API_KEY`, and `JUDGE_API_BASE` take no part any more: the OpenRouter chat-completions client was replaced by `chatComplete` → `apps/backend/src/evaluation/mcpClient.ts` (`run_prompt`, §17).
 
-Free-tier behavior: `llmClient.ts` calls at temperature 0 with `max_tokens` 4000, retries 429, 5xx, and network failures with 1s/3s/9s backoff that honors `Retry-After`, times each call out at 90 seconds, and gives up with a typed error carrying the last HTTP detail. The batch feeds runs to it one at a time for the same reason, and the rubric JSON is demanded through the prompt rather than a `response_format` parameter, because free-tier reasoning models do not consistently support structured-output parameters.
+Transport behavior: every call now goes through `mcpClient.ts`, which performs one `run_prompt` MCP call and parses the JSON-formatted completion that `opencode run --format json` returns. `maxTokens` is accepted by the route but ignored — `opencode run` exposes no CLI output cap. The rubric JSON is still demanded through the prompt (there is no structured-output parameter on the tool), and the batch still feeds runs to it one at a time.
 
 ### 15.6 Beads
 
@@ -963,22 +963,22 @@ One row per `(persona_key, window, prompt_set_version, source_prompt_hash, judge
 
 ### 16.5 Batch semantics
 
-`runSuggestionBatch` critiques one persona across either one explicit `window` or all three (`daily`, `weekly`, `monthly`), processing windows **sequentially** because free-tier critic models rate-limit aggressively. A window whose full unique key already has a row is skipped (`status: "skipped"`) unless `force` is set. A failure in one window is recorded as `status: "error"` for that window and never propagates — the remaining windows still run.
+`runSuggestionBatch` critiques one persona across either one explicit `window` or all three (`daily`, `weekly`, `monthly`), processing windows **sequentially** because each critique is one `opencode run` through the shared `opencode_agent` container (§17) and the batch does not run them concurrently. A window whose full unique key already has a row is skipped (`status: "skipped"`) unless `force` is set. A failure in one window is recorded as `status: "error"` for that window and never propagates — the remaining windows still run.
 
 Result shape: `{ judgeKey, judgeVersion, model, promptSetVersion, results: [{ personaKey, window, promptHash, status: "generated" | "skipped" | "error", suggestionId?, error? }], summary: { generated, skipped, errors } }`.
 
 ### 16.6 Endpoint reference
 
-| Method | Path                                | Auth                               | Request                                                                                                                                                                   | Response                                              | Status codes                                                                                                                                    |
-| ------ | ----------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/api/portfolio/prompt-suggestions` | Supabase Bearer (`authMiddleware`) | JSON body: `personaKey` (required, must be a KNOWN persona), optional `window` (`daily` \| `weekly` \| `monthly`), `force` (boolean), `model` (non-empty string override) | `SuggestionBatchResult` (above)                       | 200; 400 invalid JSON, missing/unknown persona, bad `window`/`force`/`model`; 503 missing key `{ error, hint: "set JUDGE_API_KEY" }`; 500 other |
-| GET    | `/api/portfolio/prompt-suggestions` | Supabase Bearer (`authMiddleware`) | Query: optional `personaKey`, `window`, `promptSetVersion` (each applied only when present and non-empty)                                                                 | `{ suggestions: SuggestionListItem[] }`, newest first | 200; 401; 500 other. An unknown `window` filter is not an error — it simply matches nothing and returns `[]`                                    |
+| Method | Path                                | Auth                               | Request                                                                                                                                                                   | Response                                              | Status codes                                                                                                                                                                                                          |
+| ------ | ----------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/portfolio/prompt-suggestions` | Supabase Bearer (`authMiddleware`) | JSON body: `personaKey` (required, must be a KNOWN persona), optional `window` (`daily` \| `weekly` \| `monthly`), `force` (boolean), `model` (non-empty string override) | `SuggestionBatchResult` (above)                       | 200; 400 invalid JSON, missing/unknown persona, bad `window`/`force`/`model`; 503 missing gateway config `{ error: "judge not configured", hint: "set MCP_GATEWAY_URL and MCP_GATEWAY_AUTH_TOKEN" }` (§17); 500 other |
+| GET    | `/api/portfolio/prompt-suggestions` | Supabase Bearer (`authMiddleware`) | Query: optional `personaKey`, `window`, `promptSetVersion` (each applied only when present and non-empty)                                                                 | `{ suggestions: SuggestionListItem[] }`, newest first | 200; 401; 500 other. An unknown `window` filter is not an error — it simply matches nothing and returns `[]`                                                                                                          |
 
 `SuggestionListItem` is the wire shape: `id`, `personaKey`, `window`, `promptSetVersion`, `sourcePromptHash`, `judgeKey`, `judgeVersion`, `critiques`, `proposals[]`, `judgeModel`, `createdAt` (ISO-8601), and `isCurrent` — true when the row's `promptSetVersion` and `sourcePromptHash` both match the current rendered prompt set for its `(personaKey, window)`, i.e. the proposal still applies to the prompt as it stands now.
 
 ### 16.7 Environment configuration
 
-The critic shares the blind judge's configuration (§15.5): `JUDGE_API_KEY` (falling back to `OPENROUTER_API_KEY`), `JUDGE_API_BASE` (default `https://openrouter.ai/api/v1`), and `JUDGE_MODEL` (default `nvidia/nemotron-3-ultra-550b-a55b:free`). It calls through the same `llmClient.ts` (temperature 0, `max_tokens` 4000, 429/5xx/network retries with 1s/3s/9s backoff honoring `Retry-After`, 90-second per-call timeout). A per-request `model` in the POST body overrides `JUDGE_MODEL`.
+The critic shares the blind judge's configuration (§15.5): `MCP_GATEWAY_URL` and `MCP_GATEWAY_AUTH_TOKEN` for the `run_prompt` transport, and `JUDGE_MODEL` (default `opencode/big-pickle`). It calls through the same `chatComplete` → `mcpClient.ts` path as the judge (§17), so everything §17 says about the transport applies to the critic unchanged. A per-request `model` in the POST body overrides `JUDGE_MODEL`.
 
 ### 16.8 Verification
 
@@ -995,3 +995,77 @@ The critic shares the blind judge's configuration (§15.5): `JUDGE_API_KEY` (fal
 - `model_md-worktree-feat-portfolio-sim-e4e.5`: tests, verification, and this documentation.
 
 Dependency chain: `.1` and `.2` block `.3`; `.3` blocks `.4`; `.4` blocks `.5`.
+
+---
+
+## 17. Judge transport: opencode_agent via MCP run_prompt
+
+### Overview
+
+Two constraints shaped this transport. First, the free-tier OpenRouter models that the judge (§15) and the prompt critic (§16) used to call rate-limit aggressively, which is why both batches had to crawl one run at a time. Second, and more fundamental: the reviewer and the reviewed live in different containers. Analyst runs execute inside `opencode_agent`, while the judge sat on the backend and reached out over HTTP to a third-party API. The judge LLM now runs where the analysts already run — the backend makes a single MCP tool call through the mcp-gateway, and the `portfolio-orchestrator` MCP server executes a tool-less `opencode run` inside the existing `opencode_agent` container. No OpenRouter account, key, or base URL is involved any more.
+
+### 17.1 Data flow
+
+1. Both the judge batch (§15.2) and the prompt critic (§16) funnel into the backend's `chatComplete`, which now delegates to `apps/backend/src/evaluation/mcpClient.ts`.
+2. `mcpClient.ts` performs a `run_prompt` MCP call over Streamable HTTP against `MCP_GATEWAY_URL`, carrying `Authorization: Bearer $MCP_GATEWAY_AUTH_TOKEN`, with the assembled `<system>\n\n<user>` prompt as the tool input.
+3. The mcp-gateway routes the call to the `portfolio-orchestrator` MCP server, registered in the generated catalog (§17.4).
+4. The server runs `docker exec opencode_agent opencode run --pure --agent judge --format json -m opencode/big-pickle "<system>\n\n<user>"`, with `OPENCODE_CONFIG=/app/worktrees/<slug>/infra/opencode.judge.json` (the restricted config created for this purpose, §17.3), an isolated `XDG_STATE_HOME`/`XDG_CACHE_HOME` so the judge never reads or writes the interactive agent's session state, and cwd `/tmp`. `--agent judge` selects the tool-less agent defined in that config.
+5. The JSON-formatted completion travels back up the same chain and is handed to the existing output validators — `parseJudgeOutput` (§15.2) and `parseCriticOutput` (§16.3) — which are unchanged.
+
+### 17.2 Blindness: four structural guards on top of the whitelist
+
+§15.2's `buildBlindContext` whitelist remains authoritative: it alone decides what text reaches the judge. On top of it, the completion itself is structurally incapable of reaching anything else, because `infra/opencode.judge.json` plus the invocation flags leave the agent no capability but to answer:
+
+| guard                                               | mechanism                                        | blocks                                        |
+| --------------------------------------------------- | ------------------------------------------------ | --------------------------------------------- |
+| `--pure`                                            | opencode starts with no plugins loaded           | plugin tools                                  |
+| `"mcp": {}` + `"instructions": []`                  | no MCP servers and no instruction files          | tool access, injected context                 |
+| `agent.judge` with `"steps": 1` and per-tool `deny` | one iteration, every tool denied individually    | shell, edits, file search, subagents, network |
+| cwd `/tmp`                                          | the run starts in an empty, throw-away directory | the repo and the agent's own workspace        |
+
+The result is a pure completion: no DB, no filesystem, no shell, no tools — it can only emit the JSON that the parsers either validate or reject. The whitelist stays authoritative precisely because nothing downstream of it can be reached by the model.
+
+**Two permission shapes must never appear in the judge config.** The opencode.ai free tier answers them with HTTP 403 `OpenCode's free tier can only be used from within OpenCode`, which surfaces as a failed judge batch:
+
+- `"permission": { "*": "deny" }` — the wildcard also denies the session-level `question`/`plan_enter`/`plan_exit` permissions.
+- `"permission": { read: "deny" }` — denying `read` on its own trips the same gate.
+
+Denying the remaining tools one by one (`edit`, `glob`, `grep`, `list`, `bash`, `task`, `webfetch`) is accepted by the provider. `read` therefore stays allowed, and the guard against reading the repo is structural instead: the run's cwd is the empty `/tmp`, and `external_directory` is left at its default (`ask`), which auto-denies paths outside the working directory in a non-interactive run. `apps/mcp-servers/mcp-portfolio-orchestrator/tests/judgeConfig.test.ts` pins both rules so a future tightening of the config fails the test suite instead of the judge.
+
+### 17.3 Environment
+
+| Variable                 | Default                                                       | Role                                                                                                                                                           |
+| ------------------------ | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MCP_GATEWAY_URL`        | (unset; the feature stack sets `http://mcp-gateway:8811/mcp`) | Where `mcpClient.ts` sends `run_prompt` (Streamable HTTP).                                                                                                     |
+| `MCP_GATEWAY_AUTH_TOKEN` | (unset)                                                       | Bearer token for that call. It is supplied by the container env of whoever runs the stack — never stored in the worktree `.env`, which is credential-scrubbed. |
+| `JUDGE_MODEL`            | `opencode/big-pickle`                                         | Model passed as `-m` to `opencode run`; a per-request `judgeModel`/`model` in the batch body overrides it.                                                     |
+| `maxTokens`              | (route-level)                                                 | Accepted but ignored: `opencode run` exposes no CLI output cap, so there is nothing to cap the completion against.                                             |
+
+The restricted config itself is `infra/opencode.judge.json`, handed to the run as `OPENCODE_CONFIG`. It pins `model` to `opencode/big-pickle`, defines the tool-less `judge` agent (`"mode": "primary"`, `"steps": 1`, per-tool `deny` for `edit`/`glob`/`grep`/`list`/`bash`/`task`/`webfetch`), and carries the blindness guards of §17.2. It is used **only** for judge/critic completions — the interactive `opencode_agent` session keeps the container's own `OPENCODE_CONFIG` (`/app/model_md/opencode.json`). The file lives in the worktree, which is bind-mounted into the agent container at `/app/worktrees/<slug>/`, so editing it needs no image rebuild: the next `run_prompt` call picks it up.
+
+### 17.4 Operations
+
+After any change to this transport (tool definition, catalog entry, gateway env, judge config), run these in order:
+
+1. **Rebuild the server image — from the worktree.** `cd <worktree> && sudo go-task mcp:build-portfolio-orchestrator` (`tasks/mcp.yml` builds `portfolio-orchestrator:latest` from the repo root, and the Dockerfile `COPY`s the orchestrator source into the image). The build context must be the worktree that holds `runPrompt.ts`; building from the main repo produces an image without the tool. The gateway spawns the server from this image, so an old image keeps serving the old tool set.
+2. **Regenerate the MCP catalog — from the worktree, with the token exported.** The generator (`infra/bin/mcp-gateway-setup/generate-mcp-gateway-files.sh`) substitutes the template in its own repo (`$BIN_DIR/local-mcp.yaml.template`) with `envsubst`, so the template carrying `run_prompt` and the `git-orchestrator` token entry is the worktree's. `MCP_GATEWAY_AUTH_TOKEN` is the only placeholder the worktree `.env` lacks, so export it from the main repo's `.env` first:
+   ```bash
+   cd <worktree>
+   export MCP_GATEWAY_AUTH_TOKEN=$(grep '^MCP_GATEWAY_AUTH_TOKEN=' /app/model_md/.env | cut -d= -f2-)
+   go-task mcp:setup
+   ```
+   Once this change is merged into the main repo, `go-task mcp:setup` from the main repo works unmodified — the main `.env` carries the token.
+3. **Restart the `mcp-gateway` service** so it reloads the catalog: `sudo docker restart $(docker ps --filter name=mcp-gateway -q)` (the catalog is bind-mounted at `/root/.docker/mcp/catalogs/local-mcp.yaml` and read at startup). The server containers are then re-spawned from the new catalog: the `portfolio-orchestrator` container picks up the new image, the `git-orchestrator` container the new token env. If the gateway reuses already-running server containers, remove them first: `sudo docker rm -f $(docker ps -aq --filter name=portfolio-orchestrator) $(docker ps -aq --filter name=git-orchestrator)`.
+4. **Recreate the feature `backend`** so it picks up `MCP_GATEWAY_URL` and `MCP_GATEWAY_AUTH_TOKEN`. A backend container does **not** auto-reload env — `docker compose restart` reuses the existing container and its env, so the backend must be **recreated** (`up -d --force-recreate backend`); `go-task feature:down` then `go-task feature:up` does the same. The token must be in the shell environment for the compose interpolation (`${MCP_GATEWAY_AUTH_TOKEN}` in the backend service env), for the same reason as step 2.
+
+**Caveat.** A manual `go-task feature:up` must have `MCP_GATEWAY_AUTH_TOKEN` in the shell env. The worktree `.env` is credential-scrubbed by `apps/mcp-servers/mcp-git-orchestrator/workflows.py` (its `SECRET_ENV_RE` — `SERVICE_ROLE|API_KEY|TOKEN|SECRET|PASSWORD|PRIVATE|CREDENTIAL|AUTH` — drops matching keys when env is synced into a worktree), so the token never reaches the worktree and compose's `--env-file .env` cannot supply it. Exporting the token in the shell is therefore both necessary and sufficient — the OS environment wins over `--env-file` during compose interpolation. The same rule applies to step 2: the token has to reach the `envsubst` step, so export it in the shell when `mcp:setup` runs from the worktree.
+
+### 17.5 Beads
+
+- `model_md-worktree-feat-portfolio-sim-rcg`: epic, judge LLM transport via opencode_agent + MCP run_prompt (drop OpenRouter).
+- `model_md-worktree-feat-portfolio-sim-rcg.1`: MCP, `run_prompt` tool in portfolio-orchestrator + catalog registration.
+- `model_md-worktree-feat-portfolio-sim-rcg.2`: backend, MCP client + `chatComplete` rewrite + env swap + 503 gates + tests.
+- `model_md-worktree-feat-portfolio-sim-rcg.3`: infra + this documentation, `infra/opencode.judge.json`, feature-stack env wiring.
+- `model_md-worktree-feat-portfolio-sim-rcg.4`: verification — tsc/vitest, portfolio-orchestrator image build, judge/critic smoke test.
+
+Dependency chain: `rcg.1`, `rcg.2`, and `rcg.3` all block `rcg.4`.

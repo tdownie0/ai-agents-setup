@@ -10,6 +10,11 @@
  *   MAX_PARALLEL           default 3
  *   INITIAL_CAPITAL        default 100000
  *   AGENT_TIMEOUT_MS       default 10 minutes
+ *   JUDGE_MODEL            default "opencode/big-pickle" — model used by the
+ *                          run_prompt tool (blind judge / prompt critic)
+ *   JUDGE_OPENCODE_CONFIG  default /app/worktrees/<slug>/infra/opencode.judge.json
+ *                          — restricted opencode config (no tools/MCP/plugins)
+ *                          mounted into the agent container for run_prompt
  *   DOCKER_HOST            optional — passthrough for `docker exec`
  */
 
@@ -36,6 +41,7 @@ export function parsePositiveInt(raw: unknown, field: string, fallback: number):
 export const DEFAULT_MAX_PARALLEL = 3;
 export const DEFAULT_INITIAL_CAPITAL = 100000;
 export const DEFAULT_AGENT_CONTAINER = "opencode_agent";
+export const DEFAULT_JUDGE_MODEL = "opencode/big-pickle";
 
 export interface OrchestratorConfig {
   backendUrl: string;
@@ -44,6 +50,10 @@ export interface OrchestratorConfig {
   maxParallel: number;
   capital: number;
   timeoutMs: number;
+  /** Restricted opencode config path (as visible inside the agent container) for run_prompt. */
+  judgeConfigPath: string;
+  /** Default model for the run_prompt tool. */
+  judgeModel: string;
   dockerHost?: string;
 }
 
@@ -59,6 +69,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): OrchestratorConfig {
     throw new ConfigError("WORKTREE_SLUG is required (e.g. model_md-worktree-feat-portfolio-sim)");
   }
   const dockerHost = (env.DOCKER_HOST ?? "").trim();
+  const judgeModelEnv = (env.JUDGE_MODEL ?? "").trim();
   return {
     backendUrl: backendUrl.replace(/\/+$/, ""),
     worktreeSlug,
@@ -66,6 +77,10 @@ export function loadConfig(env: NodeJS.ProcessEnv): OrchestratorConfig {
     maxParallel: parsePositiveInt(env.MAX_PARALLEL, "MAX_PARALLEL", DEFAULT_MAX_PARALLEL),
     capital: parsePositiveInt(env.INITIAL_CAPITAL, "INITIAL_CAPITAL", DEFAULT_INITIAL_CAPITAL),
     timeoutMs: parsePositiveInt(env.AGENT_TIMEOUT_MS, "AGENT_TIMEOUT_MS", DEFAULT_AGENT_TIMEOUT_MS),
+    judgeConfigPath: (
+      env.JUDGE_OPENCODE_CONFIG ?? `/app/worktrees/${worktreeSlug}/infra/opencode.judge.json`
+    ).trim(),
+    judgeModel: judgeModelEnv.length > 0 ? judgeModelEnv : DEFAULT_JUDGE_MODEL,
     dockerHost: dockerHost.length > 0 ? dockerHost : undefined,
   };
 }

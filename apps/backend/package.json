@@ -15,6 +15,7 @@
     "@model_md/agent-orchestrator": "workspace:*",
     "@model_md/database": "workspace:*",
     "@model_md/market-data": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@supabase/supabase-js": "^2.98.0",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.11.9"

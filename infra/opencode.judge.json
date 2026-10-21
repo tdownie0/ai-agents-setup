@@ -1,0 +1,23 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "opencode/big-pickle",
+  "plugin": [],
+  "mcp": {},
+  "instructions": [],
+  "agent": {
+    "judge": {
+      "mode": "primary",
+      "description": "Blind judge: one LLM step, no tools, no MCP, no plugins.",
+      "steps": 1,
+      "permission": {
+        "edit": "deny",
+        "glob": "deny",
+        "grep": "deny",
+        "list": "deny",
+        "bash": "deny",
+        "task": "deny",
+        "webfetch": "deny"
+      }
+    }
+  }
+}

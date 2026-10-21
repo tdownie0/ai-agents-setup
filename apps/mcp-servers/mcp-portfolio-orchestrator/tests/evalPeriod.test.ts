@@ -25,6 +25,8 @@ const CONFIG: OrchestratorConfig = {
   maxParallel: 3,
   capital: 100000,
   timeoutMs: 1000,
+  judgeConfigPath: "/app/worktrees/model_md-worktree-feat-portfolio-sim/infra/opencode.judge.json",
+  judgeModel: "opencode/big-pickle",
 };
 
 /** Mirror of the backend cadence, used only by the stub's launch gate. */
