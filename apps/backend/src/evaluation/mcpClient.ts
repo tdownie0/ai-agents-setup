@@ -21,10 +21,16 @@ export interface RunPromptInput {
 
 /**
  * Per-attempt timeout the gateway's `run_prompt` tool applies to one
- * `opencode run` execution. Mirrors the tool's own default so both budgets
- * agree even when the caller does not override it.
+ * `opencode run` execution.
+ *
+ * Sized from live measurements against the free-tier model rather than the
+ * tool's 120s default: the blind judge (a five-score object) answers in ~25-50s,
+ * but the prompt critic emits up to 15 full proposals and routinely needs
+ * longer — a 120s cap failed both attempts on a healthy run. 180s leaves
+ * headroom while still bounding a hung call; the caller may override it per
+ * call, and the SDK request timeout below scales with it automatically.
  */
-export const RUN_PROMPT_TIMEOUT_MS = 120_000;
+export const RUN_PROMPT_TIMEOUT_MS = 180_000;
 
 /** The tool retries once, so one call can consume two full attempts. */
 export const MCP_MAX_ATTEMPTS = 2;
