@@ -19,9 +19,66 @@ export interface RunPromptInput {
   timeoutMs?: number;
 }
 
+/**
+ * Per-attempt timeout the gateway's `run_prompt` tool applies to one
+ * `opencode run` execution. Mirrors the tool's own default so both budgets
+ * agree even when the caller does not override it.
+ */
+export const RUN_PROMPT_TIMEOUT_MS = 120_000;
+
+/** The tool retries once, so one call can consume two full attempts. */
+export const MCP_MAX_ATTEMPTS = 2;
+
+/**
+ * Grace added to the tool's total budget before the SDK request timeout fires.
+ *
+ * The MCP SDK aborts a request after `DEFAULT_REQUEST_TIMEOUT_MSEC` (60s) when
+ * no timeout is given, which preempted slow judge calls: the caller saw
+ * "MCP error -32001: Request timed out" instead of the tool's own error, and
+ * the run was recorded as an error without the model ever being asked.
+ */
+export const MCP_REQUEST_TIMEOUT_GRACE_MS = 30_000;
+
+/** Transport-level options handed to the tool call. */
+export interface RunPromptCallOptions {
+  /** SDK request timeout in ms — must outlast the tool's whole budget. */
+  requestTimeoutMs: number;
+}
+
 /** Injectable seam so tests can exercise `runPromptWithDeps` without a gateway. */
 export interface RunPromptDeps {
-  callTool: (name: string, args: Record<string, unknown>) => Promise<unknown>;
+  callTool: (
+    name: string,
+    args: Record<string, unknown>,
+    options: RunPromptCallOptions,
+  ) => Promise<unknown>;
+}
+
+/** One tool call: the arguments to send and the SDK timeout that guards it. */
+export interface RunPromptCall {
+  args: Record<string, unknown>;
+  options: RunPromptCallOptions;
+}
+
+/**
+ * Build the tool arguments and the SDK request timeout for one call.
+ *
+ * The tool's `timeoutMs` is PER ATTEMPT and the tool may retry once, so the
+ * SDK request timeout must outlast the tool's whole budget
+ * (`timeoutMs * attempts + grace`). The tool timeout is also always sent
+ * explicitly, so the two sides can never drift apart on a default.
+ */
+export function buildRunPromptCall(input: RunPromptInput): RunPromptCall {
+  const toolTimeoutMs = input.timeoutMs ?? RUN_PROMPT_TIMEOUT_MS;
+  const args: Record<string, unknown> = { system: input.system, user: input.user };
+  if (input.model !== undefined) args.model = input.model;
+  args.timeoutMs = toolTimeoutMs;
+  return {
+    args,
+    options: {
+      requestTimeoutMs: toolTimeoutMs * MCP_MAX_ATTEMPTS + MCP_REQUEST_TIMEOUT_GRACE_MS,
+    },
+  };
 }
 
 const CLIENT_INFO = { name: "model-md-backend", version: "1.0.0" } as const;
@@ -97,10 +154,8 @@ export async function runPromptWithDeps(
   input: RunPromptInput,
   deps: RunPromptDeps,
 ): Promise<{ text: string; attempts: number }> {
-  const args: Record<string, unknown> = { system: input.system, user: input.user };
-  if (input.model !== undefined) args.model = input.model;
-  if (input.timeoutMs !== undefined) args.timeoutMs = input.timeoutMs;
-  const raw = await deps.callTool("run_prompt", args);
+  const call = buildRunPromptCall(input);
+  const raw = await deps.callTool("run_prompt", call.args, call.options);
   return parseRunPromptPayload(raw);
 }
 
@@ -120,7 +175,10 @@ export async function runPrompt(
   try {
     await client.connect(transport);
     return await runPromptWithDeps(input, {
-      callTool: async (name, args) => client.callTool({ name, arguments: args }),
+      callTool: async (name, args, options) =>
+        client.callTool({ name, arguments: args }, undefined, {
+          timeout: options.requestTimeoutMs,
+        }),
     });
   } finally {
     await client.close();

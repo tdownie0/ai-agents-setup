@@ -8,22 +8,33 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { runPromptWithDeps, type RunPromptDeps } from "./mcpClient.js";
+import {
+  MCP_MAX_ATTEMPTS,
+  MCP_REQUEST_TIMEOUT_GRACE_MS,
+  RUN_PROMPT_TIMEOUT_MS,
+  runPromptWithDeps,
+  type RunPromptCallOptions,
+  type RunPromptDeps,
+} from "./mcpClient.js";
 
 /** Wrap a payload the way an MCP server returns a tool result. */
 const toolResult = (payload: unknown): unknown => ({
   content: [{ type: "text", text: JSON.stringify(payload) }],
 });
 
-/** A `callTool` fake that records the tool name and arguments it received. */
+/** A `callTool` fake that records the tool name, arguments, and transport options. */
 function makeDeps(result: unknown): {
   deps: RunPromptDeps;
-  calls: { name: string; args: Record<string, unknown> }[];
+  calls: { name: string; args: Record<string, unknown>; options: RunPromptCallOptions }[];
 } {
-  const calls: { name: string; args: Record<string, unknown> }[] = [];
+  const calls: {
+    name: string;
+    args: Record<string, unknown>;
+    options: RunPromptCallOptions;
+  }[] = [];
   const deps: RunPromptDeps = {
-    callTool: async (name, args) => {
-      calls.push({ name, args });
+    callTool: async (name, args, options) => {
+      calls.push({ name, args, options });
       return result;
     },
   };
@@ -37,7 +48,11 @@ describe("runPromptWithDeps", () => {
     expect(result).toEqual({ text: "hello", attempts: 1 });
     expect(calls).toHaveLength(1);
     expect(calls[0].name).toBe("run_prompt");
-    expect(calls[0].args).toEqual({ system: "SYS", user: "USER" });
+    expect(calls[0].args).toEqual({
+      system: "SYS",
+      user: "USER",
+      timeoutMs: RUN_PROMPT_TIMEOUT_MS,
+    });
   });
 
   it("defaults the attempt count to 1 when the payload omits it", async () => {
@@ -48,11 +63,38 @@ describe("runPromptWithDeps", () => {
     });
   });
 
-  it("omits model and timeoutMs from the tool arguments when they are unset", async () => {
+  it("omits model from the tool arguments when it is unset", async () => {
     const { deps, calls } = makeDeps(toolResult({ ok: true, text: "x", attempts: 1 }));
     await runPromptWithDeps({ system: "S", user: "U" }, deps);
     expect(calls[0].args).not.toHaveProperty("model");
-    expect(calls[0].args).not.toHaveProperty("timeoutMs");
+  });
+
+  it("always sends an explicit per-attempt timeout to the tool", async () => {
+    const { deps, calls } = makeDeps(toolResult({ ok: true, text: "x", attempts: 1 }));
+    await runPromptWithDeps({ system: "S", user: "U" }, deps);
+    expect(calls[0].args.timeoutMs).toBe(RUN_PROMPT_TIMEOUT_MS);
+  });
+
+  it("budgets the SDK request timeout for every attempt plus grace", async () => {
+    const { deps, calls } = makeDeps(toolResult({ ok: true, text: "x", attempts: 1 }));
+    await runPromptWithDeps({ system: "S", user: "U" }, deps);
+    expect(calls[0].options.requestTimeoutMs).toBe(
+      RUN_PROMPT_TIMEOUT_MS * MCP_MAX_ATTEMPTS + MCP_REQUEST_TIMEOUT_GRACE_MS,
+    );
+  });
+
+  it("keeps the SDK request timeout above the SDK's own 60s default", async () => {
+    const { deps, calls } = makeDeps(toolResult({ ok: true, text: "x", attempts: 1 }));
+    await runPromptWithDeps({ system: "S", user: "U" }, deps);
+    expect(calls[0].options.requestTimeoutMs).toBeGreaterThan(60_000);
+  });
+
+  it("derives the SDK request timeout from a caller-provided timeout", async () => {
+    const { deps, calls } = makeDeps(toolResult({ ok: true, text: "x", attempts: 1 }));
+    await runPromptWithDeps({ system: "S", user: "U", timeoutMs: 5_000 }, deps);
+    expect(calls[0].options.requestTimeoutMs).toBe(
+      5_000 * MCP_MAX_ATTEMPTS + MCP_REQUEST_TIMEOUT_GRACE_MS,
+    );
   });
 
   it("forwards model and timeoutMs when they are set", async () => {
