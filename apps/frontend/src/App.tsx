@@ -8,9 +8,10 @@ import { PortfolioLeaderboard } from "./components/portfolio/PortfolioLeaderboar
 import { PortfolioDetail } from "./components/portfolio/PortfolioDetail";
 import { StreamBoard } from "./components/portfolio/StreamBoard";
 import { StreamDetail } from "./components/portfolio/StreamDetail";
+import { PromptSuggestions } from "./components/portfolio/PromptSuggestions";
 import { cn } from "./lib/utils";
 
-type View = "users" | "streams" | "runs";
+type View = "users" | "streams" | "runs" | "suggestions";
 
 interface SelectedStream {
   simulationId: string;
@@ -62,7 +63,11 @@ function App() {
             <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
               <div>
                 <h1 className="text-3xl font-bold tracking-tight">
-                  {view === "users" ? "Users" : "Portfolio Simulation"}
+                  {view === "users"
+                    ? "Users"
+                    : view === "suggestions"
+                      ? "Prompt Suggestions"
+                      : "Portfolio Simulation"}
                 </h1>
                 <p className="text-sm text-muted-foreground">{session.user.email}</p>
               </div>
@@ -98,6 +103,18 @@ function App() {
                   </button>
                   <button
                     type="button"
+                    onClick={() => switchView("suggestions")}
+                    className={cn(
+                      "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                      view === "suggestions"
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    Suggestions
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => switchView("users")}
                     className={cn(
                       "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
@@ -120,6 +137,8 @@ function App() {
               <div className="rounded-lg border bg-card">
                 <UserTable />
               </div>
+            ) : view === "suggestions" ? (
+              <PromptSuggestions />
             ) : view === "streams" ? (
               selectedStream === null ? (
                 <StreamBoard

@@ -66,6 +66,20 @@ export type ApiStreamTransactions = Extract<
 >;
 export type ApiTransaction = ApiStreamTransactions["transactions"][number];
 
+// Non-blind prompt-critic suggestions. GET returns one row per
+// (persona, window, prompt-set version, source prompt hash, judge, judge
+// version); the route unions its success body with `{ error }` for 500, so
+// `Extract` keeps the branch that actually carries `suggestions`.
+type PortfolioClient = typeof client.api.portfolio;
+type ApiPromptSuggestionsResponse = InferResponseType<
+  PortfolioClient["prompt-suggestions"]["$get"]
+>;
+export type ApiPromptSuggestion = Extract<
+  ApiPromptSuggestionsResponse,
+  { suggestions: unknown }
+>["suggestions"][number];
+export type ApiPromptProposal = ApiPromptSuggestion["proposals"][number];
+
 // Resolves the current Supabase session token into an Authorization header.
 // Returns an empty object when no session is present so public calls work.
 export const getAuthHeaders = async (): Promise<Record<string, string>> => {
